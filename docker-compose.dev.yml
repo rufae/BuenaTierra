@@ -1,0 +1,25 @@
+include:
+  - docker-compose.yml
+
+services:
+  db:
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_PASSWORD: REDACTED
+
+  api:
+    build:
+      context: .
+      dockerfile: src/BuenaTierra.API/Dockerfile
+      target: build
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=buenatierra;Username=buenatierra_admin;Password=REDACTED;Pooling=true;"
+      Jwt__Secret: REDACTED
+      Jwt__ExpiresInMinutes: 480
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./src:/app/src
