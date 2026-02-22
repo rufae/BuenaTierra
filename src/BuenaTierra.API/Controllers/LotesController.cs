@@ -1,5 +1,6 @@
 using BuenaTierra.Application.Common;
 using BuenaTierra.Application.Interfaces;
+using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -43,8 +44,19 @@ public class LotesController : ControllerBase
         if (cantidad <= 0)
             return BadRequest(ApiResponse<List<LoteAsignado>>.Fail("La cantidad debe ser mayor que 0"));
 
-        var asignaciones = await _loteService.AsignarLotesAsync(EmpresaId, productoId, cantidad, ct);
-        return Ok(ApiResponse<List<LoteAsignado>>.Ok(asignaciones, $"{asignaciones.Count} lote(s) serían asignados"));
+        try
+        {
+            var asignaciones = await _loteService.AsignarLotesAsync(EmpresaId, productoId, cantidad, ct);
+            return Ok(ApiResponse<List<LoteAsignado>>.Ok(asignaciones, $"{asignaciones.Count} lote(s) serían asignados"));
+        }
+        catch (NoHayLotesDisponiblesException ex)
+        {
+            return Ok(new ApiResponse<List<LoteAsignado>> { Success = false, Data = new List<LoteAsignado>(), Message = ex.Message });
+        }
+        catch (StockInsuficienteException ex)
+        {
+            return Ok(new ApiResponse<List<LoteAsignado>> { Success = false, Data = new List<LoteAsignado>(), Message = ex.Message });
+        }
     }
 
     /// <summary>POST /api/lotes/{id}/bloquear — Bloquear un lote</summary>

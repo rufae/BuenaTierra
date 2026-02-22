@@ -54,8 +54,16 @@ export default function Lotes() {
   async function previewFifo() {
     if (!fifoProductoId || !fifoCantidad) return
     try {
-      const res = await api.get<{ data: any[] }>(`/lotes/producto/${fifoProductoId}/fifo?cantidad=${fifoCantidad}`)
-      setFifoResult(res.data.data)
+      const res = await api.get<{ success: boolean; data: any[]; message?: string }>(
+        `/lotes/producto/${fifoProductoId}/fifo?cantidad=${fifoCantidad}`
+      )
+      if (!res.data.success) {
+        setFifoResult([])
+        toast.error(res.data.message ?? 'Sin stock disponible para este producto')
+        return
+      }
+      setFifoResult(res.data.data ?? [])
+      if ((res.data.data ?? []).length === 0) toast('Sin resultados', { icon: 'ℹ️' })
     } catch {
       toast.error('Error al previsualizar FIFO')
     }
@@ -132,7 +140,7 @@ export default function Lotes() {
           <div>
             <label className="block text-xs text-gray-600 mb-1">Cantidad</label>
             <input
-              type="number" min="0.01" step="0.01"
+              type="number" min="1" step="1"
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-28 focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               value={fifoCantidad}
               onChange={e => { setFifoCantidad(e.target.value); setFifoResult([]) }}

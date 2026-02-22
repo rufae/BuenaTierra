@@ -525,11 +525,15 @@ public class ReportesController : ControllerBase
         var diasPeriodo = (h.ToDateTime(TimeOnly.MinValue) - d.ToDateTime(TimeOnly.MinValue)).TotalDays + 1;
 
         // Ventas del período (sólo líneas de venta en trazabilidad)
+        // NOTA: DateTime debe ser UTC para Npgsql con columna timestamptz
+        var desdeUtc = DateTime.SpecifyKind(d.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        var hastaUtc = DateTime.SpecifyKind(h.ToDateTime(TimeOnly.MaxValue), DateTimeKind.Utc);
+
         var ventas = await _uow.Trazabilidades.GetQueryable()
             .Where(t => t.EmpresaId == EmpresaId
-                     && t.TipoOperacion == "Venta"
-                     && t.FechaOperacion >= d.ToDateTime(TimeOnly.MinValue)
-                     && t.FechaOperacion <= h.ToDateTime(TimeOnly.MaxValue))
+                     && t.TipoOperacion == "venta_factura"
+                     && t.FechaOperacion >= desdeUtc
+                     && t.FechaOperacion <= hastaUtc)
             .Include(t => t.Producto)
             .Select(t => new { t.ProductoId, productoNombre = t.Producto.Nombre, t.Cantidad })
             .ToListAsync(ct);

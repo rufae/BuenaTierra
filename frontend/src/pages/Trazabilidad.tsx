@@ -250,7 +250,7 @@ function TabProducto() {
 
   const { data: productos } = useQuery<Producto[]>({
     queryKey: ['productos-activos'],
-    queryFn: () => api.get('/productos?soloActivos=true').then(r => r.data),
+    queryFn: () => api.get<{ data: Producto[] }>('/productos?soloActivos=true').then(r => r.data.data),
   })
 
   const { data: rawData, isLoading } = useQuery({
@@ -366,7 +366,7 @@ function TabIngrediente() {
 
   const { data: ingredientes } = useQuery<Ingrediente[]>({
     queryKey: ['ingredientes'],
-    queryFn: () => api.get('/ingredientes').then(r => r.data),
+    queryFn: () => api.get<{ data: Ingrediente[] }>('/ingredientes').then(r => r.data.data),
   })
 
   const { data: rawData, isLoading } = useQuery({

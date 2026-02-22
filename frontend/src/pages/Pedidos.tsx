@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, Producto } from '../types'
@@ -133,8 +133,8 @@ export default function Pedidos() {
               : (pedidos ?? []).length === 0
               ? <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No hay pedidos. Crea el primero.</td></tr>
               : (pedidos ?? []).map(p => (
-                <>
-                  <tr key={p.id} className="hover:bg-gray-50/50">
+                <React.Fragment key={p.id}>
+                  <tr className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{p.numeroPedido}</td>
                     <td className="px-4 py-3 text-gray-600">{new Date(p.fecha).toLocaleDateString('es-ES')}</td>
                     <td className="px-4 py-3 text-gray-500">{p.fechaEntrega ? new Date(p.fechaEntrega).toLocaleDateString('es-ES') : '—'}</td>
@@ -162,7 +162,7 @@ export default function Pedidos() {
                     </td>
                   </tr>
                   {detailOpen === p.id && detalle && (
-                    <tr key={`d-${p.id}`}>
+                    <tr>
                       <td colSpan={7} className="px-4 py-3 bg-blue-50/30">
                         <table className="w-full text-xs">
                           <thead>
@@ -195,7 +195,7 @@ export default function Pedidos() {
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               ))}
           </tbody>
         </table>
