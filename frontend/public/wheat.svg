@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
+  <rect width="64" height="64" rx="8" fill="#FDF8EE"/>
+  <g transform="translate(8,6)" fill="none" stroke="#D4A044" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5">
+    <path d="M14 42 C18 36, 34 30, 34 22" stroke="#C4541A" />
+    <path d="M20 36 C20 28, 30 24, 36 18" stroke="#C4541A" />
+    <path d="M10 34 C16 28, 28 24, 32 18" stroke="#E8B32A" />
+    <!-- spikelets left -->
+    <g stroke="#D4A044">
+      <path d="M12 12 l-6 -4" />
+      <path d="M18 16 l-6 -4" />
+      <path d="M16 22 l-6 -4" />
+      <path d="M14 28 l-6 -4" />
+      <path d="M22 24 l-6 -4" />
+      <path d="M24 30 l-6 -4" />
+    </g>
+    <!-- spikelets right -->
+    <g stroke="#D4A044">
+      <path d="M32 14 l6 -4" />
+      <path d="M28 20 l6 -4" />
+      <path d="M30 26 l6 -4" />
+      <path d="M34 32 l6 -4" />
+    </g>
+    <!-- central stem -->
+    <path d="M24 44 L24 0" stroke="#8B3213" stroke-width="2" />
+  </g>
+</svg>

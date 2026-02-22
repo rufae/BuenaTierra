@@ -169,7 +169,7 @@ public class TrazabilidadController : ControllerBase
 
         // Trazabilidades (movimientos de salida hacia clientes)
         var trazas = await _uow.Trazabilidades.GetQueryable()
-            .Where(t => loteIds.Contains(t.LoteId) && t.TipoOperacion == "VENTA")
+            .Where(t => loteIds.Contains(t.LoteId) && t.TipoOperacion == "venta_factura")
             .Include(t => t.Cliente)
             .Include(t => t.Factura)
             .OrderByDescending(t => t.FechaOperacion)
