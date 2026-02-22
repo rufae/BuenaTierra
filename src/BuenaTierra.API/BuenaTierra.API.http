@@ -1,0 +1,6 @@
+@BuenaTierra.API_HostAddress = http://localhost:5064
+
+GET {{BuenaTierra.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
