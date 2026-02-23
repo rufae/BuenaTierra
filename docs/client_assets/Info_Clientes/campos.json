@@ -1,0 +1,61 @@
+{
+  "General": {
+    "Identificacion": {
+      "tipo_cliente": "Enum<String>", 
+      "codigo_cliente_interno": "String",
+      "razon_social": "String",
+      "nombre_comercial": "String",
+      "nombre_fiscal": "String",
+      "nif_cif_dni": "String",
+      "alias_cliente": "String"
+    },
+    "Domicilio": {
+      "direccion": "String",
+      "codigo_postal": "String",
+      "poblacion": "String",
+      "provincia": "String",
+      "pais": "String"
+    },
+    "Contacto": {
+      "movil": "String",
+      "email": "String",
+      "persona_contacto": "String",
+      "observaciones_contacto": "String"
+    },
+    "Datos Bancarios": {
+      "C.C.C.": "String",
+      "IBAN": "String",
+      "Banco": "String",
+      "BIC": "String"
+    }
+  },
+  "Comercial": {
+    "Datos_Comerciales": {
+      "forma_pago": "Enum<String>",
+      "tipo_impuesto": "Enum<String>",
+      "aplicarlo_al_cliente": "Boolean",
+      "aplicarle_recargo_equivalencia": "Boolean",
+      "no_aplicarle_retenciones": "Boolean",
+      "porcentaje_retencion": "Decimal"
+    }
+  },
+  "Otros Datos": {
+    "Datos": {
+      "estado_cliente": "Enum<String>",
+      "fecha_alta": "Date",
+      "id_interno_app": "String",
+      "estado_sincronizacion": "Enum<String>",
+      "no_realizar_facturas_a_este_cliente": "Boolean"
+    }
+  },
+  "Condiciones Especiales": {
+    "Condiciones especiales de venta": {
+      "articulo/familia": "Enum<String>",
+      "codigo": "String",
+      "descripcion": "String",
+      "tipo": "Enum<String>",
+      "precio": "Decimal",
+      "descuento": "Decimal"
+    }
+  }
+}

@@ -55,27 +55,86 @@ export interface CreateProductoDto {
 
 // ── Cliente ───────────────────────────────────────────────────────────────────
 export type TipoCliente = 'Empresa' | 'Autonomo' | 'Particular' | 'Repartidor'
+export type FormaPago = 'Contado' | 'Transfer30' | 'Transfer60' | 'Transfer90' | 'Domiciliacion' | 'Cheque' | 'Efectivo' | 'Otro'
+export type TipoImpuesto = 'IVA' | 'RecargoEquivalencia' | 'Exento' | 'IGIC'
+export type EstadoCliente = 'Activo' | 'Inactivo' | 'Suspendido' | 'Bloqueado'
+export type EstadoSincronizacion = 'Sincronizado' | 'Pendiente' | 'Error' | 'NoAplicable'
+export type TipoCondicionEspecial = 'Precio' | 'Descuento' | 'PrecioEspecial'
+export type TipoArticuloFamilia = 'Articulo' | 'Familia'
+
+export interface ClienteCondicionEspecial {
+  id: number
+  clienteId: number
+  articuloFamilia: TipoArticuloFamilia
+  codigo: string
+  descripcion: string | null
+  tipo: TipoCondicionEspecial
+  precio: number
+  descuento: number
+}
 
 export interface Cliente {
   id: number
   empresaId: number
-  nombre: string
-  nif: string | null
+  // Identificación
   tipo: TipoCliente
-  email: string | null
-  telefono: string | null
+  codigoClienteInterno: string | null
+  nombre: string
+  apellidos: string | null
+  razonSocial: string | null
+  nombreComercial: string | null
+  nombreFiscal: string | null
+  nif: string | null
+  aliasCliente: string | null
+  // Domicilio
   direccion: string | null
+  codigoPostal: string | null
+  ciudad: string | null
+  provincia: string | null
+  pais: string | null
+  // Contacto
+  telefono: string | null
+  telefono2: string | null
+  email: string | null
+  personaContacto: string | null
+  observacionesContacto: string | null
+  // Datos Bancarios
+  ccc: string | null
+  iban: string | null
+  banco: string | null
+  bic: string | null
+  // Comercial
+  formaPago: FormaPago
+  diasPago: number
+  tipoImpuesto: TipoImpuesto
+  aplicarImpuesto: boolean
+  recargoEquivalencia: boolean
+  noAplicarRetenciones: boolean
+  porcentajeRetencion: number
+  descuentoGeneral: number
+  tarifaId: number | null
+  // Otros Datos
+  estadoCliente: EstadoCliente
   activo: boolean
+  fechaAlta: string | null
+  estadoSincronizacion: EstadoSincronizacion
+  noRealizarFacturas: boolean
+  notas: string | null
+  // Vinculación
+  repartidorEmpresaId: number | null
+  condicionesEspeciales?: ClienteCondicionEspecial[]
 }
 
-export interface CreateClienteDto {
-  empresaId: number
-  nombre: string
-  nif?: string
-  tipo: TipoCliente
-  email?: string
-  telefono?: string
-  direccion?: string
+export type CreateClienteDto = Omit<Cliente, 'id' | 'condicionesEspeciales'>
+export type UpdateClienteDto = Omit<Cliente, 'id' | 'empresaId' | 'condicionesEspeciales'>
+
+export interface UpsertCondicionEspecialDto {
+  articuloFamilia: TipoArticuloFamilia
+  codigo: string
+  descripcion?: string
+  tipo: TipoCondicionEspecial
+  precio: number
+  descuento: number
 }
 
 // ── Produccion / Lotes ────────────────────────────────────────────────────────

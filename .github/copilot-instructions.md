@@ -16,7 +16,7 @@ Tu misión es diseñar, planificar y estructurar un sistema informático complet
 
 Crea un check_list.md en el que vayas marcando tareas realizadas y por realizar para poder consultarlo en cualquier momento durante el proceso de diseño y planificación.
 
-NO GENERES ARCHIVOS MARKDOWN A MENOS DE QUE TE LO PIDA EXPLICITAMENTE.
+NO GENERES ARCHIVOS MARKDOWN A MENOS DE QUE TE LO PIDA EXPLICITAMENTE. SI SE CAMBIA LA BASE DE DATOS O SE ALTERA SE DEBERA DE CORREGIR EL ARCHIVO 01_schema.sql PARA QUE REFLEJE LOS CAMBIOS REALIZADOS EN EL DISEÑO DE LA BASE DE DATOS.
 
 ────────────────────────────────────────────
 CONTEXTO DEL NEGOCIO

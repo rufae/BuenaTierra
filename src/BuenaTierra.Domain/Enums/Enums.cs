@@ -48,6 +48,55 @@ public enum TipoCliente
     Repartidor
 }
 
+public enum FormaPago
+{
+    Contado,
+    Transfer30,
+    Transfer60,
+    Transfer90,
+    Domiciliacion,
+    Cheque,
+    Efectivo,
+    Otro
+}
+
+public enum TipoImpuesto
+{
+    IVA,
+    RecargoEquivalencia,
+    Exento,
+    IGIC
+}
+
+public enum EstadoCliente
+{
+    Activo,
+    Inactivo,
+    Suspendido,
+    Bloqueado
+}
+
+public enum EstadoSincronizacion
+{
+    Sincronizado,
+    Pendiente,
+    Error,
+    NoAplicable
+}
+
+public enum TipoCondicionEspecial
+{
+    Precio,
+    Descuento,
+    PrecioEspecial
+}
+
+public enum TipoArticuloFamilia
+{
+    Articulo,
+    Familia
+}
+
 public enum TipoMovimientoStock
 {
     EntradaProduccion,
