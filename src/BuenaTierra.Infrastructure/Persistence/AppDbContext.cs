@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Empresa> Empresas => Set<Empresa>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
+    public DbSet<ClienteCondicionEspecial> ClienteCondicionesEspeciales => Set<ClienteCondicionEspecial>();
     public DbSet<Categoria> Categorias => Set<Categoria>();
     public DbSet<Alergeno> Alergenos => Set<Alergeno>();
     public DbSet<Ingrediente> Ingredientes => Set<Ingrediente>();
@@ -40,6 +41,7 @@ public class AppDbContext : DbContext
         mb.Entity<Empresa>().ToTable("empresas");
         mb.Entity<Usuario>().ToTable("usuarios");
         mb.Entity<Cliente>().ToTable("clientes");
+        mb.Entity<ClienteCondicionEspecial>().ToTable("cliente_condiciones_especiales");
         mb.Entity<Categoria>().ToTable("categorias");
         mb.Entity<Alergeno>().ToTable("alergenos");
         mb.Entity<Ingrediente>().ToTable("ingredientes");
@@ -85,10 +87,57 @@ public class AppDbContext : DbContext
         // ---- CLIENTE ----
         mb.Entity<Cliente>(e =>
         {
+            // Identificación
             e.Property(x => x.Tipo).HasConversion(new EnumToStringConverter<TipoCliente>()).HasMaxLength(20);
+            e.Property(x => x.CodigoClienteInterno).HasMaxLength(50);
+            e.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Apellidos).HasMaxLength(200);
+            e.Property(x => x.RazonSocial).HasMaxLength(300);
+            e.Property(x => x.NombreComercial).HasMaxLength(300);
+            e.Property(x => x.NombreFiscal).HasMaxLength(300);
+            e.Property(x => x.Nif).HasMaxLength(20);
+            e.Property(x => x.AliasCliente).HasMaxLength(100);
+            // Domicilio
+            e.Property(x => x.Direccion).HasMaxLength(300);
+            e.Property(x => x.CodigoPostal).HasMaxLength(10);
+            e.Property(x => x.Ciudad).HasMaxLength(150);
+            e.Property(x => x.Provincia).HasMaxLength(100);
+            e.Property(x => x.Pais).HasMaxLength(100);
+            // Contacto
+            e.Property(x => x.Telefono).HasMaxLength(30);
+            e.Property(x => x.Telefono2).HasMaxLength(30);
+            e.Property(x => x.Email).HasMaxLength(200);
+            e.Property(x => x.PersonaContacto).HasMaxLength(200);
+            e.Property(x => x.ObservacionesContacto).HasMaxLength(500);
+            // Datos Bancarios
+            e.Property(x => x.Ccc).HasMaxLength(30);
+            e.Property(x => x.Iban).HasMaxLength(34);
+            e.Property(x => x.Banco).HasMaxLength(150);
+            e.Property(x => x.Bic).HasMaxLength(11);
+            // Comercial
+            e.Property(x => x.FormaPago).HasConversion(new EnumToStringConverter<FormaPago>()).HasMaxLength(30);
+            e.Property(x => x.TipoImpuesto).HasConversion(new EnumToStringConverter<TipoImpuesto>()).HasMaxLength(30);
+            e.Property(x => x.PorcentajeRetencion).HasPrecision(5, 2);
             e.Property(x => x.DescuentoGeneral).HasPrecision(5, 2);
+            // Otros Datos
+            e.Property(x => x.EstadoCliente).HasConversion(new EnumToStringConverter<EstadoCliente>()).HasMaxLength(20);
+            e.Property(x => x.EstadoSincronizacion).HasConversion(new EnumToStringConverter<EstadoSincronizacion>()).HasMaxLength(30);
+            e.Property(x => x.Notas).HasMaxLength(2000);
+            // FK
             e.HasOne(x => x.Empresa).WithMany(x => x.Clientes).HasForeignKey(x => x.EmpresaId);
             e.HasOne(x => x.RepartidorEmpresa).WithMany().HasForeignKey(x => x.RepartidorEmpresaId);
+            e.HasMany(x => x.CondicionesEspeciales).WithOne(x => x.Cliente).HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ---- CLIENTE CONDICION ESPECIAL ----
+        mb.Entity<ClienteCondicionEspecial>(e =>
+        {
+            e.Property(x => x.ArticuloFamilia).HasConversion(new EnumToStringConverter<TipoArticuloFamilia>()).HasMaxLength(20);
+            e.Property(x => x.Codigo).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Descripcion).HasMaxLength(300);
+            e.Property(x => x.Tipo).HasConversion(new EnumToStringConverter<TipoCondicionEspecial>()).HasMaxLength(30);
+            e.Property(x => x.Precio).HasPrecision(10, 2);
+            e.Property(x => x.Descuento).HasPrecision(5, 2);
         });
 
         // ---- PRODUCTO ----

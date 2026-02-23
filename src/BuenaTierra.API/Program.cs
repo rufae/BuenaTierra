@@ -24,7 +24,15 @@ builder.Host.UseSerilog();
 // ============================================================
 var services = builder.Services;
 
-services.AddControllers();
+services.AddControllers()
+    .AddJsonOptions(opts =>
+    {
+        // Serializar/deserializar enums como strings en toda la API
+        opts.JsonSerializerOptions.Converters.Add(
+            new System.Text.Json.Serialization.JsonStringEnumConverter());
+        opts.JsonSerializerOptions.DefaultIgnoreCondition =
+            System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    });
 services.AddEndpointsApiExplorer();
 
 // Infrastructure (EF Core, repositorios, servicios de negocio)
