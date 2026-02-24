@@ -34,6 +34,8 @@ public class Factura : TenantEntity
     public decimal BaseImponible { get; set; }
     public string IvaDesglose { get; set; } = "[]";
     public decimal IvaTotal { get; set; }
+    public decimal RecargoEquivalenciaTotal { get; set; } = 0;
+    public decimal RetencionTotal { get; set; } = 0;
     public decimal Total { get; set; }
     public string? PdfUrl { get; set; }
     public string? Notas { get; set; }
@@ -51,7 +53,8 @@ public class Factura : TenantEntity
         Subtotal = Lineas.Sum(l => l.Subtotal);
         BaseImponible = Subtotal - DescuentoTotal;
         IvaTotal = Lineas.Sum(l => l.IvaImporte);
-        Total = BaseImponible + IvaTotal;
+        RecargoEquivalenciaTotal = Math.Round(Lineas.Sum(l => l.RecargoEquivalenciaImporte), 2);
+        Total = BaseImponible + IvaTotal + RecargoEquivalenciaTotal - RetencionTotal;
     }
 }
 
@@ -65,11 +68,13 @@ public class FacturaLinea : BaseEntity
     public decimal PrecioUnitario { get; set; }
     public decimal Descuento { get; set; } = 0;
     public decimal IvaPorcentaje { get; set; } = 10;
+    public decimal RecargoEquivalenciaPorcentaje { get; set; } = 0;
     public short Orden { get; set; } = 0;
 
     // Columnas calculadas (corresponden a GENERATED ALWAYS en PG)
     public decimal Subtotal => Math.Round(Cantidad * PrecioUnitario * (1 - Descuento / 100), 4);
     public decimal IvaImporte => Math.Round(Subtotal * IvaPorcentaje / 100, 4);
+    public decimal RecargoEquivalenciaImporte => Math.Round(Subtotal * RecargoEquivalenciaPorcentaje / 100, 4);
     public decimal Total => Subtotal + IvaImporte;
 
     // Navegación

@@ -1,104 +1,71 @@
 {
-  "tipo_documento": "factura",
-  "identificacion": {
-    "serie": "1",
-    "numero_factura": "000078",
-    "subserie": "1",
-    "fecha_factura": "2026-01-22",
-    "tipo_factura": "factura_comercial_formal",
-    "referencia_albaran": {
-      "numero_albaran": "1-000102",
-      "fecha_albaran": "2020-01-22",
-      "observacion": "posible_incoherencia_temporal"
-    }
-  },
-  "empresa_emisora": {
-    "razon_social": "BERROCASH S.L.",
-    "nombre_comercial": "Berro Cash",
-    "cif": "B90355777",
-    "direccion": {
-      "direccion": "Pol. Ind. Ciudad Blanca, C/ Monzón nº17",
-      "codigo_postal": "41703",
-      "ciudad": "Dos Hermanas",
-      "provincia": "Sevilla",
-      "pais": "España"
-    }
-  },
+  "tipo_documento": "",
+
   "cliente": {
-    "nombre": "Jesús Manuel Martín Díaz",
-    "dni": "28742812B",
-    "telefono": "660316773",
-    "direccion": {
-      "direccion": "Hesperides 19, 6º 1",
-      "codigo_postal": "41008",
-      "ciudad": "Sevilla",
-      "provincia": "Sevilla",
-      "pais": "España"
-    }
+    "nombre": "",
+    "direccion": "",
+    "codigo_postal": "",
+    "ciudad": "",
+    "provincia": "",
+    "nif_dni": "",
+    "telefono": ""
   },
-  "agente_comercial": {
-    "id": "1",
-    "nombre": "Jesús Manuel"
+
+  "empresa_emisora": {
+    "razon_social": "",
+    "direccion": "",
+    "codigo_postal": "",
+    "ciudad": "",
+    "provincia": "",
+    "telefono": ""
   },
+
+  "identificacion_factura": {
+    "tipo": "",
+    "serie": "",
+    "numero": "",
+    "subserie": "",
+    "fecha": ""
+  },
+
+  "nif_emisor": "",
+
+  "agente": {
+    "id": "",
+    "nombre": ""
+  },
+
+  "referencia_albaran": {
+    "numero": "",
+    "fecha": ""
+  },
+
   "lineas_factura": [
     {
-      "producto": "MAGD. CHOCOLATE 8 UND",
-      "cantidad": 4,
-      "precio_unitario": 3.25,
-      "total_linea": 13.00
-    },
-    {
-      "producto": "TORTAS DE CHOCOLATE 9 UND",
-      "cantidad": 3,
-      "precio_unitario": 3.15,
-      "total_linea": 9.45
-    },
-    {
-      "producto": "TORTAS DE COCO-CHOCO 8 UND",
-      "cantidad": 3,
-      "precio_unitario": 3.15,
-      "total_linea": 9.45
-    },
-    {
-      "producto": "PALMERA TRADICIONAL 4 UND",
-      "cantidad": 12,
-      "precio_unitario": 3.00,
-      "total_linea": 36.00
-    },
-    {
-      "producto": "PALMERA KINDER 4 UND",
-      "cantidad": 12,
-      "precio_unitario": 3.00,
-      "total_linea": 36.00
-    },
-    {
-      "producto": "BARCOS DE CIDRA 4 UND",
-      "cantidad": 6,
-      "precio_unitario": 3.00,
-      "total_linea": 18.00
-    },
-    {
-      "producto": "MILHOJAS 2 UND",
-      "cantidad": 4,
-      "precio_unitario": 2.70,
-      "total_linea": 10.80
-    },
-    {
-      "producto": "BARCOS MANZANA",
-      "cantidad": 6,
-      "precio_unitario": 3.00,
-      "total_linea": 18.00
+      "codigo_articulo": "",
+      "descripcion": "",
+      "cantidad": null,
+      "precio_unitario": null,
+      "lote": null,
+      "fecha_caducidad": null,
+      "total": null
     }
   ],
+
   "totales": {
-    "base_imponible": 150.70,
-    "iva": {
-      "porcentaje": 10,
-      "importe": 15.07
-    },
-    "descuentos": 0,
-    "portes": 0,
-    "recargo_equivalencia": 0,
-    "total_factura": 165.77
-  }
+    "tipos_iva": [
+      {
+        "tipo_iva_porcentaje": null,
+        "importe_base": null
+      }
+    ],
+    "pronto_pago": null,
+    "base_imponible": null,
+    "iva_importe": null,
+    "recargo_equivalencia": null,
+    "total_factura": null
+  },
+
+  "observaciones": ""
+
 }

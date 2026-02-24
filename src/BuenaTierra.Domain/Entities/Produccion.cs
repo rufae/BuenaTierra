@@ -14,6 +14,8 @@ public class Produccion : TenantEntity
     public string? Notas { get; set; }
     /// <summary>Código de lote personalizado sugerido por el usuario (ddMMyyyy o libre). Si null, se autogenera en Finalizar.</summary>
     public string? CodigoLoteSugerido { get; set; }
+    /// <summary>Fecha de caducidad introducida manualmente por el usuario. Si se rellena, tiene prioridad sobre el cálculo automático por VidaUtilDias.</summary>
+    public DateOnly? FechaCaducidadSugerida { get; set; }
 
     // Navegación
     public virtual Empresa Empresa { get; set; } = null!;

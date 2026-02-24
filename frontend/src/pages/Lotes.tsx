@@ -5,6 +5,7 @@ import api from '../lib/api'
 import type { Producto, StockItem } from '../types'
 import { Search, Lock, AlertTriangle, Eye, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { fmtDate, parseDate } from '../lib/dates'
 
 const ESTADO_BADGE: Record<string, string> = {
   activo: 'bg-green-50 text-green-700 border border-green-200',
@@ -77,12 +78,14 @@ export default function Lotes() {
   // Agrupar por loteId para detectar estado
   function getEstado(s: StockItem) {
     if (s.cantidadDisponible <= 0) return 'agotado'
-    const hoy = new Date()
     if (s.fechaCaducidad) {
-      const cad = new Date(s.fechaCaducidad)
-      const diff = (cad.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)
-      if (diff <= 0) return 'caducado'
-      if (diff <= 3) return 'próximo a caducar'
+      const cad = parseDate(s.fechaCaducidad)
+      if (cad) {
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+        const diff = (cad.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)
+        if (diff <= 0) return 'caducado'
+        if (diff <= 3) return 'próximo a caducar'
+      }
     }
     return 'activo'
   }
@@ -169,8 +172,8 @@ export default function Lotes() {
                 {fifoResult.map((r, i) => (
                   <tr key={i} className="border-b border-brand-100">
                     <td className="py-1.5 pr-4 font-mono text-xs font-semibold">{r.codigoLote}</td>
-                    <td className="py-1.5 pr-4 text-xs">{r.fechaFabricacion}</td>
-                    <td className="py-1.5 pr-4 text-xs">{r.fechaCaducidad ?? '—'}</td>
+                    <td className="py-1.5 pr-4 text-xs">{fmtDate(r.fechaFabricacion)}</td>
+                    <td className="py-1.5 pr-4 text-xs">{fmtDate(r.fechaCaducidad)}</td>
                     <td className="py-1.5 font-bold text-brand-700">{r.cantidad}</td>
                   </tr>
                 ))}
@@ -213,10 +216,10 @@ export default function Lotes() {
                     <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                       <td className="px-4 py-3 font-medium text-gray-900">{s.productoNombre}</td>
                       <td className="px-4 py-3 font-mono text-xs text-gray-700">{s.codigoLote}</td>
-                      <td className="px-4 py-3 text-gray-600">{s.fechaLote ? new Date(s.fechaLote).toLocaleDateString('es-ES') : '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{fmtDate(s.fechaLote)}</td>
                       <td className="px-4 py-3">
                         {s.fechaCaducidad
-                          ? <span className={new Date(s.fechaCaducidad) < new Date() ? 'text-red-600 font-semibold' : ''}>{new Date(s.fechaCaducidad).toLocaleDateString('es-ES')}</span>
+                          ? <span className={getEstado(s) === 'caducado' ? 'text-red-600 font-semibold' : ''}>{fmtDate(s.fechaCaducidad)}</span>
                           : <span className="text-gray-400">—</span>}
                       </td>
                       <td className="px-4 py-3 font-bold text-gray-900">{s.cantidadDisponible}</td>

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import api from '../lib/api'
 import toast from 'react-hot-toast'
+import { DateInput } from '../components/DateInput'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -214,7 +215,7 @@ export default function Reportes() {
       <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Informes y Analytics</h1>
+            <h1 className="text-xl font-bold text-gray-900">Informes y Análisis</h1>
             <p className="text-sm text-gray-500 mt-0.5">
               Ventas · Stock · Producción · Clientes · Rotación
             </p>
@@ -224,22 +225,9 @@ export default function Reportes() {
             {tab !== 'stock' && (
               <div className="flex items-center gap-2 text-sm">
                 <label className="text-gray-500 font-medium">Desde</label>
-                <input
-                  type="date"
-                  value={desde}
-                  max={hasta}
-                  onChange={e => setDesde(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
-                />
+                <DateInput value={desde} max={hasta} onChange={setDesde} />
                 <label className="text-gray-500 font-medium">Hasta</label>
-                <input
-                  type="date"
-                  value={hasta}
-                  min={desde}
-                  max={fmt8601(hoy)}
-                  onChange={e => setHasta(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
-                />
+                <DateInput value={hasta} min={desde} max={fmt8601(hoy)} onChange={setHasta} />
               </div>
             )}
             <button

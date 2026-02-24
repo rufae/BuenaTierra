@@ -11,16 +11,9 @@ import {
   AlertTriangle, Users, Leaf,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { fmtDate, isExpired } from '../lib/dates'
+import { DateInput } from '../components/DateInput'
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtDate(s: string | null | undefined) {
-  if (!s) return '—'
-  return new Date(s).toLocaleDateString('es-ES')
-}
-function isExpired(s: string | null | undefined) {
-  return !!s && new Date(s) < new Date()
-}
 
 type Tab = 'movimientos' | 'producto' | 'ingrediente'
 
@@ -138,13 +131,11 @@ function TabMovimientos() {
         <div className="flex items-end gap-4 flex-wrap">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Desde</label>
-            <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
+            <DateInput value={desde} onChange={setDesde} />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Hasta</label>
-            <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
+            <DateInput value={hasta} onChange={setHasta} />
           </div>
           <button onClick={() => setFetchEnabled(true)} disabled={isLoading || isFetching}
             className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60">

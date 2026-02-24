@@ -1,0 +1,23 @@
+{
+    "Ficha": {
+        "codigo": "Identificador único del producto",
+        "codigo de barras": "Código de barras del producto",
+        "familia": "Familia del producto",
+        "descripcion": "Nombre del producto",
+        "equivalente": "",
+        "tipo de iva": "Exento (0%), 4%, 10%, 21%",
+        "proveedor habitual": "proveedor al que se le compra habitualmente el producto",
+        "referencia": "Referencia del producto en el proveedor habitual",
+        "fabricante": "Fabricante del producto"
+    },
+    "Precios":{
+        "precio de costo": "Precio al que se adquiere el producto",
+        "descuentos": "Descuentos aplicables al producto",
+        "precio de venta": "Precio al que se vende el producto"
+    },
+    "Stock":{
+        "stock actual": "Cantidad actual del producto en inventario",
+        "stock mínimo": "Cantidad mínima del producto que se debe mantener en inventario",
+        "stock máximo": "Cantidad máxima del producto que se debe mantener en inventario"
+    }
+}

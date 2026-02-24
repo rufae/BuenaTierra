@@ -5,6 +5,7 @@ import api from '../lib/api'
 import type { Cliente, Producto, SerieFacturacion, Factura } from '../types'
 import { Plus, Trash2, Loader2, X, FileText, Eye, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { fmtDate } from '../lib/dates'
 
 // Helper: descarga un blob del API (necesita token de autorización)
 async function downloadBlob(url: string, filename: string) {
@@ -208,7 +209,7 @@ export default function Facturacion() {
                 <tr key={f.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-3 font-mono text-xs font-semibold text-brand-700">{(f as unknown as { numeroFactura: string }).numeroFactura ?? '—'}</td>
                   <td className="px-5 py-3 font-medium text-gray-900">{(f as unknown as { cliente?: { nombre: string}; clienteNombre?: string }).cliente?.nombre ?? (f as unknown as { clienteNombre?: string }).clienteNombre ?? '—'}</td>
-                  <td className="px-5 py-3 text-gray-500">{(f as unknown as { fechaFactura: string }).fechaFactura}</td>
+                  <td className="px-5 py-3 text-gray-500">{fmtDate((f as unknown as { fechaFactura: string }).fechaFactura)}</td>
                   <td className="px-5 py-3">
                     <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium">{(f as unknown as { estado: string }).estado}</span>
                   </td>
@@ -370,7 +371,7 @@ export default function Facturacion() {
             <div className="px-6 py-5 space-y-4">
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div><p className="text-gray-500 text-xs">Cliente</p><p className="font-semibold">{facturaDetalle.cliente.nombre}</p></div>
-                <div><p className="text-gray-500 text-xs">Fecha</p><p className="font-semibold">{facturaDetalle.fechaFactura}</p></div>
+                <div><p className="text-gray-500 text-xs">Fecha</p><p className="font-semibold">{fmtDate(facturaDetalle.fechaFactura)}</p></div>
                 <div><p className="text-gray-500 text-xs">Estado</p><p className="font-semibold">{facturaDetalle.estado}</p></div>
               </div>
               <table className="w-full text-sm border border-gray-100 rounded-lg overflow-hidden">

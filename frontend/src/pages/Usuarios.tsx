@@ -26,13 +26,7 @@ function RolBadge({ rol }: { rol: string }) {
   )
 }
 
-function fmtDate(d?: string | null) {
-  if (!d) return '—'
-  return new Date(d).toLocaleString('es-ES', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-}
+import { fmtDateTime as fmtDate } from '../lib/dates'
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 

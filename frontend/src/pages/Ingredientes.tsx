@@ -2,13 +2,19 @@ import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Edit2, Trash2, Search, X, Save,
-  AlertTriangle, ChevronDown, ChevronRight, Package, Info,
+  AlertTriangle, ChevronDown, ChevronRight, Package, Info, ClipboardList,
+  FileDown, FileSpreadsheet,
 } from 'lucide-react'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import * as XLSX from 'xlsx'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
+import { DateInput } from '../components/DateInput'
 import type {
   Alergeno, Ingrediente, Producto,
   FichaAlergenoItem, ProductoIngredienteLinea,
+  ControlMateriaPrima, UpsertControlMateriaPrimaDto,
 } from '../types'
 
 // ── Types locales ─────────────────────────────────────────────────────────────
@@ -19,7 +25,7 @@ interface IngredienteProductoReq {
   esPrincipal: boolean
 }
 
-type Tab = 'ingredientes' | 'fichas'
+type Tab = 'ingredientes' | 'fichas' | 'control'
 
 const ALERGENO_EMOJI: Record<string, string> = {
   GLUTEN: '🌾',
@@ -70,6 +76,7 @@ export default function Ingredientes() {
           {([
             { id: 'ingredientes', label: 'Ingredientes' },
             { id: 'fichas', label: 'Fichas de alérgenos por producto' },
+            { id: 'control', label: 'Control de ingredientes' },
           ] as const).map(t => (
             <button
               key={t.id}
@@ -90,6 +97,7 @@ export default function Ingredientes() {
       <div className="flex-1 p-6">
         {tab === 'ingredientes' && <TabIngredientes />}
         {tab === 'fichas' && <TabFichas />}
+        {tab === 'control' && <TabControlMaterias />}
       </div>
     </div>
   )
@@ -502,6 +510,425 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+// ── TAB: Control de Ingredientes (Control Mat. Primas) ──────────────────────
+
+const EMPTY_CTRL: UpsertControlMateriaPrimaDto = {
+  fechaEntrada: new Date().toISOString().split('T')[0],
+  producto: '',
+  unidades: 1,
+  ingredienteId: null,
+  fechaCaducidad: null,
+  proveedor: null,
+  lote: null,
+  fechaAperturaLote: null,
+  condicionesTransporte: true,
+  mercanciaAceptada: true,
+  responsable: null,
+  fechaFinExistencia: null,
+  observaciones: null,
+}
+
+function TabControlMaterias() {
+  const qc = useQueryClient()
+  const [search, setSearch] = useState('')
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<ControlMateriaPrima | null>(null)
+  const [form, setForm] = useState<UpsertControlMateriaPrimaDto>({ ...EMPTY_CTRL })
+
+  const { data: ingredientes } = useQuery<Ingrediente[]>({
+    queryKey: ['ingredientes'],
+    queryFn: () => api.get('/ingredientes').then(r => r.data),
+  })
+
+  const { data: lista = [], isLoading } = useQuery<ControlMateriaPrima[]>({
+    queryKey: ['control-mat', search, desde, hasta],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (search) params.set('q', search)
+      if (desde) params.set('desde', desde)
+      if (hasta) params.set('hasta', hasta)
+      const r = await api.get(`/control-materias-primas?${params.toString()}`)
+      return r.data.data
+    },
+  })
+
+  const createMut = useMutation({
+    mutationFn: (dto: UpsertControlMateriaPrimaDto) =>
+      api.post('/control-materias-primas', dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['control-mat'] })
+      toast.success('Registro añadido')
+      closeModal()
+    },
+    onError: () => toast.error('Error al guardar'),
+  })
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, dto }: { id: number; dto: UpsertControlMateriaPrimaDto }) =>
+      api.put(`/control-materias-primas/${id}`, dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['control-mat'] })
+      toast.success('Registro actualizado')
+      closeModal()
+    },
+    onError: () => toast.error('Error al actualizar'),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => api.delete(`/control-materias-primas/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['control-mat'] })
+      toast.success('Registro eliminado')
+    },
+    onError: () => toast.error('Error al eliminar'),
+  })
+
+  function openNew() {
+    setEditing(null)
+    setForm({ ...EMPTY_CTRL, fechaEntrada: new Date().toISOString().split('T')[0] })
+    setModalOpen(true)
+  }
+
+  function openEdit(row: ControlMateriaPrima) {
+    setEditing(row)
+    setForm({
+      fechaEntrada: row.fechaEntrada,
+      producto: row.producto,
+      unidades: row.unidades,
+      ingredienteId: row.ingredienteId,
+      fechaCaducidad: row.fechaCaducidad,
+      proveedor: row.proveedor,
+      lote: row.lote,
+      fechaAperturaLote: row.fechaAperturaLote,
+      condicionesTransporte: row.condicionesTransporte,
+      mercanciaAceptada: row.mercanciaAceptada,
+      responsable: row.responsable,
+      fechaFinExistencia: row.fechaFinExistencia,
+      observaciones: row.observaciones,
+    })
+    setModalOpen(true)
+  }
+
+  function closeModal() { setModalOpen(false); setEditing(null) }
+
+  function f<K extends keyof UpsertControlMateriaPrimaDto>(k: K, v: UpsertControlMateriaPrimaDto[K]) {
+    setForm(prev => ({ ...prev, [k]: v }))
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.ingredienteId) { toast.error('Selecciona un ingrediente'); return }
+    if (editing) updateMut.mutate({ id: editing.id, dto: form })
+    else createMut.mutate(form)
+  }
+
+  const busy = createMut.isPending || updateMut.isPending
+
+  const fmt = (d: string | null) => {
+    if (!d) return '—'
+    const [y, m, day] = d.split('T')[0].split('-')
+    return `${day}/${m}/${y}`
+  }
+
+  function exportPdf(rows: ControlMateriaPrima[]) {
+    const doc = new jsPDF({ orientation: 'landscape' })
+    doc.setFontSize(13)
+    doc.text('Control de Ingredientes / Materias Primas', 14, 14)
+    autoTable(doc, {
+      startY: 20,
+      head: [['F. entrada', 'Producto', 'Uds.', 'Caducidad', 'Proveedor', 'Lote', 'Apertura lote', 'Transp.', 'Mercancía', 'Responsable', 'Fin existencia']],
+      body: rows.map(r => [
+        fmt(r.fechaEntrada),
+        r.producto,
+        r.unidades,
+        fmt(r.fechaCaducidad),
+        r.proveedor ?? '',
+        r.lote ?? '',
+        fmt(r.fechaAperturaLote),
+        r.condicionesTransporte ? 'C' : 'I',
+        r.mercanciaAceptada ? 'Aceptada' : 'Rechazada',
+        r.responsable ?? '',
+        fmt(r.fechaFinExistencia),
+      ]),
+      styles: { fontSize: 7 },
+      headStyles: { fillColor: [22, 163, 74] },
+    })
+    doc.save('control-ingredientes.pdf')
+  }
+
+  function exportExcel(rows: ControlMateriaPrima[]) {
+    const data = rows.map(r => ({
+      'Fecha entrada': fmt(r.fechaEntrada),
+      'Producto': r.producto,
+      'Unidades': r.unidades,
+      'Caducidad': fmt(r.fechaCaducidad),
+      'Proveedor': r.proveedor ?? '',
+      'Lote': r.lote ?? '',
+      'Apertura lote': fmt(r.fechaAperturaLote),
+      'Transporte': r.condicionesTransporte ? 'Correcto' : 'Incorrecto',
+      'Mercancía': r.mercanciaAceptada ? 'Aceptada' : 'Rechazada',
+      'Responsable': r.responsable ?? '',
+      'Fin existencia': fmt(r.fechaFinExistencia),
+      'Observaciones': r.observaciones ?? '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Control ingredientes')
+    XLSX.writeFile(wb, 'control-ingredientes.xlsx')
+  }
+
+  const boolBadge = (val: boolean, trueLabel: string, falseLabel: string) => (
+    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${val ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+      {val ? trueLabel : falseLabel}
+    </span>
+  )
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar producto, proveedor, lote…"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500" />
+        </div>
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <span className="text-xs">Desde</span>
+          <DateInput value={desde} onChange={setDesde} />
+          <span className="text-xs">Hasta</span>
+          <DateInput value={hasta} onChange={setHasta} />
+          {(desde || hasta) && (
+            <button onClick={() => { setDesde(''); setHasta('') }} className="text-xs text-gray-400 hover:text-gray-700">✕ limpiar</button>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => exportExcel(lista)}
+            disabled={!lista.length}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-colors"
+            title="Exportar a Excel">
+            <FileSpreadsheet className="w-4 h-4" /> Excel
+          </button>
+          <button
+            onClick={() => exportPdf(lista)}
+            disabled={!lista.length}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-40 transition-colors"
+            title="Exportar a PDF">
+            <FileDown className="w-4 h-4" /> PDF
+          </button>
+          <button onClick={openNew}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
+            <Plus className="w-4 h-4" /> Nuevo registro
+          </button>
+        </div>
+      </div>
+
+      {/* Info banner */}
+      <div className="flex gap-2 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+        <ClipboardList className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+        <p className="text-xs text-blue-700">
+          Registro de recepción de materias primas exigido por sanidad.
+          Equivale al documento <strong>CONTROL MAT PRIMAS</strong>.
+        </p>
+      </div>
+
+      {/* Tabla */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+        {isLoading ? (
+          <div className="p-8 text-center text-gray-400 text-sm">Cargando…</div>
+        ) : (
+          <table className="w-full text-xs min-w-[1200px]">
+            <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+              <tr>
+                <th className="px-3 py-3 text-left">Fecha entrada</th>
+                <th className="px-3 py-3 text-left">Producto</th>
+                <th className="px-3 py-3 text-right">Uds.</th>
+                <th className="px-3 py-3 text-left">Caducidad</th>
+                <th className="px-3 py-3 text-left">Proveedor</th>
+                <th className="px-3 py-3 text-left">Lote</th>
+                <th className="px-3 py-3 text-left">Apertura lote</th>
+                <th className="px-3 py-3 text-center">Transp.</th>
+                <th className="px-3 py-3 text-center">Mercancía</th>
+                <th className="px-3 py-3 text-left">Responsable</th>
+                <th className="px-3 py-3 text-left">Fin existencia</th>
+                <th className="px-3 py-3 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {!lista.length ? (
+                <tr>
+                  <td colSpan={12} className="px-4 py-8 text-center text-gray-400">
+                    Sin registros. Añade el primero con "Nuevo registro".
+                  </td>
+                </tr>
+              ) : lista.map(row => (
+                <tr key={row.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-3 py-2 font-medium text-gray-700">{fmt(row.fechaEntrada)}</td>
+                  <td className="px-3 py-2 font-semibold text-gray-900">{row.producto}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{row.unidades}</td>
+                  <td className="px-3 py-2 text-gray-600">{fmt(row.fechaCaducidad)}</td>
+                  <td className="px-3 py-2 text-gray-600">{row.proveedor ?? '—'}</td>
+                  <td className="px-3 py-2 font-mono text-gray-600">{row.lote ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-600">{fmt(row.fechaAperturaLote)}</td>
+                  <td className="px-3 py-2 text-center">{boolBadge(row.condicionesTransporte, 'C', 'I')}</td>
+                  <td className="px-3 py-2 text-center">{boolBadge(row.mercanciaAceptada, 'Aceptada', 'Rechazada')}</td>
+                  <td className="px-3 py-2 text-gray-600">{row.responsable ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-600">{fmt(row.fechaFinExistencia)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => openEdit(row)}
+                        className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded">
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => { if (confirm('¿Eliminar este registro?')) deleteMut.mutate(row.id) }}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Modal */}
+      {modalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-8">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-brand-600" />
+                {editing ? 'Editar registro' : 'Nuevo registro de recepción'}
+              </h2>
+              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              <div className="px-6 py-5 grid grid-cols-2 gap-4">
+
+                {/* Fila 1 */}
+                <CField label="Fecha de entrada *">
+                  <DateInput value={form.fechaEntrada} onChange={v => f('fechaEntrada', v)} required className="w-full" />
+                </CField>
+
+                <CField label="Producto / Ingrediente *">
+                  <select
+                    value={form.ingredienteId ?? ''}
+                    onChange={e => {
+                      const id = parseInt(e.target.value)
+                      const ing = ingredientes?.find(i => i.id === id)
+                      f('ingredienteId', id || null)
+                      f('producto', ing?.nombre ?? '')
+                    }}
+                    className={INPUT2}
+                    required
+                  >
+                    <option value="">— Selecciona un ingrediente —</option>
+                    {ingredientes?.filter(i => i.activo).map(i => (
+                      <option key={i.id} value={i.id}>{i.nombre}</option>
+                    ))}
+                  </select>
+                </CField>
+
+                {/* Fila 2 */}
+                <CField label="Unidades">
+                  <input type="number" min="0" step="0.001" value={form.unidades}
+                    onChange={e => f('unidades', parseFloat(e.target.value) || 0)}
+                    className={INPUT2} />
+                </CField>
+
+                <CField label="Fecha caducidad">
+                  <DateInput value={form.fechaCaducidad ?? ''} onChange={v => f('fechaCaducidad', v || null)} className="w-full" />
+                </CField>
+
+                {/* Fila 3 */}
+                <CField label="Proveedor">
+                  <input value={form.proveedor ?? ''} onChange={e => f('proveedor', e.target.value || null)}
+                    placeholder="Nombre del proveedor" className={INPUT2} />
+                </CField>
+
+                <CField label="Lote">
+                  <input value={form.lote ?? ''} onChange={e => f('lote', e.target.value || null)}
+                    placeholder="Código de lote" className={INPUT2} />
+                </CField>
+
+                {/* Fila 4 */}
+                <CField label="Fecha apertura lote">
+                  <DateInput value={form.fechaAperturaLote ?? ''} onChange={v => f('fechaAperturaLote', v || null)} className="w-full" />
+                </CField>
+
+                <CField label="Responsable">
+                  <input value={form.responsable ?? ''} onChange={e => f('responsable', e.target.value || null)}
+                    placeholder="Nombre del responsable" className={INPUT2} />
+                </CField>
+
+                {/* Fila 5 */}
+                <CField label="Condiciones de transporte">
+                  <select value={form.condicionesTransporte ? 'true' : 'false'}
+                    onChange={e => f('condicionesTransporte', e.target.value === 'true')}
+                    className={INPUT2}>
+                    <option value="true">C — Correcto</option>
+                    <option value="false">I — Incorrecto</option>
+                  </select>
+                </CField>
+
+                <CField label="Mercancía">
+                  <select value={form.mercanciaAceptada ? 'true' : 'false'}
+                    onChange={e => f('mercanciaAceptada', e.target.value === 'true')}
+                    className={INPUT2}>
+                    <option value="true">Aceptada</option>
+                    <option value="false">Rechazada</option>
+                  </select>
+                </CField>
+
+                {/* Fila 6 */}
+                <CField label="Fecha fin de existencia">
+                  <DateInput value={form.fechaFinExistencia ?? ''} onChange={v => f('fechaFinExistencia', v || null)} className="w-full" />
+                </CField>
+
+                <CField label="Observaciones" className="col-span-2">
+                  <textarea rows={2} value={form.observaciones ?? ''}
+                    onChange={e => f('observaciones', e.target.value || null)}
+                    className={INPUT2} placeholder="Observaciones adicionales" />
+                </CField>
+              </div>
+
+              <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                <button type="button" onClick={closeModal}
+                  className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={busy}
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium">
+                  <Save className="w-4 h-4" />
+                  {busy ? 'Guardando…' : editing ? 'Guardar cambios' : 'Añadir registro'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const INPUT2 =
+  'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500'
+
+function CField({ label, children, className = '' }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      {children}
+    </div>
+  )
+}
+
 // ── TAB: Fichas de alérgenos por producto ─────────────────────────────────────
 
 function TabFichas() {
@@ -511,7 +938,7 @@ function TabFichas() {
 
   const { data: productos } = useQuery<Producto[]>({
     queryKey: ['productos-activos'],
-    queryFn: () => api.get('/productos?soloActivos=true').then(r => r.data),
+    queryFn: () => api.get('/productos?soloActivos=true').then(r => r.data.data),
   })
 
   const { data: ingredientesTodos } = useQuery<Ingrediente[]>({

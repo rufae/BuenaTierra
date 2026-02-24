@@ -14,6 +14,8 @@ public class Pedido : TenantEntity
     public decimal Subtotal { get; set; }
     public decimal DescuentoTotal { get; set; }
     public decimal IvaTotal { get; set; }
+    public decimal RecargoEquivalenciaTotal { get; set; } = 0;
+    public decimal RetencionTotal { get; set; } = 0;
     public decimal Total { get; set; }
     public string? Notas { get; set; }
 
@@ -34,10 +36,12 @@ public class PedidoLinea : BaseEntity
     public decimal PrecioUnitario { get; set; }
     public decimal Descuento { get; set; } = 0;
     public decimal IvaPorcentaje { get; set; } = 10;
+    public decimal RecargoEquivalenciaPorcentaje { get; set; } = 0;
     public short Orden { get; set; } = 0;
 
     public decimal Subtotal => Math.Round(Cantidad * PrecioUnitario * (1 - Descuento / 100), 4);
     public decimal IvaImporte => Math.Round(Subtotal * IvaPorcentaje / 100, 4);
+    public decimal RecargoEquivalenciaImporte => Math.Round(Subtotal * RecargoEquivalenciaPorcentaje / 100, 4);
 
     // Navegación
     public virtual Pedido Pedido { get; set; } = null!;
@@ -57,6 +61,8 @@ public class Albaran : TenantEntity
     public decimal Subtotal { get; set; }
     public decimal DescuentoTotal { get; set; }
     public decimal IvaTotal { get; set; }
+    public decimal RecargoEquivalenciaTotal { get; set; } = 0;
+    public decimal RetencionTotal { get; set; } = 0;
     public decimal Total { get; set; }
     public string? Notas { get; set; }
 
@@ -80,10 +86,13 @@ public class AlbaranLinea : BaseEntity
     public decimal PrecioUnitario { get; set; }
     public decimal Descuento { get; set; } = 0;
     public decimal IvaPorcentaje { get; set; } = 10;
+
+    public decimal RecargoEquivalenciaPorcentaje { get; set; } = 0;
     public short Orden { get; set; } = 0;
 
     public decimal Subtotal => Math.Round(Cantidad * PrecioUnitario * (1 - Descuento / 100), 4);
     public decimal IvaImporte => Math.Round(Subtotal * IvaPorcentaje / 100, 4);
+    public decimal RecargoEquivalenciaImporte => Math.Round(Subtotal * RecargoEquivalenciaPorcentaje / 100, 4);
 
     // Navegación
     public virtual Albaran Albaran { get; set; } = null!;

@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     public DbSet<Factura> Facturas => Set<Factura>();
     public DbSet<FacturaLinea> FacturasLineas => Set<FacturaLinea>();
     public DbSet<Trazabilidad> Trazabilidades => Set<Trazabilidad>();
+    public DbSet<ControlMateriaPrima> ControlMatPrimas => Set<ControlMateriaPrima>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -59,6 +60,8 @@ public class AppDbContext : DbContext
         mb.Entity<AlbaranLinea>().ToTable("albaranes_lineas");
         mb.Entity<Factura>().ToTable("facturas");
         mb.Entity<FacturaLinea>().ToTable("facturas_lineas");
+        mb.Entity<ControlMateriaPrima>().ToTable("control_materias_primas");
+
         mb.Entity<Trazabilidad>(e =>
         {
             e.ToTable("trazabilidad");
@@ -140,12 +143,33 @@ public class AppDbContext : DbContext
             e.Property(x => x.Descuento).HasPrecision(5, 2);
         });
 
+        // ---- CONTROL MATERIAS PRIMAS ----
+        mb.Entity<ControlMateriaPrima>(e =>
+        {
+            e.Property(x => x.Producto).HasMaxLength(300).IsRequired();
+            e.Property(x => x.Unidades).HasPrecision(10, 3);
+            e.Property(x => x.Proveedor).HasMaxLength(200);
+            e.Property(x => x.Lote).HasMaxLength(100);
+            e.Property(x => x.Responsable).HasMaxLength(200);
+            e.Property(x => x.Observaciones).HasMaxLength(1000);
+            e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
+            e.HasOne(x => x.Ingrediente).WithMany().HasForeignKey(x => x.IngredienteId)
+                .IsRequired(false).OnDelete(DeleteBehavior.SetNull);
+        });
+
         // ---- PRODUCTO ----
         mb.Entity<Producto>(e =>
         {
             e.Property(x => x.PrecioVenta).HasPrecision(10, 4).IsRequired();
             e.Property(x => x.PrecioCoste).HasPrecision(10, 4);
             e.Property(x => x.IvaPorcentaje).HasPrecision(5, 2);
+            e.Property(x => x.DescuentoPorDefecto).HasPrecision(5, 2);
+            e.Property(x => x.StockMinimo).HasPrecision(10, 3);
+            e.Property(x => x.StockMaximo).HasPrecision(10, 3);
+            e.Property(x => x.CodigoBarras).HasMaxLength(100);
+            e.Property(x => x.ProveedorHabitual).HasMaxLength(200);
+            e.Property(x => x.Referencia).HasMaxLength(100);
+            e.Property(x => x.Fabricante).HasMaxLength(200);
             e.HasIndex(x => new { x.EmpresaId, x.Codigo }).IsUnique();
             e.HasOne(x => x.Empresa).WithMany(x => x.Productos).HasForeignKey(x => x.EmpresaId);
             e.HasOne(x => x.Categoria).WithMany(x => x.Productos).HasForeignKey(x => x.CategoriaId);
@@ -223,6 +247,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.DescuentoTotal).HasPrecision(12, 4);
             e.Property(x => x.BaseImponible).HasPrecision(12, 4);
             e.Property(x => x.IvaTotal).HasPrecision(12, 4);
+            e.Property(x => x.RecargoEquivalenciaTotal).HasPrecision(12, 4);
+            e.Property(x => x.RetencionTotal).HasPrecision(12, 4);
             e.Property(x => x.Total).HasPrecision(12, 4);
             e.Property(x => x.IvaDesglose).HasColumnType("jsonb").HasDefaultValue("[]");
             e.HasOne(x => x.Empresa).WithMany(x => x.Facturas).HasForeignKey(x => x.EmpresaId);
@@ -236,9 +262,11 @@ public class AppDbContext : DbContext
             e.Property(x => x.PrecioUnitario).HasPrecision(10, 4).IsRequired();
             e.Property(x => x.Descuento).HasPrecision(5, 2);
             e.Property(x => x.IvaPorcentaje).HasPrecision(5, 2);
+            e.Property(x => x.RecargoEquivalenciaPorcentaje).HasPrecision(5, 2);
             // Las columnas calculadas en C# no se mapean como generadas en EF (se computan en BD via SQL)
             e.Ignore(x => x.Subtotal);
             e.Ignore(x => x.IvaImporte);
+            e.Ignore(x => x.RecargoEquivalenciaImporte);
             e.Ignore(x => x.Total);
         });
 
@@ -257,6 +285,11 @@ public class AppDbContext : DbContext
         {
             e.Ignore(x => x.Subtotal);
             e.Ignore(x => x.IvaImporte);
+            e.Ignore(x => x.RecargoEquivalenciaImporte);
+            e.Property(x => x.PrecioUnitario).HasPrecision(10, 4);
+            e.Property(x => x.Descuento).HasPrecision(5, 2);
+            e.Property(x => x.IvaPorcentaje).HasPrecision(5, 2);
+            e.Property(x => x.RecargoEquivalenciaPorcentaje).HasPrecision(5, 2);
         });
 
         // ---- ALBARAN ----
@@ -264,6 +297,9 @@ public class AppDbContext : DbContext
         {
             e.Property(x => x.Estado).HasConversion(new EnumToStringConverter<EstadoAlbaran>()).HasMaxLength(20);
             e.Property(x => x.Subtotal).HasPrecision(12, 4);
+            e.Property(x => x.IvaTotal).HasPrecision(12, 4);
+            e.Property(x => x.RecargoEquivalenciaTotal).HasPrecision(12, 4);
+            e.Property(x => x.RetencionTotal).HasPrecision(12, 4);
             e.Property(x => x.Total).HasPrecision(12, 4);
             e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
             e.HasOne(x => x.Cliente).WithMany(x => x.Albaranes).HasForeignKey(x => x.ClienteId);
@@ -274,6 +310,8 @@ public class AppDbContext : DbContext
         {
             e.Ignore(x => x.Subtotal);
             e.Ignore(x => x.IvaImporte);
+            e.Property(x => x.RecargoEquivalenciaPorcentaje).HasPrecision(5, 2);
+            e.Ignore(x => x.RecargoEquivalenciaImporte);
         });
 
         // columnas en snake_case automático para EF Core

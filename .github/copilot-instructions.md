@@ -288,3 +288,14 @@ Luego seguridad.
 Luego UX.
 Luego trazabilidad.
 Luego automatización avanzada.
+
+
+Fase 1 Creacion de Clientes
+Fase 2 Ingredientes y control de materias primas (diaria, semanal, trimestral y anual que son diferentes pdf)
+Fase 3 Creacion de Productos
+Fase 4 Elaboracion de Facturas y Albaran
+Fase 5 Elaboracion de monitoreo de ventas con datos como lote, vendido a... , producto... etc (porque la de sanidad quiere que pueda exportar a excel los documentos donde venga toda esa informacion para verificar los lotes de un producto con su fecha de caducidad nombre de producto... etc PERO ESTO NO SE PUEDE HACER HASTA QUE NO ESTE TODO LO ANTERIOR LISTO)
+Fase 6 Proceso de venta completo 
+Fase 7 Integraciones, mejoras, repaso
+
+En cualquier momento podemos volver a la fase anterior porque no este completo como lo pide el cliente.

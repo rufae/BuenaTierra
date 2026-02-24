@@ -1,4 +1,5 @@
 using BuenaTierra.Domain.Entities;
+using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Interfaces;
 using BuenaTierra.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -129,8 +130,8 @@ public class StockRepository : Repository<Stock>, IStockRepository
                 s.Producto!.Nombre,
                 s.LoteId,
                 s.Lote!.CodigoLote,
-                s.Lote.FechaFabricacion.ToString("dd/MM/yyyy"),
-                s.Lote.FechaCaducidad != null ? s.Lote.FechaCaducidad.Value.ToString("dd/MM/yyyy") : null,
+                s.Lote.FechaFabricacion.ToString("yyyy-MM-dd"),
+                s.Lote.FechaCaducidad != null ? s.Lote.FechaCaducidad.Value.ToString("yyyy-MM-dd") : null,
                 s.CantidadDisponible,
                 s.CantidadReservada
             ))
@@ -171,14 +172,71 @@ public class ProduccionRepository : Repository<Produccion>, IProduccionRepositor
 
     public async Task<IEnumerable<Produccion>> GetByFechaAsync(int empresaId, DateOnly fecha, CancellationToken ct = default)
         => await _set
-            .Include(p => p.Producto)
+            .Include(p => p.Producto).ThenInclude(prod => prod.Lotes)
             .Include(p => p.Lotes)
             .Where(p => p.EmpresaId == empresaId && p.FechaProduccion == fecha)
+            .OrderByDescending(p => p.Id)
             .ToListAsync(ct);
 
     public async Task<IEnumerable<Produccion>> GetByProductoAsync(int empresaId, int productoId, CancellationToken ct = default)
         => await _set.Where(p => p.EmpresaId == empresaId && p.ProductoId == productoId)
             .OrderByDescending(p => p.FechaProduccion).ToListAsync(ct);
+
+    public async Task<IEnumerable<Produccion>> GetFiltradoAsync(
+        int empresaId,
+        DateOnly? fechaDesde = null,
+        DateOnly? fechaHasta = null,
+        string? estadoStr = null,
+        string? busqueda = null,
+        CancellationToken ct = default)
+    {
+        var q = _set
+            .Include(p => p.Producto).ThenInclude(prod => prod.Lotes)
+            .Include(p => p.Lotes)
+            .Where(p => p.EmpresaId == empresaId)
+            .AsQueryable();
+
+        if (fechaDesde.HasValue) q = q.Where(p => p.FechaProduccion >= fechaDesde.Value);
+        if (fechaHasta.HasValue) q = q.Where(p => p.FechaProduccion <= fechaHasta.Value);
+
+        if (!string.IsNullOrWhiteSpace(estadoStr) &&
+            Enum.TryParse<EstadoProduccion>(estadoStr, true, out var estadoEnum))
+            q = q.Where(p => p.Estado == estadoEnum);
+
+        if (!string.IsNullOrWhiteSpace(busqueda))
+        {
+            var b = busqueda.ToLower();
+            q = q.Where(p =>
+                p.Producto.Nombre.ToLower().Contains(b) ||
+                (p.CodigoLoteSugerido != null && p.CodigoLoteSugerido.ToLower().Contains(b)) ||
+                (p.Notas != null && p.Notas.ToLower().Contains(b)) ||
+                p.Lotes.Any(l => l.CodigoLote.ToLower().Contains(b)));
+        }
+
+        return await q.OrderByDescending(p => p.FechaProduccion).ThenByDescending(p => p.Id).ToListAsync(ct);
+    }
+
+    public async Task<Produccion?> GetPendienteMismoLoteAsync(
+        int empresaId, int productoId, string codigoLote, DateOnly fecha, CancellationToken ct = default)
+        => await _set
+            .Where(p => p.EmpresaId == empresaId
+                     && p.ProductoId == productoId
+                     && p.FechaProduccion == fecha
+                     && p.CodigoLoteSugerido == codigoLote
+                     && (p.Estado == EstadoProduccion.Planificada || p.Estado == EstadoProduccion.EnProceso))
+            .OrderByDescending(p => p.Id)
+            .FirstOrDefaultAsync(ct);
+
+    public async Task<Produccion?> GetFinalizadaMismoLoteAsync(
+        int empresaId, int productoId, string codigoLote, int excludeId, CancellationToken ct = default)
+        => await _set
+            .Where(p => p.EmpresaId == empresaId
+                     && p.ProductoId == productoId
+                     && p.CodigoLoteSugerido == codigoLote
+                     && p.Estado == EstadoProduccion.Finalizada
+                     && p.Id != excludeId)
+            .OrderBy(p => p.Id)
+            .FirstOrDefaultAsync(ct);
 }
 
 public class AlbaranRepository : Repository<Albaran>, IAlbaranRepository

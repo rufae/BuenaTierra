@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { AlbaranResumen, AlbaranDetalle, CreateAlbaranDto, Cliente, Producto, SerieFacturacion } from '../types'
-import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { fmtDate } from '../lib/dates'
 
 const ESTADO_COLOR: Record<string, string> = {
   Pendiente: 'bg-amber-50 text-amber-700 border border-amber-200',
@@ -91,6 +92,20 @@ export default function Albaranes() {
 
   function resetForm() { setShowForm(false); setClienteId(''); setNotas(''); setItems([{ productoId: 0, cantidad: 1 }]) }
 
+  async function descargarPdf(id: number, numero: string) {
+    try {
+      const res = await api.get(`/albaranes/${id}/pdf`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'application/pdf' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Albaran_${numero}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Error al descargar el PDF del albarán')
+    }
+  }
+
   function addItem() { setItems(prev => [...prev, { productoId: 0, cantidad: 1 }]) }
   function removeItem(i: number) { setItems(prev => prev.filter((_, idx) => idx !== i)) }
   function updateItem(i: number, field: keyof ItemForm, val: any) {
@@ -155,7 +170,7 @@ export default function Albaranes() {
                 <>
                   <tr key={a.id} className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{a.numeroAlbaran}</td>
-                    <td className="px-4 py-3 text-gray-600">{new Date(a.fecha).toLocaleDateString('es-ES')}</td>
+                    <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${ESTADO_COLOR[a.estado] ?? 'bg-gray-100 text-gray-600'}`}>
                         {a.estado}
@@ -164,9 +179,15 @@ export default function Albaranes() {
                     <td className="px-4 py-3 text-gray-700">{a.clienteNombre}</td>
                     <td className="px-4 py-3 font-bold text-gray-900">{a.total.toFixed(2)} €</td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <button onClick={() => setDetailOpen(detailOpen === a.id ? null : a.id)} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
                           {detailOpen === a.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />} Ver
+                        </button>
+                        <button
+                          onClick={() => descargarPdf(a.id, a.numeroAlbaran)}
+                          title="Descargar PDF del albarán"
+                          className="text-xs text-gray-600 hover:text-gray-800 flex items-center gap-1">
+                          <Download className="w-3 h-3" /> PDF
                         </button>
                         {a.estado === 'Pendiente' && (
                           <button onClick={() => entregarMutation.mutate(a.id)} className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
@@ -174,9 +195,17 @@ export default function Albaranes() {
                           </button>
                         )}
                         {a.estado !== 'Facturado' && a.estado !== 'Cancelado' && (
-                          <button onClick={() => { setShowConvertir(a.id); setSerieConvertir('') }} className="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
-                            <FileText className="w-3 h-3" /> → Factura
-                          </button>
+                          a.noRealizarFacturas ? (
+                            <span
+                              title="Este cliente no permite la generación de facturas"
+                              className="text-xs text-gray-300 flex items-center gap-1 cursor-not-allowed select-none line-through">
+                              <FileText className="w-3 h-3" /> → Factura
+                            </span>
+                          ) : (
+                            <button onClick={() => { setShowConvertir(a.id); setSerieConvertir('') }} className="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
+                              <FileText className="w-3 h-3" /> → Factura
+                            </button>
+                          )
                         )}
                       </div>
                     </td>
@@ -202,8 +231,8 @@ export default function Albaranes() {
                                 <tr key={i} className="border-t border-blue-100">
                                   <td className="py-1 pr-4 font-medium">{l.productoNombre}</td>
                                   <td className="py-1 pr-4 font-mono">{l.codigoLote ?? '—'}</td>
-                                  <td className="py-1 pr-4">{l.fechaFabricacion ? new Date(l.fechaFabricacion).toLocaleDateString('es-ES') : '—'}</td>
-                                  <td className="py-1 pr-4">{l.fechaCaducidad ? new Date(l.fechaCaducidad).toLocaleDateString('es-ES') : '—'}</td>
+                                  <td className="py-1 pr-4">{fmtDate(l.fechaFabricacion)}</td>
+                                  <td className="py-1 pr-4">{fmtDate(l.fechaCaducidad)}</td>
                                   <td className="py-1 pr-4 text-right">{l.cantidad}</td>
                                   <td className="py-1 pr-4 text-right">{l.precioUnitario.toFixed(4)} €</td>
                                   <td className="py-1 text-right font-bold">{(l.subtotal + l.ivaImporte).toFixed(2)} €</td>

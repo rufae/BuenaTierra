@@ -292,9 +292,11 @@ public class IngredientesController : ControllerBase
             .OrderBy(a => a.Nombre)
             .ToListAsync(ct);
 
-        // Alérgenos presentes en el producto (via ingredientes)
+        // Alérgenos presentes en el producto (via ingredientes reales, sin marcadores internos)
         var presentes = await _uow.ProductoIngredientes.GetQueryable()
-            .Where(pi => pi.ProductoId == productoId)
+            .Where(pi => pi.ProductoId == productoId
+                && (pi.Ingrediente.CodigoProveedor == null
+                    || !pi.Ingrediente.CodigoProveedor.StartsWith("__direct_")))
             .Include(pi => pi.Ingrediente)
                 .ThenInclude(i => i.IngredienteAlergenos)
             .SelectMany(pi => pi.Ingrediente.IngredienteAlergenos.Select(ia => ia.AlergenoId))
@@ -346,6 +348,141 @@ public class IngredientesController : ControllerBase
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// /api/control-materias-primas — CRUD del registro de control de recepción
+// ─────────────────────────────────────────────────────────────────────────────
+
+[ApiController]
+[Route("api/control-materias-primas")]
+[Authorize]
+public class ControlMatPrimasController : ControllerBase
+{
+    private readonly IUnitOfWork _uow;
+    private int EmpresaId => int.Parse(User.FindFirstValue("empresa_id")!);
+
+    public ControlMatPrimasController(IUnitOfWork uow) => _uow = uow;
+
+    // ── GET /api/control-materias-primas ────────────────────────────────────
+    [HttpGet]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] string? q,
+        [FromQuery] DateOnly? desde,
+        [FromQuery] DateOnly? hasta,
+        CancellationToken ct = default)
+    {
+        var query = _uow.ControlMatPrimas.GetQueryable()
+            .Where(c => c.EmpresaId == EmpresaId);
+
+        if (desde.HasValue) query = query.Where(c => c.FechaEntrada >= desde.Value);
+        if (hasta.HasValue) query = query.Where(c => c.FechaEntrada <= hasta.Value);
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var term = q.Trim().ToLower();
+            query = query.Where(c =>
+                c.Producto.ToLower().Contains(term) ||
+                (c.Proveedor != null && c.Proveedor.ToLower().Contains(term)) ||
+                (c.Lote != null && c.Lote.ToLower().Contains(term)) ||
+                (c.Responsable != null && c.Responsable.ToLower().Contains(term)));
+        }
+
+        var data = await query
+            .OrderByDescending(c => c.FechaEntrada)
+            .ThenByDescending(c => c.Id)
+            .Select(c => new
+            {
+                c.Id,
+                c.FechaEntrada,
+                c.IngredienteId,
+                c.Producto,
+                c.Unidades,
+                c.FechaCaducidad,
+                c.Proveedor,
+                c.Lote,
+                c.FechaAperturaLote,
+                c.CondicionesTransporte,
+                c.MercanciaAceptada,
+                c.Responsable,
+                c.FechaFinExistencia,
+                c.Observaciones,
+                c.CreatedAt,
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { data });
+    }
+
+    // ── GET /api/control-materias-primas/{id} ────────────────────────────────
+    [HttpGet("{id:int}")]
+    public async Task<IActionResult> GetById(int id, CancellationToken ct = default)
+    {
+        var c = await _uow.ControlMatPrimas.GetQueryable()
+            .FirstOrDefaultAsync(x => x.Id == id && x.EmpresaId == EmpresaId, ct);
+        if (c is null) return NotFound();
+        return Ok(c);
+    }
+
+    // ── POST /api/control-materias-primas ────────────────────────────────────
+    [HttpPost]
+    public async Task<IActionResult> Create(
+        [FromBody] UpsertControlMatPrimaDto dto,
+        CancellationToken ct = default)
+    {
+        var entity = MapDto(dto, new ControlMateriaPrima { EmpresaId = EmpresaId });
+        await _uow.ControlMatPrimas.AddAsync(entity, ct);
+        await _uow.SaveChangesAsync(ct);
+        return CreatedAtAction(nameof(GetById), new { id = entity.Id }, new { entity.Id });
+    }
+
+    // ── PUT /api/control-materias-primas/{id} ────────────────────────────────
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> Update(
+        int id,
+        [FromBody] UpsertControlMatPrimaDto dto,
+        CancellationToken ct = default)
+    {
+        var entity = await _uow.ControlMatPrimas.GetQueryable()
+            .FirstOrDefaultAsync(x => x.Id == id && x.EmpresaId == EmpresaId, ct);
+        if (entity is null) return NotFound();
+
+        MapDto(dto, entity);
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _uow.ControlMatPrimas.UpdateAsync(entity, ct);
+        await _uow.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    // ── DELETE /api/control-materias-primas/{id} ─────────────────────────────
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken ct = default)
+    {
+        var entity = await _uow.ControlMatPrimas.GetQueryable()
+            .FirstOrDefaultAsync(x => x.Id == id && x.EmpresaId == EmpresaId, ct);
+        if (entity is null) return NotFound();
+
+        await _uow.ControlMatPrimas.DeleteAsync(entity, ct);
+        await _uow.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    private static ControlMateriaPrima MapDto(UpsertControlMatPrimaDto dto, ControlMateriaPrima e)
+    {
+        e.FechaEntrada = dto.FechaEntrada;
+        e.IngredienteId = dto.IngredienteId;
+        e.Producto = dto.Producto.Trim();
+        e.Unidades = dto.Unidades;
+        e.FechaCaducidad = dto.FechaCaducidad;
+        e.Proveedor = dto.Proveedor?.Trim();
+        e.Lote = dto.Lote?.Trim();
+        e.FechaAperturaLote = dto.FechaAperturaLote;
+        e.CondicionesTransporte = dto.CondicionesTransporte;
+        e.MercanciaAceptada = dto.MercanciaAceptada;
+        e.Responsable = dto.Responsable?.Trim();
+        e.FechaFinExistencia = dto.FechaFinExistencia;
+        e.Observaciones = dto.Observaciones?.Trim();
+        return e;
+    }
+}
+
 // ── Request DTOs ─────────────────────────────────────────────────────────────
 
 public record CreateIngredienteRequest(
@@ -370,3 +507,19 @@ public record SetAlergenosRequest(List<int> AlergenoIds);
 public record IngredienteProductoItem(int IngredienteId, decimal? CantidadGr, bool EsPrincipal);
 
 public record SetIngredientesProductoRequest(List<IngredienteProductoItem> Ingredientes);
+
+public record UpsertControlMatPrimaDto(
+    DateOnly FechaEntrada,
+    string Producto,
+    decimal Unidades,
+    int? IngredienteId,
+    DateOnly? FechaCaducidad,
+    string? Proveedor,
+    string? Lote,
+    DateOnly? FechaAperturaLote,
+    bool CondicionesTransporte,
+    bool MercanciaAceptada,
+    string? Responsable,
+    DateOnly? FechaFinExistencia,
+    string? Observaciones
+);

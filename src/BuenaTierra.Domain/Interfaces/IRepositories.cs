@@ -98,6 +98,15 @@ public interface IProduccionRepository : IRepository<Produccion>
 {
     Task<IEnumerable<Produccion>> GetByFechaAsync(int empresaId, DateOnly fecha, CancellationToken ct = default);
     Task<IEnumerable<Produccion>> GetByProductoAsync(int empresaId, int productoId, CancellationToken ct = default);
+    Task<IEnumerable<Produccion>> GetFiltradoAsync(
+        int empresaId,
+        DateOnly? fechaDesde = null,
+        DateOnly? fechaHasta = null,
+        string? estadoStr = null,
+        string? busqueda = null,
+        CancellationToken ct = default);
+    Task<Produccion?> GetPendienteMismoLoteAsync(int empresaId, int productoId, string codigoLote, DateOnly fecha, CancellationToken ct = default);
+    Task<Produccion?> GetFinalizadaMismoLoteAsync(int empresaId, int productoId, string codigoLote, int excludeId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -123,6 +132,7 @@ public interface IUnitOfWork : IDisposable
     IRepository<IngredienteAlergeno> IngredienteAlergenos { get; }
     IRepository<ProductoIngrediente> ProductoIngredientes { get; }
     IRepository<Categoria> Categorias { get; }
+    IRepository<ControlMateriaPrima> ControlMatPrimas { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     Task BeginTransactionAsync(CancellationToken ct = default);

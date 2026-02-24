@@ -86,6 +86,11 @@ public class FacturaService : IFacturaService
 
         try
         {
+            // RE y retención del cliente
+            bool aplicaRE = cliente.TipoImpuesto == TipoImpuesto.RecargoEquivalencia
+                         || cliente.RecargoEquivalencia;
+            decimal retencionPorc = !cliente.NoAplicarRetenciones && cliente.PorcentajeRetencion > 0
+                ? cliente.PorcentajeRetencion : 0m;
             // Obtener número de factura
             string numeroFactura = await _serieService.SiguienteNumeroAsync(
                 request.EmpresaId, request.SerieId, ct);
@@ -110,6 +115,7 @@ public class FacturaService : IFacturaService
             foreach (var (item, producto, lotes) in lineasConLotes)
             {
                 decimal precioUnitario = item.PrecioUnitario ?? producto.PrecioVenta;
+                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje) : 0m;
 
                 foreach (var lote in lotes)
                 {
@@ -122,6 +128,7 @@ public class FacturaService : IFacturaService
                         PrecioUnitario = precioUnitario,
                         Descuento = item.Descuento,
                         IvaPorcentaje = producto.IvaPorcentaje,
+                        RecargoEquivalenciaPorcentaje = rePorc,
                         Orden = orden++
                     });
                 }
@@ -133,7 +140,11 @@ public class FacturaService : IFacturaService
             factura.BaseImponible = factura.Subtotal - factura.DescuentoTotal;
             factura.IvaTotal = lineasConLotes.Sum(x =>
                 x.Lotes.Sum(l => Math.Round(l.Cantidad * (x.Item.PrecioUnitario ?? x.Producto.PrecioVenta) * (1 - x.Item.Descuento / 100) * x.Producto.IvaPorcentaje / 100, 4)));
-            factura.Total = factura.BaseImponible + factura.IvaTotal;
+            factura.RecargoEquivalenciaTotal = aplicaRE
+                ? Math.Round(factura.Lineas.Sum(l => l.Subtotal * l.RecargoEquivalenciaPorcentaje / 100), 2)
+                : 0m;
+            factura.RetencionTotal = Math.Round(factura.BaseImponible * retencionPorc / 100, 2);
+            factura.Total = factura.BaseImponible + factura.IvaTotal + factura.RecargoEquivalenciaTotal - factura.RetencionTotal;
 
             // Persistir factura
             await _uow.Facturas.AddAsync(factura, ct);
@@ -200,8 +211,11 @@ public class FacturaService : IFacturaService
         }
     }
 
-    public async Task<FacturaDto> GetFacturaAsync(int id, int empresaId, CancellationToken ct = default)
-    {
+    /// <summary>Tasas legales de recargo de equivalencia según tipo de IVA (España).</summary>
+    private static decimal GetRecargoEquivalenciaPorcentaje(decimal ivaPorcentaje) =>
+        ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+
+    public async Task<FacturaDto> GetFacturaAsync(int id, int empresaId, CancellationToken ct = default)    {
         var factura = await _uow.Facturas.GetConLineasAsync(id, ct)
             ?? throw new EntidadNotFoundException(nameof(Factura), id);
 
@@ -376,6 +390,18 @@ public class FacturaService : IFacturaService
 
                         totales.Cell().Element(TotalLabel).Text("IVA:").FontSize(9);
                         totales.Cell().Element(TotalValue).Text($"{factura.IvaTotal:N2} €").FontSize(9);
+
+                        if (factura.RecargoEquivalenciaTotal > 0)
+                        {
+                            totales.Cell().Element(TotalLabel).Text("Recargo Equivalencia:").FontSize(9);
+                            totales.Cell().Element(TotalValue).Text($"{factura.RecargoEquivalenciaTotal:N2} €").FontSize(9);
+                        }
+
+                        if (factura.RetencionTotal > 0)
+                        {
+                            totales.Cell().Element(TotalLabel).Text("Retención (-):").FontSize(9);
+                            totales.Cell().Element(TotalValue).Text($"-{factura.RetencionTotal:N2} €").FontSize(9).FontColor("#C0392B");
+                        }
 
                         totales.Cell().Element(TotalLabelBold).Text("TOTAL:").Bold().FontSize(11).FontColor(Colors.White);
                         totales.Cell().Element(TotalValueBold).Text($"{factura.Total:N2} €").Bold().FontSize(11).FontColor(Colors.White);
