@@ -25,32 +25,76 @@ export interface Empresa {
   nif: string
 }
 
+// ── Categorias ────────────────────────────────────────────────────────────────────
+
+export interface Categoria {
+  id: number
+  nombre: string
+}
+
 // ── Producto ──────────────────────────────────────────────────────────────────
+
 export interface Producto {
   id: number
   empresaId: number
-  codigo: string
+  codigo: string | null
+  codigoBarras: string | null
   nombre: string
   descripcion: string | null
   precioVenta: number
   precioCoste: number | null
   ivaPorcentaje: number
   unidadMedida: string
+  pesoUnitarioGr: number | null
+  vidaUtilDias: number | null
   activo: boolean
+  requiereLote: boolean
+  compartidoRepartidores: boolean
   categoriaId: number | null
   categoriaNombre: string | null
+  // Comercial
+  proveedorHabitual: string | null
+  referencia: string | null
+  fabricante: string | null
+  descuentoPorDefecto: number | null
+  // Stock
+  stockMinimo: number | null
+  stockMaximo: number | null
 }
 
 export interface CreateProductoDto {
   empresaId: number
-  codigo: string
+  codigo?: string
+  codigoBarras?: string
   nombre: string
   descripcion?: string
+  categoriaId?: number | null
   precioVenta: number
   precioCoste?: number
   ivaPorcentaje: number
   unidadMedida: string
-  categoriaId?: number
+  pesoUnitarioGr?: number
+  vidaUtilDias?: number
+  proveedorHabitual?: string
+  referencia?: string
+  fabricante?: string
+  descuentoPorDefecto?: number
+  stockMinimo?: number
+  stockMaximo?: number
+  requiereLote?: boolean
+  compartidoRepartidores?: boolean
+  activo?: boolean
+}
+
+/// Ingrediente asignado a un producto en el formulario de edición
+export interface ProductoIngredienteItem {
+  id: number
+  ingredienteId: number
+  nombre: string
+  cantidadGr: number | null
+  esPrincipal: boolean
+  esDirecto: boolean
+  alergenos: { alergenoId: number; nombre: string; codigo: string }[]
 }
 
 // ── Cliente ───────────────────────────────────────────────────────────────────
@@ -260,6 +304,7 @@ export interface AlbaranResumen {
   clienteNif: string | null
   total: number
   pedidoId: number | null
+  noRealizarFacturas: boolean
 }
 
 export interface AlbaranLinea {
@@ -281,13 +326,14 @@ export interface AlbaranDetalle {
   numeroAlbaran: string
   fecha: string
   estado: string
-  cliente: { id: number; nombre: string; nif: string | null }
+  cliente: { id: number; nombre: string; nif: string | null; noRealizarFacturas: boolean }
   subtotal: number
   ivaTotal: number
   total: number
   pedidoId: number | null
   notas: string | null
   lineas: AlbaranLinea[]
+  clienteNoRealizarFacturas: boolean
 }
 
 export interface CreateAlbaranItemDto {
@@ -315,6 +361,7 @@ export interface PedidoResumen {
   estado: string
   clienteNombre: string
   total: number
+  noRealizarFacturas: boolean
 }
 
 export interface PedidoLinea {
@@ -324,8 +371,10 @@ export interface PedidoLinea {
   precioUnitario: number
   descuento: number
   ivaPorcentaje: number
+  recargoEquivalenciaPorcentaje: number
   subtotal: number
   ivaImporte: number
+  recargoEquivalenciaImporte: number
 }
 
 export interface PedidoDetalle {
@@ -337,9 +386,12 @@ export interface PedidoDetalle {
   cliente: { id: number; nombre: string; nif: string | null }
   subtotal: number
   ivaTotal: number
+  recargoEquivalenciaTotal: number
+  retencionTotal: number
   total: number
   notas: string | null
   lineas: PedidoLinea[]
+  noRealizarFacturas: boolean
 }
 
 export interface CreatePedidoItemDto {
@@ -425,6 +477,42 @@ export interface FichaAlergenos {
 export interface ProductoIngredientesData {
   ingredientes: ProductoIngredienteLinea[]
   alergenosProducto: AlergenoRef[]
+}
+
+// ── Control de Materias Primas ────────────────────────────────────────────────
+export interface ControlMateriaPrima {
+  id: number
+  empresaId: number
+  fechaEntrada: string          // DateOnly → ISO string "YYYY-MM-DD"
+  ingredienteId: number | null
+  producto: string
+  unidades: number
+  fechaCaducidad: string | null
+  proveedor: string | null
+  lote: string | null
+  fechaAperturaLote: string | null
+  condicionesTransporte: boolean
+  mercanciaAceptada: boolean
+  responsable: string | null
+  fechaFinExistencia: string | null
+  observaciones: string | null
+  createdAt: string
+}
+
+export interface UpsertControlMateriaPrimaDto {
+  fechaEntrada: string
+  producto: string
+  unidades: number
+  ingredienteId: number | null
+  fechaCaducidad: string | null
+  proveedor: string | null
+  lote: string | null
+  fechaAperturaLote: string | null
+  condicionesTransporte: boolean
+  mercanciaAceptada: boolean
+  responsable: string | null
+  fechaFinExistencia: string | null
+  observaciones: string | null
 }
 
 // ── Trazabilidad directa ──────────────────────────────────────────────────────

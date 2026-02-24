@@ -33,6 +33,7 @@ public class UnitOfWork : IUnitOfWork
     private IRepository<IngredienteAlergeno>? _ingredienteAlergenos;
     private IRepository<ProductoIngrediente>? _productoIngredientes;
     private IRepository<Categoria>? _categorias;
+    private IRepository<ControlMateriaPrima>? _controlMatPrimas;
 
     public UnitOfWork(AppDbContext context) => _context = context;
 
@@ -54,6 +55,7 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<IngredienteAlergeno> IngredienteAlergenos => _ingredienteAlergenos ??= new Repository<IngredienteAlergeno>(_context);
     public IRepository<ProductoIngrediente> ProductoIngredientes => _productoIngredientes ??= new Repository<ProductoIngrediente>(_context);
     public IRepository<Categoria> Categorias => _categorias ??= new Repository<Categoria>(_context);
+    public IRepository<ControlMateriaPrima> ControlMatPrimas => _controlMatPrimas ??= new Repository<ControlMateriaPrima>(_context);
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)
         => await _context.SaveChangesAsync(ct);

@@ -28,6 +28,36 @@ public class ProduccionService : IProduccionService
         var producto = await _uow.Productos.GetByIdAsync(request.ProductoId, ct)
             ?? throw new EntidadNotFoundException(nameof(Producto), request.ProductoId);
 
+        // Si ya existe una producción Planificada/EnProceso para el mismo producto + lote + fecha,
+        // acumular la cantidad en ese único registro en lugar de crear uno nuevo.
+        // Si la existente está Finalizada, se crea un registro nuevo (Planificada) para que el
+        // usuario lo confirme y el sistema haga el merge al stock en FinalizarProduccionAsync.
+        if (!string.IsNullOrWhiteSpace(request.CodigoLoteSugerido))
+        {
+            var existente = await _uow.Producciones.GetPendienteMismoLoteAsync(
+                request.EmpresaId, request.ProductoId,
+                request.CodigoLoteSugerido.Trim(), request.FechaProduccion, ct);
+
+            if (existente != null)
+            {
+                existente.CantidadProducida += request.CantidadProducida;
+                existente.CantidadMerma     += request.CantidadMerma;
+                if (!string.IsNullOrWhiteSpace(request.Notas))
+                    existente.Notas = string.IsNullOrWhiteSpace(existente.Notas)
+                        ? request.Notas
+                        : existente.Notas + " | " + request.Notas;
+
+                await _uow.Producciones.UpdateAsync(existente, ct);
+                await _uow.SaveChangesAsync(ct);
+
+                _logger.LogInformation(
+                    "Producción ACUMULADA en id={ProduccionId}, +{Cantidad} (total={Total})",
+                    existente.Id, request.CantidadProducida, existente.CantidadProducida);
+
+                return new ProduccionCreada(existente.Id, null, null);
+            }
+        }
+
         var produccion = new Produccion
         {
             EmpresaId = request.EmpresaId,
@@ -39,6 +69,7 @@ public class ProduccionService : IProduccionService
             Estado = EstadoProduccion.Planificada,
             Notas = request.Notas,
             CodigoLoteSugerido = request.CodigoLoteSugerido,
+            FechaCaducidadSugerida = request.FechaCaducidadSugerida,
         };
 
         await _uow.Producciones.AddAsync(produccion, ct);
@@ -93,59 +124,141 @@ public class ProduccionService : IProduccionService
             // Obtener vida útil del producto para calcular caducidad
             var producto = await _uow.Productos.GetByIdAsync(produccion.ProductoId, ct)!;
 
-            DateOnly? fechaCaducidad = producto?.VidaUtilDias.HasValue == true
-                ? produccion.FechaProduccion.AddDays(producto.VidaUtilDias!.Value)
-                : null;
+            // Prioridad: fecha manual del usuario > calculada por VidaUtilDias del producto
+            DateOnly? fechaCaducidad = produccion.FechaCaducidadSugerida
+                ?? (producto?.VidaUtilDias.HasValue == true
+                    ? produccion.FechaProduccion.AddDays(producto.VidaUtilDias!.Value)
+                    : null);
 
             decimal cantidadNeta = produccion.CantidadNeta;
 
-            // Crear lote
-            var lote = new Lote
+            // Comprobar si ya existe un lote con ese código para el mismo producto (caso: segunda tanda del día).
+            var lotesProducto = await _uow.Lotes.GetByProductoAsync(empresaId, produccion.ProductoId, ct);
+            var loteExistente = lotesProducto.FirstOrDefault(l => l.CodigoLote == codigoLote);
+
+            if (loteExistente != null)
             {
-                EmpresaId = empresaId,
-                ProductoId = produccion.ProductoId,
-                ProduccionId = produccionId,
-                CodigoLote = codigoLote,
-                FechaFabricacion = produccion.FechaProduccion,
-                FechaCaducidad = fechaCaducidad,
-                CantidadInicial = cantidadNeta
-            };
+                // ── MODO MERGE: sumar al lote ya existente ──────────────────────
+                loteExistente.CantidadInicial += cantidadNeta;
+                await _uow.Lotes.UpdateAsync(loteExistente, ct);
 
-            await _uow.Lotes.AddAsync(lote, ct);
-            await _uow.SaveChangesAsync(ct);  // Necesitamos el ID del lote
+                var stockExistente = await _uow.Stock.GetByProductoLoteAsync(
+                    empresaId, produccion.ProductoId, loteExistente.Id, ct);
 
-            // Crear stock para el nuevo lote
-            var stock = new Stock
+                if (stockExistente != null)
+                {
+                    decimal cantidadAntes = stockExistente.CantidadDisponible;
+                    stockExistente.CantidadDisponible += cantidadNeta;
+                    await _uow.Stock.UpdateAsync(stockExistente, ct);
+
+                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    {
+                        EmpresaId = empresaId,
+                        ProductoId = produccion.ProductoId,
+                        LoteId = loteExistente.Id,
+                        Tipo = TipoMovimientoStock.EntradaProduccion,
+                        Cantidad = cantidadNeta,
+                        CantidadAntes = cantidadAntes,
+                        CantidadDespues = cantidadAntes + cantidadNeta,
+                        ReferenciaTipo = "produccion",
+                        ReferenciaId = produccionId,
+                        UsuarioId = usuarioId
+                    }, ct);
+                }
+                else
+                {
+                    // Stock no existe para el lote (caso raro); crearlo
+                    await _uow.Stock.AddAsync(new Stock
+                    {
+                        EmpresaId = empresaId,
+                        ProductoId = produccion.ProductoId,
+                        LoteId = loteExistente.Id,
+                        CantidadDisponible = cantidadNeta,
+                        CantidadReservada = 0
+                    }, ct);
+
+                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    {
+                        EmpresaId = empresaId,
+                        ProductoId = produccion.ProductoId,
+                        LoteId = loteExistente.Id,
+                        Tipo = TipoMovimientoStock.EntradaProduccion,
+                        Cantidad = cantidadNeta,
+                        CantidadAntes = 0,
+                        CantidadDespues = cantidadNeta,
+                        ReferenciaTipo = "produccion",
+                        ReferenciaId = produccionId,
+                        UsuarioId = usuarioId
+                    }, ct);
+                }
+
+                // ── Fusionar el registro de Produccion en el original Finalizado ──
+                var produccionOriginal = await _uow.Producciones.GetFinalizadaMismoLoteAsync(
+                    empresaId, produccion.ProductoId, codigoLote, produccionId, ct);
+
+                if (produccionOriginal != null)
+                {
+                    produccionOriginal.CantidadProducida += produccion.CantidadProducida;
+                    produccionOriginal.CantidadMerma     += produccion.CantidadMerma;
+                    if (produccionOriginal.Notas is null && produccion.Notas is not null)
+                        produccionOriginal.Notas = produccion.Notas;
+                    await _uow.Producciones.UpdateAsync(produccionOriginal, ct);
+                    await _uow.Producciones.DeleteAsync(produccion, ct);
+                    _logger.LogInformation("Producción {ProduccionId} absorbida en {OriginalId} (MERGE). Lote: {CodigoLote} +{Cantidad} und.",
+                        produccionId, produccionOriginal.Id, codigoLote, cantidadNeta);
+                }
+                else
+                {
+                    _logger.LogInformation("Producción {ProduccionId} finalizada (MERGE). Lote existente: {CodigoLote} +{Cantidad} und.",
+                        produccionId, codigoLote, cantidadNeta);
+                }
+            }
+            else
             {
-                EmpresaId = empresaId,
-                ProductoId = produccion.ProductoId,
-                LoteId = lote.Id,
-                CantidadDisponible = cantidadNeta,
-                CantidadReservada = 0
-            };
+                // ── MODO CREACIÓN: nuevo lote + stock ───────────────────────────
+                var lote = new Lote
+                {
+                    EmpresaId = empresaId,
+                    ProductoId = produccion.ProductoId,
+                    ProduccionId = produccionId,
+                    CodigoLote = codigoLote,
+                    FechaFabricacion = produccion.FechaProduccion,
+                    FechaCaducidad = fechaCaducidad,
+                    CantidadInicial = cantidadNeta
+                };
 
-            await _uow.Stock.AddAsync(stock, ct);
+                await _uow.Lotes.AddAsync(lote, ct);
+                await _uow.SaveChangesAsync(ct);  // Necesitamos el ID del lote
 
-            // Movimiento de stock
-            await _uow.MovimientosStock.AddAsync(new MovimientoStock
-            {
-                EmpresaId = empresaId,
-                ProductoId = produccion.ProductoId,
-                LoteId = lote.Id,
-                Tipo = TipoMovimientoStock.EntradaProduccion,
-                Cantidad = cantidadNeta,
-                CantidadAntes = 0,
-                CantidadDespues = cantidadNeta,
-                ReferenciaTipo = "produccion",
-                ReferenciaId = produccionId,
-                UsuarioId = usuarioId
-            }, ct);
+                await _uow.Stock.AddAsync(new Stock
+                {
+                    EmpresaId = empresaId,
+                    ProductoId = produccion.ProductoId,
+                    LoteId = lote.Id,
+                    CantidadDisponible = cantidadNeta,
+                    CantidadReservada = 0
+                }, ct);
+
+                await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                {
+                    EmpresaId = empresaId,
+                    ProductoId = produccion.ProductoId,
+                    LoteId = lote.Id,
+                    Tipo = TipoMovimientoStock.EntradaProduccion,
+                    Cantidad = cantidadNeta,
+                    CantidadAntes = 0,
+                    CantidadDespues = cantidadNeta,
+                    ReferenciaTipo = "produccion",
+                    ReferenciaId = produccionId,
+                    UsuarioId = usuarioId
+                }, ct);
+
+                _logger.LogInformation("Producción {ProduccionId} finalizada. Lote nuevo: {CodigoLote} ({Cantidad} und.)",
+                    produccionId, codigoLote, cantidadNeta);
+            }
 
             await _uow.SaveChangesAsync(ct);
             await _uow.CommitTransactionAsync(ct);
-
-            _logger.LogInformation("Producción {ProduccionId} finalizada. Lote generado: {CodigoLote} ({Cantidad} und.)",
-                produccionId, codigoLote, cantidadNeta);
         }
         catch
         {

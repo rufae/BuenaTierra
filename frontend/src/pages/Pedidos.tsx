@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
-import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, Producto } from '../types'
-import { Plus, X, Loader2, Check, ChevronDown, ChevronUp } from 'lucide-react'
+import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, Producto, SerieFacturacion } from '../types'
+import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { fmtDate } from '../lib/dates'
+import { DateInput } from '../components/DateInput'
 
 const ESTADO_COLOR: Record<string, string> = {
   Pendiente: 'bg-amber-50 text-amber-700 border border-amber-200',
@@ -23,6 +25,11 @@ export default function Pedidos() {
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [notas, setNotas] = useState('')
   const [items, setItems] = useState<ItemForm[]>([{ productoId: 0, cantidad: 1 }])
+
+  // Modal: crear factura desde pedido
+  const [showFacturaPedido, setShowFacturaPedido] = useState<number | null>(null)
+  const [seriePedidoFactura, setSeriePedidoFactura] = useState('')
+  const [esSimplificadaPedido, setEsSimplificadaPedido] = useState(false)
 
   const { data: pedidos, isLoading } = useQuery({
     queryKey: ['pedidos'],
@@ -45,6 +52,11 @@ export default function Pedidos() {
     queryFn: async () => (await api.get<{ data: Producto[] }>('/productos')).data.data,
   })
 
+  const { data: series } = useQuery({
+    queryKey: ['series'],
+    queryFn: async () => (await api.get<{ data: SerieFacturacion[] }>('/series')).data.data,
+  })
+
   const crearMutation = useMutation({
     mutationFn: (dto: CreatePedidoDto) => api.post('/pedidos/crear', dto),
     onSuccess: () => {
@@ -65,6 +77,30 @@ export default function Pedidos() {
     mutationFn: (id: number) => api.post(`/pedidos/${id}/cancelar`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pedidos'] }); toast.success('Pedido cancelado') },
     onError: () => toast.error('Error al cancelar'),
+  })
+
+  const crearAlbaranMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/pedidos/${id}/crear-albaran`, {}),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['pedidos'] })
+      qc.invalidateQueries({ queryKey: ['albaranes'] })
+      const num = (res.data as any)?.data?.numeroAlbaran ?? ''
+      toast.success(`Albarán ${num} creado con lotes FIFO asignados`)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al crear albarán'),
+  })
+
+  const crearFacturaMutation = useMutation({
+    mutationFn: ({ id, serieId, esSimplificada }: { id: number; serieId: number; esSimplificada: boolean }) =>
+      api.post(`/pedidos/${id}/crear-factura`, { serieId, esSimplificada }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['pedidos'] })
+      qc.invalidateQueries({ queryKey: ['facturas'] })
+      const num = (res.data as any)?.data?.numeroFactura ?? ''
+      toast.success(`Factura ${num} generada correctamente`)
+      setShowFacturaPedido(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? e.response?.data?.message ?? 'Error al crear factura'),
   })
 
   function resetForm() { setShowForm(false); setClienteId(''); setFechaEntrega(''); setNotas(''); setItems([{ productoId: 0, cantidad: 1 }]) }
@@ -136,8 +172,8 @@ export default function Pedidos() {
                 <React.Fragment key={p.id}>
                   <tr className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{p.numeroPedido}</td>
-                    <td className="px-4 py-3 text-gray-600">{new Date(p.fecha).toLocaleDateString('es-ES')}</td>
-                    <td className="px-4 py-3 text-gray-500">{p.fechaEntrega ? new Date(p.fechaEntrega).toLocaleDateString('es-ES') : '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{fmtDate(p.fecha)}</td>
+                    <td className="px-4 py-3 text-gray-500">{fmtDate(p.fechaEntrega)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${ESTADO_COLOR[p.estado] ?? 'bg-gray-100 text-gray-600'}`}>{p.estado}</span>
                     </td>
@@ -151,6 +187,22 @@ export default function Pedidos() {
                         {p.estado === 'Pendiente' && (
                           <button onClick={() => confirmarMutation.mutate(p.id)} className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
                             <Check className="w-3 h-3" /> Confirmar
+                          </button>
+                        )}
+                        {p.estado === 'Confirmado' && (
+                          <button
+                            onClick={() => crearAlbaranMutation.mutate(p.id)}
+                            disabled={crearAlbaranMutation.isPending}
+                            className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 disabled:opacity-50">
+                            {crearAlbaranMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ClipboardList className="w-3 h-3" />}
+                            Albarán
+                          </button>
+                        )}
+                        {p.estado === 'Confirmado' && !p.noRealizarFacturas && (
+                          <button
+                            onClick={() => { setShowFacturaPedido(p.id); setSeriePedidoFactura(''); setEsSimplificadaPedido(false) }}
+                            className="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
+                            <FileText className="w-3 h-3" /> Factura
                           </button>
                         )}
                         {p.estado !== 'Cancelado' && p.estado !== 'Servido' && (
@@ -179,9 +231,9 @@ export default function Pedidos() {
                               <tr key={i} className="border-t border-blue-100">
                                 <td className="py-1 pr-4 font-medium">{l.productoNombre}</td>
                                 <td className="py-1 pr-4 text-right">{l.cantidad}</td>
-                                <td className="py-1 pr-4 text-right">{l.precioUnitario.toFixed(4)} €</td>
+                                <td className="py-1 pr-4 text-right">{l.precioUnitario.toFixed(2)} €</td>
                                 <td className="py-1 pr-4 text-right">{l.descuento}%</td>
-                                <td className="py-1 text-right font-bold">{(l.subtotal + l.ivaImporte).toFixed(2)} €</td>
+                                <td className="py-1 text-right font-bold">{(l.subtotal + l.ivaImporte + (l.recargoEquivalenciaImporte ?? 0)).toFixed(2)} €</td>
                               </tr>
                             ))}
                           </tbody>
@@ -189,6 +241,12 @@ export default function Pedidos() {
                         <div className="flex justify-end gap-6 mt-2 pt-2 border-t border-blue-200 text-xs">
                           <span>Base: <b>{detalle.subtotal.toFixed(2)} €</b></span>
                           <span>IVA: <b>{detalle.ivaTotal.toFixed(2)} €</b></span>
+                          {(detalle.recargoEquivalenciaTotal ?? 0) > 0 && (
+                            <span>R.Eq.: <b>{detalle.recargoEquivalenciaTotal.toFixed(2)} €</b></span>
+                          )}
+                          {(detalle.retencionTotal ?? 0) > 0 && (
+                            <span className="text-red-600">Retención: <b>-{detalle.retencionTotal.toFixed(2)} €</b></span>
+                          )}
                           <span className="font-bold text-brand-700">TOTAL: {detalle.total.toFixed(2)} €</span>
                         </div>
                         {detalle.notas && <p className="text-xs text-gray-500 mt-2 italic">Notas: {detalle.notas}</p>}
@@ -222,8 +280,7 @@ export default function Pedidos() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Fecha entrega prevista</label>
-                    <input type="date" value={fechaEntrega} onChange={e => setFechaEntrega(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
+                    <DateInput value={fechaEntrega} onChange={setFechaEntrega} className="w-full" />
                   </div>
                 </div>
                 <div>
@@ -262,6 +319,41 @@ export default function Pedidos() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Crear factura desde pedido */}
+      {showFacturaPedido !== null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="text-base font-bold text-gray-900 mb-1">Generar factura desde pedido</h2>
+            <p className="text-xs text-gray-500 mb-4">Se asignarán lotes FIFO automáticamente.</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Serie de facturación *</label>
+                <select value={seriePedidoFactura} onChange={e => setSeriePedidoFactura(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                  <option value="">Seleccionar serie…</option>
+                  {(series ?? []).filter(s => s.activa).map(s => (
+                    <option key={s.id} value={s.id}>{s.codigo}{s.descripcion ? ` — ${s.descripcion}` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input type="checkbox" checked={esSimplificadaPedido} onChange={e => setEsSimplificadaPedido(e.target.checked)} className="rounded" />
+                Factura simplificada (sin datos cliente)
+              </label>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setShowFacturaPedido(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
+              <button
+                disabled={!seriePedidoFactura || crearFacturaMutation.isPending}
+                onClick={() => crearFacturaMutation.mutate({ id: showFacturaPedido!, serieId: +seriePedidoFactura, esSimplificada: esSimplificadaPedido })}
+                className="flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-brand-700">
+                {crearFacturaMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                Generar factura
+              </button>
             </div>
           </div>
         </div>

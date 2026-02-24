@@ -10,6 +10,7 @@ import type {
 import { Plus, Pencil, X, Loader2, Trash2, AlertCircle, Search, ChevronUp, ChevronDown, ChevronsUpDown, FilterX } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Swal from 'sweetalert2'
+import { DateInput } from '../components/DateInput'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -841,11 +842,10 @@ export default function Clientes() {
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de alta</label>
                           {editing ? (
-                            <input
-                              type="date"
+                            <DateInput
                               value={form.fechaAlta ?? ''}
-                              onChange={e => s('fechaAlta', e.target.value || null)}
-                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                              onChange={v => s('fechaAlta', v || null)}
+                              className="w-full"
                             />
                           ) : (
                             <div className="w-full border border-dashed border-gray-300 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-500">

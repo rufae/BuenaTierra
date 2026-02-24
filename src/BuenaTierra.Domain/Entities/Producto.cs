@@ -22,6 +22,15 @@ public class Producto : TenantEntity
     public bool Activo { get; set; } = true;
     public string? ImagenUrl { get; set; }
 
+    // Campos comerciales del cliente
+    public string? CodigoBarras { get; set; }
+    public string? ProveedorHabitual { get; set; }
+    public string? Referencia { get; set; }          // Referencia en el proveedor
+    public string? Fabricante { get; set; }
+    public decimal? DescuentoPorDefecto { get; set; } // % descuento por defecto
+    public decimal? StockMinimo { get; set; }
+    public decimal? StockMaximo { get; set; }
+
     // Navegación
     public virtual Empresa Empresa { get; set; } = null!;
     public virtual Categoria? Categoria { get; set; }

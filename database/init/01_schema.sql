@@ -165,6 +165,14 @@ CREATE TABLE IF NOT EXISTS productos (
     compartido_repartidores BOOLEAN NOT NULL DEFAULT TRUE,
     activo              BOOLEAN NOT NULL DEFAULT TRUE,
     imagen_url          VARCHAR(500),
+    -- Campos comerciales del cliente (campos.json)
+    codigo_barras       VARCHAR(100),
+    proveedor_habitual  VARCHAR(200),
+    referencia          VARCHAR(100),
+    fabricante          VARCHAR(200),
+    descuento_por_defecto NUMERIC(5,2),
+    stock_minimo        NUMERIC(10,3),
+    stock_maximo        NUMERIC(10,3),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, codigo)
@@ -354,6 +362,8 @@ CREATE TABLE IF NOT EXISTS albaranes (
     subtotal        NUMERIC(12,4) DEFAULT 0,
     descuento_total NUMERIC(12,4) DEFAULT 0,
     iva_total       NUMERIC(12,4) DEFAULT 0,
+    recargo_equivalencia_total NUMERIC(12,4) DEFAULT 0,
+    retencion_total NUMERIC(12,4) DEFAULT 0,
     total           NUMERIC(12,4) DEFAULT 0,
     notas           TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -377,6 +387,7 @@ CREATE TABLE IF NOT EXISTS albaranes_lineas (
     precio_unitario NUMERIC(10,4) NOT NULL,
     descuento       NUMERIC(5,2) DEFAULT 0,
     iva_porcentaje  NUMERIC(5,2) NOT NULL DEFAULT 10,
+    recargo_equivalencia_porcentaje NUMERIC(5,2) DEFAULT 0,
     subtotal        NUMERIC(12,4) GENERATED ALWAYS AS (ROUND(cantidad * precio_unitario * (1 - descuento/100), 4)) STORED,
     orden           SMALLINT DEFAULT 0
 );
@@ -404,6 +415,8 @@ CREATE TABLE IF NOT EXISTS facturas (
     base_imponible  NUMERIC(12,4) NOT NULL DEFAULT 0,
     iva_desglose    JSONB DEFAULT '[]',
     iva_total       NUMERIC(12,4) NOT NULL DEFAULT 0,
+    recargo_equivalencia_total NUMERIC(12,4) NOT NULL DEFAULT 0,
+    retencion_total NUMERIC(12,4) NOT NULL DEFAULT 0,
     total           NUMERIC(12,4) NOT NULL DEFAULT 0,
     pdf_url         VARCHAR(500),
     notas           TEXT,
@@ -430,6 +443,7 @@ CREATE TABLE IF NOT EXISTS facturas_lineas (
     precio_unitario NUMERIC(10,4) NOT NULL,
     descuento       NUMERIC(5,2) DEFAULT 0,
     iva_porcentaje  NUMERIC(5,2) NOT NULL DEFAULT 10,
+    recargo_equivalencia_porcentaje NUMERIC(5,2) DEFAULT 0,
     subtotal        NUMERIC(12,4) GENERATED ALWAYS AS (ROUND(cantidad * precio_unitario * (1 - descuento/100), 4)) STORED,
     iva_importe     NUMERIC(12,4) GENERATED ALWAYS AS (ROUND(cantidad * precio_unitario * (1 - descuento/100) * iva_porcentaje / 100, 4)) STORED,
     orden           SMALLINT DEFAULT 0

@@ -147,6 +147,8 @@ public class CrearProduccionRequest
     public string? Notas { get; set; }
     /// <summary>Código de lote sugerido por el usuario (ej: 20022026). Se usará al Finalizar producción. Si null, se autogenera como ddMMyyyy.</summary>
     public string? CodigoLoteSugerido { get; set; }
+    /// <summary>Fecha de caducidad manual (opcional). Tiene prioridad sobre el cálculo por VidaUtilDias del producto.</summary>
+    public DateOnly? FechaCaducidadSugerida { get; set; }
 }
 
 public record ProduccionCreada(int ProduccionId, int? LoteId, string? CodigoLote);
