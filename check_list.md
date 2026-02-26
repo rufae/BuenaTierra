@@ -1,7 +1,7 @@
 # CHECKLIST DE DESARROLLO - SISTEMA BUENATIERRA
 
-> **Última actualización:** 23 Junio 2025  
-> **Estado general:** MVP Backend + Frontend completado ✅ | PDF + Excel ✅ | Albaranes + Pedidos + Lotes + Trazabilidad ✅ | Dashboard KPIs reales ✅ | Módulo Repartidor POS ✅ | Navegación por rol ✅ | Informes y Analytics ✅ | Ingredientes & Alérgenos (CE 1169/2011) ✅ | Trazabilidad directa ✅ | Export Excel ✅ | Trazabilidad 3 tabs + Recall ✅ | Gestión de usuarios (Admin) ✅ | Rotación FIFO Analytics ✅ | Dashboard Multi-Tab ✅ | Performance (Cache + Pool + Índices) ✅ | Atajos de teclado ✅ | Responsive Mobile ✅ | Tests xUnit 23/23 ✅ | Docs completa ✅ | Lote auto-fill ddMMyyyy ✅ | Alérgenos en Productos (selector) ✅ | Botones PDF/Excel Facturación ✅ | APP_ESCRITORIO.md ✅
+> **Última actualización:** 26 Febrero 2026 (2) — MODELO_NEGOCIO_NUEVO.md  
+> **Estado general:** MVP Backend + Frontend completado ✅ | PDF + Excel ✅ | Albaranes + Pedidos + Lotes + Trazabilidad ✅ | Dashboard KPIs reales ✅ | Módulo Repartidor POS ✅ | Navegación por rol ✅ | Informes y Analytics ✅ | Ingredientes & Alérgenos (CE 1169/2011) ✅ | Trazabilidad directa ✅ | Export Excel ✅ | Trazabilidad 3 tabs + Recall ✅ | Gestión de usuarios (Admin) ✅ | Rotación FIFO Analytics ✅ | Dashboard Multi-Tab ✅ | Performance (Cache + Pool + Índices) ✅ | Atajos de teclado ✅ | Responsive Mobile ✅ | Tests xUnit 23/23 ✅ | Docs completa ✅ | Lote auto-fill ddMMyyyy ✅ | Alérgenos en Productos (selector) ✅ | Botones PDF/Excel Facturación ✅ | APP_ESCRITORIO.md ✅ | Gobernanza del repositorio ✅
 
 ---
 
@@ -212,21 +212,148 @@
 ## FASE 6: DESPLIEGUE Y PRODUCCIÓN
 
 ### Despliegue
-- [ ] Instalación en servidor de producción
-- [ ] Configuración de seguridad
+- [ ] Instalación en servidor de producción (INF-04)
+- [ ] Configuración de red y firewall (INF-01)
+- [ ] Configuración de seguridad (variables entorno, HTTPS, nginx)
+- [ ] Backup automático PostgreSQL antes del despliegue (INF-02)
 - [ ] Migración de datos (si aplica)
-- [ ] Pruebas en producción
-- [ ] Plan de rollback
+- [ ] Pruebas en producción / smoke tests (INF-05)
+- [ ] Plan de rollback documentado y probado (INF-06)
 
 ### Formación
-- [ ] Formación a usuarios de oficina
-- [ ] Formación a repartidores
-- [ ] Material de soporte
+- [ ] Formación a usuarios de oficina (FOR-01)
+- [ ] Formación a repartidores — flujo POS completo (FOR-02)
+- [ ] Material de soporte: FAQ + vídeos cortos (FOR-03)
+- [ ] Canal de soporte activo (FOR-04)
 
-### Mantenimiento
-- [ ] Plan de mantenimiento continuo
-- [ ] Sistema de tickets/soporte
-- [ ] Procedimientos de actualización
+### Mantenimiento Post-Despliegue
+- [ ] Plan de mantenimiento continuo y SLA (FOR-05)
+- [ ] Sistema de tickets/soporte operativo
+- [ ] Procedimientos de actualización documentados (DOC-02)
+- [ ] Manual de mantenimiento técnico (DOC-01)
+- [ ] Monitorización básica activa (INF-03)
+
+---
+
+## FASE 6C: GOBERNANZA DEL REPOSITORIO ✅ COMPLETADO (26 Feb 2026)
+
+### Sistema de Gobierno AI
+- [x] `tasks/todo.md` — plan activo de sesión (agent-rules.md operativo)
+- [x] `tasks/lessons.md` — bucle de auto-mejora con 2 lecciones iniciales + reglas activas
+- [x] `tasks/backlog.md` — 25 ítems clasificados P1-P4 con esfuerzo estimado
+- [x] `tasks/decisions/` — 4 ADRs: Clean Architecture, FIFO lotes, EF snake_case, QuestPDF
+- [x] `.github/memory/context.md` — snapshot completo del sistema (stack, módulos, endpoints, DB)
+- [x] `.github/memory/known-issues.md` — 4 issues activos con workaround documentado
+- [x] `governance/CHANGELOG.md` — historial versionado retroactivo v0.1→v0.9
+- [x] `governance/debt.md` — 8 deudas técnicas clasificadas por impacto/urgencia/esfuerzo
+- [x] `governance/quality-gates.md` — 7 criterios de "done" diferenciados por tipo de tarea
+- [x] `agent-rules.md` corregido — formato limpio, backticks cerrados, orden lógico de secciones
+- [x] `docs/MODELO_NEGOCIO_NUEVO.md` — modelo de negocio completo (13 fases, del ingrediente al cliente final)
+
+---
+
+## FASE 7: TRAZABILIDAD FÍSICA — BLISTERS Y CAJAS MIXTAS
+
+> **Problema identificado (26 Feb 2026):**
+> El repartidor entrega cajas con 3 blisters. Una caja puede contener blisters de **diferentes lotes**.
+> La etiqueta física del blister tiene un código de barras de tienda pero **no identifica el lote** de forma escaneable.
+> El sistema FIFO ya calcula qué lotes componen cada pedido, pero no hay puente entre el cálculo digital y el picking físico.
+> Objetivo: solución **rápida, automática y eficiente** sin escritura manual. Ver análisis completo en `tasks/decisions/ADR-005-trazabilidad-blisters.md`.
+
+### Investigación y Diseño (PENDIENTE)
+- [ ] Confirmar con el cliente: ¿las cajas se empacan mezclando lotes deliberadamente o es ocasional?
+- [ ] Verificar si las etiquetas actuales cumplen CE 178/2002 Art.18 (lote en etiqueta es requisito legal)
+- [ ] Confirmar el flujo físico: obrador empaca cajas → repartidor recoge cajas → entrega al cliente
+- [ ] Crear ADR-005 con la decisión de solución tras el análisis
+- [ ] Diseñar modelo de datos para trazabilidad a nivel de caja/blíster (si aplica)
+
+### Opción A — Disciplina de Empaquetado + Instrucción de Picking (Coste cero, impacto inmediato)
+- [ ] Definir regla operativa: una caja = un lote siempre que sea posible
+- [ ] Añadir pantalla "Preparación de reparto" en POS del repartidor
+  - [ ] Al crear albarán/factura, mostrar desglose: "Prepara: 3 blisters Lote 010226 + 2 blisters Lote 020226"
+  - [ ] Instrucción de picking generada automáticamente desde el FIFO existente
+  - [ ] El repartidor confirma preparación → queda registrado en el albarán
+- [ ] Backend: endpoint `GET /api/albaranes/{id}/instruccion-picking` — devuelve desglose lote/cantidad
+- [ ] Frontend: componente `PickingInstruccion` en vista de albarán repartidor
+
+### Opción B — Lote visible en etiqueta física (Cumplimiento legal + trazabilidad física)
+- [ ] Modificar plantilla de etiqueta para incluir número de lote (ddMMyyyy) en texto legible
+- [ ] Evaluar añadir código QR al blister con: `{productoId}|{loteId}|{fechaProduccion}|{caducidad}`
+- [ ] Si hay QR en blister: implementar endpoint `GET /api/lotes/scan/{qrCode}` — devuelve info completa
+- [ ] Integrar escáner de cámara en app móvil/tablet del repartidor (WebRTC o app nativa)
+
+### Opción C — Trazabilidad de caja como unidad logística (Solución completa, mayor inversión)
+- [ ] Diseñar entidad `CajaLogistica` (id, lote_lineas[{loteId, cantidad}], estado, destinatario)
+- [ ] Flujo: obrador empaca caja → registra composición → asigna a repartidor
+- [ ] Repartidor escanea caja al entregar → sistema registra caja→cliente
+- [ ] Migración DB + endpoints + UI para gestión de cajas
+- [ ] Generación de etiqueta de caja con QR propio
+
+### Testing Trazabilidad Física
+- [ ] Test: split correcto de picking instruction desde FIFO (unitario)
+- [ ] Test: escenario caja mixta — la instrucción muestra ambos lotes
+- [ ] Test: escenario lote agotado en mitad de caja — continúa con siguiente lote
+
+---
+
+## FASE 8: TESTING COMPLETO
+
+### Tests de Integración (BD real)
+- [ ] Configurar `WebApplicationFactory` + PostgreSQL de test en Docker (TST-01)
+- [ ] Tests de integración: flujo completo crear albarán → convertir factura → verificar stock
+- [ ] Tests de integración: FIFO — pedido con múltiples lotes genera split correcto
+- [ ] Tests de integración: trazabilidad — recall de ingrediente devuelve clientes correctos
+- [ ] Tests de integración: autenticación y autorización por rol
+
+### Tests E2E (Playwright)
+- [ ] Configurar Playwright en `tests/` (TST-02)
+- [ ] E2E: flujo obrador (crear cliente → producto → producción → albarán → factura)
+- [ ] E2E: flujo repartidor POS (seleccionar productos → generar factura → descargar PDF)
+- [ ] E2E: flujo trazabilidad (buscar ingrediente → recall → exportar Excel)
+
+### Tests de Carga
+- [ ] Configurar k6 (TST-03)
+- [ ] Escenario: 10 repartidores concurrentes creando facturas simultáneamente
+- [ ] Escenario: FIFO bajo concurrencia (no oversell de lotes)
+
+### Tests de Seguridad
+- [ ] OWASP ZAP baseline scan (TST-04)
+- [ ] Verificar que endpoints de Admin no son accesibles con rol Obrador/Repartidor
+- [ ] Verificar que el repartidor no puede acceder a datos de otro repartidor
+
+---
+
+## FASE 9: MEJORAS TÉCNICAS Y DEUDA
+
+### Deuda Técnica Prioritaria
+- [ ] Corregir `HasCheckConstraint` API obsoleta en EF Core 9 (DT-004 / KI-001)
+- [ ] Implementar tabla `audit_log` para trazabilidad de accesos (DT-007 / NEW-03)
+- [ ] CI/CD pipeline GitHub Actions: build + test + docker push (DT-003 / NEW-01)
+- [ ] Health check endpoint expuesto en UI de administración (NEW-02)
+- [ ] Redirigir `api_err.txt` / `api_out.txt` a `.gitignore` o `tasks/logs/` (DT-008 / KI-003)
+
+### Performance Avanzada
+- [ ] Particionado de tablas históricas (movimientos_stock) cuando >1M filas (INF-07)
+- [ ] Evaluar FEFO como alternativa/complemento a FIFO para productos con caducidad variable (DT-006)
+
+### Exportación PDF
+- [ ] Evaluar PDF/A para archivo legal de facturas (NEW-05)
+
+---
+
+## FASE 10: INTEGRACIONES EXTERNAS
+
+### Contabilidad y AEAT
+- [ ] Definir formato de salida para integración contable (A3, ContaPlus, etc.) (INT-01)
+- [ ] Módulo SII (Suministro Inmediato de Información) — declaración IVA online AEAT (INT-02)
+- [ ] Certificado digital para SII (Clase 2 o sello de empresa)
+- [ ] API pública con autenticación OAuth2 / API key para integraciones externas (INT-03)
+- [ ] Exportación XML EDICOM / CSV AEAT (INT-04)
+
+### Escalabilidad Multi-Empresa
+- [ ] Evaluación de arquitectura multi-tenant (ESC-01)
+- [ ] Sistema de configuración por obrador (ESC-03)
+- [ ] Replicación de base de datos para alta disponibilidad (INF-08)
 
 ---
 
