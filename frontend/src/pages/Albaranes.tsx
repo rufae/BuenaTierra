@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { AlbaranResumen, AlbaranDetalle, CreateAlbaranDto, Cliente, Producto, SerieFacturacion } from '../types'
-import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp, Download } from 'lucide-react'
+import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp, Download, Package } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 
@@ -23,6 +23,7 @@ export default function Albaranes() {
   const [showConvertir, setShowConvertir] = useState<number | null>(null)
   const [serieConvertir, setSerieConvertir] = useState('')
   const [esSimplificada, setEsSimplificada] = useState(false)
+  const [pickingOpen, setPickingOpen] = useState<number | null>(null)
 
   const [clienteId, setClienteId] = useState('')
   const [notas, setNotas] = useState('')
@@ -43,6 +44,16 @@ export default function Albaranes() {
       return res.data.data
     },
     enabled: detailOpen !== null,
+  })
+
+  const { data: pickingDetalle, isFetching: pickingLoading } = useQuery({
+    queryKey: ['albaran-picking', pickingOpen],
+    queryFn: async () => {
+      const res = await api.get<{ data: AlbaranDetalle }>(`/albaranes/${pickingOpen}`)
+      return res.data.data
+    },
+    enabled: pickingOpen !== null,
+    staleTime: 30_000,
   })
 
   const { data: clientes } = useQuery({
@@ -189,6 +200,12 @@ export default function Albaranes() {
                           className="text-xs text-gray-600 hover:text-gray-800 flex items-center gap-1">
                           <Download className="w-3 h-3" /> PDF
                         </button>
+                        <button
+                          onClick={() => setPickingOpen(a.id)}
+                          title="Ver instrucción de picking (lotes a preparar)"
+                          className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1">
+                          <Package className="w-3 h-3" /> Picking
+                        </button>
                         {a.estado === 'Pendiente' && (
                           <button onClick={() => entregarMutation.mutate(a.id)} className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
                             <Truck className="w-3 h-3" /> Entregar
@@ -314,6 +331,93 @@ export default function Albaranes() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Instrucción de picking */}
+      {pickingOpen !== null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Package className="w-5 h-5 text-purple-600" />
+                  <div>
+                    <h2 className="text-base font-bold text-gray-900">Instrucción de picking</h2>
+                    {pickingDetalle && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {pickingDetalle.numeroAlbaran} — {pickingDetalle.cliente.nombre} — {pickingDetalle.fecha}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button onClick={() => setPickingOpen(null)}>
+                  <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 p-5">
+              {pickingLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
+                </div>
+              )}
+              {!pickingLoading && pickingDetalle && (() => {
+                const grupos = Object.entries(
+                  (pickingDetalle.lineas ?? []).reduce<Record<string, typeof pickingDetalle.lineas>>((acc, l) => {
+                    const k = l.productoNombre; if (!acc[k]) acc[k] = []; acc[k].push(l); return acc
+                  }, {})
+                )
+                return (
+                  <div className="space-y-3">
+                    {grupos.map(([producto, lineas]) => {
+                      const total = lineas.reduce((s, l) => s + l.cantidad, 0)
+                      return (
+                        <div key={producto} className="border border-gray-200 rounded-xl overflow-hidden">
+                          <div className="flex items-center justify-between bg-purple-50 px-4 py-2 border-b border-purple-100">
+                            <div className="flex items-center gap-2">
+                              <Package className="w-4 h-4 text-purple-500" />
+                              <span className="font-semibold text-sm text-gray-900">{producto}</span>
+                            </div>
+                            <span className="text-xs font-bold bg-purple-600 text-white px-2.5 py-0.5 rounded-full">
+                              {total} uds
+                            </span>
+                          </div>
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50">
+                              <tr className="text-gray-500 text-left">
+                                <th className="px-4 py-2 font-medium">Lote</th>
+                                <th className="px-4 py-2 font-medium">F. Fabricación</th>
+                                <th className="px-4 py-2 font-medium">F. Caducidad</th>
+                                <th className="px-4 py-2 font-medium text-right">Cantidad</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {lineas.map((l, i) => (
+                                <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                                  <td className="px-4 py-2 font-mono font-semibold text-gray-800">{l.codigoLote ?? '—'}</td>
+                                  <td className="px-4 py-2 text-gray-600">{fmtDate(l.fechaFabricacion) ?? '—'}</td>
+                                  <td className="px-4 py-2 text-gray-600">{fmtDate(l.fechaCaducidad) ?? '—'}</td>
+                                  <td className="px-4 py-2 text-right font-bold text-purple-700">{l.cantidad} uds</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+            <div className="flex justify-end p-4 border-t border-gray-100">
+              <button
+                onClick={() => setPickingOpen(null)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg">
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
