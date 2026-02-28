@@ -38,6 +38,11 @@ services.AddEndpointsApiExplorer();
 // Infrastructure (EF Core, repositorios, servicios de negocio)
 services.AddInfrastructure(builder.Configuration);
 
+// Servicios de etiquetas
+services.AddSingleton<BuenaTierra.API.Services.BarcodeService>();
+services.AddSingleton<BuenaTierra.API.Services.OdtVariableService>();
+services.AddSingleton<BuenaTierra.API.Services.DocumentConversionService>();
+
 // Cache en memoria (reportes, listas de productos, etc.)
 services.AddMemoryCache();
 services.AddResponseCaching();

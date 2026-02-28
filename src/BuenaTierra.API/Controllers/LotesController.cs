@@ -4,6 +4,7 @@ using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace BuenaTierra.API.Controllers;
@@ -23,6 +24,28 @@ public class LotesController : ControllerBase
     }
 
     private int EmpresaId => int.Parse(User.FindFirstValue("empresa_id")!);
+
+    /// <summary>GET /api/lotes — Todos los lotes de la empresa</summary>
+    [HttpGet]
+    public async Task<ActionResult<ApiResponse<IEnumerable<object>>>> GetAll(CancellationToken ct)
+    {
+        var items = await _uow.Lotes.GetQueryable()
+            .Where(l => l.EmpresaId == EmpresaId)
+            .OrderByDescending(l => l.FechaFabricacion)
+            .Select(l => new
+            {
+                l.Id,
+                l.ProductoId,
+                ProductoNombre = l.Producto.Nombre,
+                l.CodigoLote,
+                l.FechaFabricacion,
+                l.FechaCaducidad,
+                l.CantidadInicial,
+                l.Bloqueado,
+            })
+            .ToListAsync(ct);
+        return Ok(ApiResponse<IEnumerable<object>>.Ok(items.Cast<object>()));
+    }
 
     /// <summary>GET /api/lotes/producto/{productoId} — Todos los lotes de un producto</summary>
     [HttpGet("producto/{productoId:int}")]

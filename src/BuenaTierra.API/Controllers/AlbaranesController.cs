@@ -333,6 +333,42 @@ public class AlbaranesController : ControllerBase
         return Ok(ApiResponse<string>.Ok("OK", "Albarán marcado como entregado"));
     }
 
+    /// <summary>POST /api/albaranes/{id}/en-reparto — Marcar albarán como EnReparto</summary>
+    [HttpPost("{id:int}/en-reparto")]
+    [Authorize(Policy = "ObradorOrAdmin")]
+    public async Task<ActionResult<ApiResponse<string>>> MarcarEnReparto(int id, CancellationToken ct)
+    {
+        var albaran = await _uow.Albaranes.GetByIdAsync(id, ct);
+        if (albaran == null || albaran.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Albarán no encontrado"));
+        if (albaran.Estado != EstadoAlbaran.Pendiente)
+            return BadRequest(ApiResponse<string>.Fail("Solo se pueden enviar a reparto albaranes en estado Pendiente"));
+
+        albaran.Estado = EstadoAlbaran.EnReparto;
+        await _uow.Albaranes.UpdateAsync(albaran, ct);
+        await _uow.SaveChangesAsync(ct);
+        return Ok(ApiResponse<string>.Ok("OK", "Albarán en reparto"));
+    }
+
+    /// <summary>POST /api/albaranes/{id}/cancelar — Cancelar albarán</summary>
+    [HttpPost("{id:int}/cancelar")]
+    [Authorize(Policy = "ObradorOrAdmin")]
+    public async Task<ActionResult<ApiResponse<string>>> Cancelar(int id, CancellationToken ct)
+    {
+        var albaran = await _uow.Albaranes.GetByIdAsync(id, ct);
+        if (albaran == null || albaran.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Albarán no encontrado"));
+        if (albaran.Estado == EstadoAlbaran.Facturado)
+            return BadRequest(ApiResponse<string>.Fail("No se puede cancelar un albarán ya facturado"));
+        if (albaran.Estado == EstadoAlbaran.Cancelado)
+            return BadRequest(ApiResponse<string>.Fail("El albarán ya está cancelado"));
+
+        albaran.Estado = EstadoAlbaran.Cancelado;
+        await _uow.Albaranes.UpdateAsync(albaran, ct);
+        await _uow.SaveChangesAsync(ct);
+        return Ok(ApiResponse<string>.Ok("OK", "Albarán cancelado"));
+    }
+
     /// <summary>GET /api/albaranes/{id}/pdf — Generar PDF del albarán</summary>
     [HttpGet("{id:int}/pdf")]
     public async Task<IActionResult> GetPdf(int id, CancellationToken ct)

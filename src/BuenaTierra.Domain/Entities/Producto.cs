@@ -31,6 +31,21 @@ public class Producto : TenantEntity
     public decimal? StockMinimo { get; set; }
     public decimal? StockMaximo { get; set; }
 
+    // ── Información nutricional (por 100g) — para etiquetas UE 1169/2011 ──
+    public decimal? ValorEnergeticoKj { get; set; }
+    public decimal? ValorEnergeticoKcal { get; set; }
+    public decimal? Grasas { get; set; }
+    public decimal? GrasasSaturadas { get; set; }
+    public decimal? HidratosCarbono { get; set; }
+    public decimal? Azucares { get; set; }
+    public decimal? Proteinas { get; set; }
+    public decimal? Sal { get; set; }
+
+    // ── Etiquetado ──
+    public string? IngredientesTexto { get; set; }    // texto completo con alérgenos en MAYÚSCULAS
+    public string? Trazas { get; set; }                // "Puede contener trazas de..."
+    public string? Conservacion { get; set; }          // "Conservar en lugar fresco y seco"
+
     // Navegación
     public virtual Empresa Empresa { get; set; } = null!;
     public virtual Categoria? Categoria { get; set; }

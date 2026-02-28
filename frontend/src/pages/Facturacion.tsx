@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
 import type { Cliente, Producto, SerieFacturacion, Factura } from '../types'
-import { Plus, Trash2, Loader2, X, FileText, Eye, Download } from 'lucide-react'
+import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, Ban, ArrowRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 
@@ -22,6 +22,14 @@ async function downloadBlob(url: string, filename: string) {
   } catch {
     toast.error('Error al descargar el archivo')
   }
+}
+
+const ESTADO_COLOR: Record<string, string> = {
+  Borrador: 'bg-amber-50 text-amber-700',
+  Emitida: 'bg-blue-50 text-blue-700',
+  Enviada: 'bg-purple-50 text-purple-700',
+  Cobrada: 'bg-green-50 text-green-700',
+  Anulada: 'bg-red-50 text-red-700',
 }
 
 interface LineaItem {
@@ -118,6 +126,30 @@ export default function Facturacion() {
     },
   })
 
+  const emitirMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/facturas/${id}/emitir`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['facturas'] }); qc.invalidateQueries({ queryKey: ['factura-detalle'] }); toast.success('Factura emitida') },
+    onError: () => toast.error('Error al emitir factura'),
+  })
+
+  const enviarMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/facturas/${id}/enviar`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['facturas'] }); qc.invalidateQueries({ queryKey: ['factura-detalle'] }); toast.success('Factura marcada como enviada') },
+    onError: () => toast.error('Error al marcar como enviada'),
+  })
+
+  const cobrarMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/facturas/${id}/cobrar`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['facturas'] }); qc.invalidateQueries({ queryKey: ['factura-detalle'] }); toast.success('Factura cobrada') },
+    onError: () => toast.error('Error al cobrar factura'),
+  })
+
+  const anularMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/facturas/${id}/anular`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['facturas'] }); qc.invalidateQueries({ queryKey: ['factura-detalle'] }); toast.success('Factura anulada') },
+    onError: () => toast.error('Error al anular factura'),
+  })
+
   function addLinea() {
     if (!productoSel || cantidadSel <= 0) return toast.error('Selecciona producto y cantidad válida')
     const prod = productos?.find((p) => p.id === productoSel)
@@ -211,11 +243,46 @@ export default function Facturacion() {
                   <td className="px-5 py-3 font-medium text-gray-900">{(f as unknown as { cliente?: { nombre: string}; clienteNombre?: string }).cliente?.nombre ?? (f as unknown as { clienteNombre?: string }).clienteNombre ?? '—'}</td>
                   <td className="px-5 py-3 text-gray-500">{fmtDate((f as unknown as { fechaFactura: string }).fechaFactura)}</td>
                   <td className="px-5 py-3">
-                    <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium">{(f as unknown as { estado: string }).estado}</span>
+                    {(() => {
+                      const estado = (f as unknown as { estado: string }).estado
+                      return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_COLOR[estado] ?? 'bg-gray-50 text-gray-600'}`}>{estado}</span>
+                    })()}
                   </td>
                   <td className="px-5 py-3 text-right font-bold text-gray-900">{(f as unknown as { total: number }).total?.toFixed(2)} €</td>
                   <td className="px-5 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {(() => {
+                        const estado = (f as unknown as { estado: string }).estado
+                        return (
+                          <>
+                            {estado === 'Borrador' && (
+                              <button onClick={() => emitirMutation.mutate(f.id)} className="text-blue-500 hover:text-blue-700 transition-colors p-1 rounded" title="Emitir">
+                                <ArrowRight className="w-4 h-4" />
+                              </button>
+                            )}
+                            {estado === 'Emitida' && (
+                              <>
+                                <button onClick={() => enviarMutation.mutate(f.id)} className="text-purple-500 hover:text-purple-700 transition-colors p-1 rounded" title="Marcar enviada">
+                                  <Send className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => cobrarMutation.mutate(f.id)} className="text-green-500 hover:text-green-700 transition-colors p-1 rounded" title="Cobrar">
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                            {estado === 'Enviada' && (
+                              <button onClick={() => cobrarMutation.mutate(f.id)} className="text-green-500 hover:text-green-700 transition-colors p-1 rounded" title="Cobrar">
+                                <CheckCircle2 className="w-4 h-4" />
+                              </button>
+                            )}
+                            {estado !== 'Anulada' && estado !== 'Cobrada' && (
+                              <button onClick={() => anularMutation.mutate(f.id)} className="text-red-400 hover:text-red-600 transition-colors p-1 rounded" title="Anular">
+                                <Ban className="w-4 h-4" />
+                              </button>
+                            )}
+                          </>
+                        )
+                      })()}
                       <button
                         onClick={() => setViewingId(f.id)}
                         className="text-gray-400 hover:text-brand-600 transition-colors p-1 rounded"
@@ -372,7 +439,39 @@ export default function Facturacion() {
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div><p className="text-gray-500 text-xs">Cliente</p><p className="font-semibold">{facturaDetalle.cliente.nombre}</p></div>
                 <div><p className="text-gray-500 text-xs">Fecha</p><p className="font-semibold">{fmtDate(facturaDetalle.fechaFactura)}</p></div>
-                <div><p className="text-gray-500 text-xs">Estado</p><p className="font-semibold">{facturaDetalle.estado}</p></div>
+                <div>
+                  <p className="text-gray-500 text-xs">Estado</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_COLOR[facturaDetalle.estado] ?? 'bg-gray-50 text-gray-600'}`}>{facturaDetalle.estado}</span>
+                </div>
+              </div>
+
+              {/* Estado transition buttons */}
+              <div className="flex items-center gap-2">
+                {facturaDetalle.estado === 'Borrador' && (
+                  <button onClick={() => emitirMutation.mutate(facturaDetalle.id)} className="flex items-center gap-1.5 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg transition-colors font-medium">
+                    <ArrowRight className="w-3.5 h-3.5" /> Emitir
+                  </button>
+                )}
+                {facturaDetalle.estado === 'Emitida' && (
+                  <>
+                    <button onClick={() => enviarMutation.mutate(facturaDetalle.id)} className="flex items-center gap-1.5 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-lg transition-colors font-medium">
+                      <Send className="w-3.5 h-3.5" /> Enviar
+                    </button>
+                    <button onClick={() => cobrarMutation.mutate(facturaDetalle.id)} className="flex items-center gap-1.5 text-xs bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg transition-colors font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Cobrar
+                    </button>
+                  </>
+                )}
+                {facturaDetalle.estado === 'Enviada' && (
+                  <button onClick={() => cobrarMutation.mutate(facturaDetalle.id)} className="flex items-center gap-1.5 text-xs bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg transition-colors font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Cobrar
+                  </button>
+                )}
+                {facturaDetalle.estado !== 'Anulada' && facturaDetalle.estado !== 'Cobrada' && (
+                  <button onClick={() => anularMutation.mutate(facturaDetalle.id)} className="flex items-center gap-1.5 text-xs bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium">
+                    <Ban className="w-3.5 h-3.5" /> Anular
+                  </button>
+                )}
               </div>
               <table className="w-full text-sm border border-gray-100 rounded-lg overflow-hidden">
                 <thead>

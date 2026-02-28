@@ -13,6 +13,10 @@ export default defineConfig({
         target: 'http://localhost:5064',
         changeOrigin: true,
       },
+      '/wopi': {
+        target: 'http://localhost:5064',
+        changeOrigin: true,
+      },
     },
   },
 })

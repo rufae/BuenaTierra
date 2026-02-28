@@ -215,6 +215,63 @@ public class PedidosController : ControllerBase
     }
 
     /// <summary>
+    /// POST /api/pedidos/{id}/preparado — Marcar pedido como Preparado
+    /// </summary>
+    [HttpPost("{id:int}/preparado")]
+    [Authorize(Policy = "ObradorOrAdmin")]
+    public async Task<ActionResult<ApiResponse<string>>> MarcarPreparado(int id, CancellationToken ct)
+    {
+        var pedido = await _uow.Pedidos.GetByIdAsync(id, ct);
+        if (pedido == null || pedido.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
+        if (pedido.Estado != EstadoPedido.EnPreparacion)
+            return BadRequest(ApiResponse<string>.Fail("Solo se pueden marcar como preparados pedidos en estado EnPreparacion"));
+
+        pedido.Estado = EstadoPedido.Preparado;
+        await _uow.Pedidos.UpdateAsync(pedido, ct);
+        await _uow.SaveChangesAsync(ct);
+        return Ok(ApiResponse<string>.Ok("OK", "Pedido preparado"));
+    }
+
+    /// <summary>
+    /// POST /api/pedidos/{id}/en-reparto — Marcar pedido como EnReparto
+    /// </summary>
+    [HttpPost("{id:int}/en-reparto")]
+    [Authorize(Policy = "ObradorOrAdmin")]
+    public async Task<ActionResult<ApiResponse<string>>> MarcarEnReparto(int id, CancellationToken ct)
+    {
+        var pedido = await _uow.Pedidos.GetByIdAsync(id, ct);
+        if (pedido == null || pedido.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
+        if (pedido.Estado != EstadoPedido.Preparado)
+            return BadRequest(ApiResponse<string>.Fail("Solo se pueden enviar a reparto pedidos en estado Preparado"));
+
+        pedido.Estado = EstadoPedido.EnReparto;
+        await _uow.Pedidos.UpdateAsync(pedido, ct);
+        await _uow.SaveChangesAsync(ct);
+        return Ok(ApiResponse<string>.Ok("OK", "Pedido en reparto"));
+    }
+
+    /// <summary>
+    /// POST /api/pedidos/{id}/entregado — Marcar pedido como Entregado
+    /// </summary>
+    [HttpPost("{id:int}/entregado")]
+    [Authorize(Policy = "ObradorOrAdmin")]
+    public async Task<ActionResult<ApiResponse<string>>> MarcarEntregado(int id, CancellationToken ct)
+    {
+        var pedido = await _uow.Pedidos.GetByIdAsync(id, ct);
+        if (pedido == null || pedido.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
+        if (pedido.Estado != EstadoPedido.EnReparto)
+            return BadRequest(ApiResponse<string>.Fail("Solo se pueden marcar como entregados pedidos en estado EnReparto"));
+
+        pedido.Estado = EstadoPedido.Entregado;
+        await _uow.Pedidos.UpdateAsync(pedido, ct);
+        await _uow.SaveChangesAsync(ct);
+        return Ok(ApiResponse<string>.Ok("OK", "Pedido entregado"));
+    }
+
+    /// <summary>
     /// POST /api/pedidos/{id}/crear-albaran
     /// Crea un albarán con FIFO automático a partir de un pedido confirmado.
     /// </summary>

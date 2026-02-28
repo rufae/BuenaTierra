@@ -7,29 +7,38 @@ public enum RolUsuario
     Repartidor
 }
 
+// Alineado con DB: Pendiente→Confirmado→EnPreparacion→Preparado→EnReparto→Entregado→Cancelado
 public enum EstadoPedido
 {
     Pendiente,
     Confirmado,
     EnPreparacion,
-    Servido,
+    Preparado,
+    EnReparto,
+    Entregado,
     Cancelado
 }
 
+// Alineado con DB: Pendiente→EnReparto→Entregado→Facturado→Cancelado
 public enum EstadoAlbaran
 {
     Pendiente,
+    EnReparto,
     Entregado,
     Facturado,
     Cancelado
 }
 
+// Alineado con DB: Borrador→Emitida→Enviada→Cobrada→Anulada
 public enum EstadoFactura
 {
     Borrador,
     Emitida,
+    Enviada,
     Cobrada,
-    Cancelada
+    Anulada,
+    // Some older code references Cancelada — keep alias to avoid breaking callers
+    Cancelada = Anulada
 }
 
 public enum EstadoProduccion
@@ -105,4 +114,29 @@ public enum TipoMovimientoStock
     AjusteNegativo,
     Devolucion,
     Caducidad
+}
+
+// ── Etiquetas ─────────────────────────────────────────
+
+public enum TipoImpresora
+{
+    A4,
+    TermicaDirecta,
+    TermicaTransferencia
+}
+
+public enum FormatoEtiqueta
+{
+    Docx,
+    Odt,
+    Pdf,
+    Png,
+    Jpg
+}
+
+public enum EstadoImpresion
+{
+    Pendiente,
+    Impreso,
+    Error
 }
