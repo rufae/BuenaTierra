@@ -33,6 +33,10 @@ public class AppDbContext : DbContext
     public DbSet<FacturaLinea> FacturasLineas => Set<FacturaLinea>();
     public DbSet<Trazabilidad> Trazabilidades => Set<Trazabilidad>();
     public DbSet<ControlMateriaPrima> ControlMatPrimas => Set<ControlMateriaPrima>();
+    public DbSet<TipoIvaRe> TiposIvaRe => Set<TipoIvaRe>();
+    public DbSet<PlantillaEtiqueta> PlantillasEtiqueta => Set<PlantillaEtiqueta>();
+    public DbSet<EtiquetaImportada> EtiquetasImportadas => Set<EtiquetaImportada>();
+    public DbSet<TrabajoImpresionEtiqueta> TrabajosImpresion => Set<TrabajoImpresionEtiqueta>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -61,6 +65,10 @@ public class AppDbContext : DbContext
         mb.Entity<Factura>().ToTable("facturas");
         mb.Entity<FacturaLinea>().ToTable("facturas_lineas");
         mb.Entity<ControlMateriaPrima>().ToTable("control_materias_primas");
+        mb.Entity<TipoIvaRe>().ToTable("tipos_iva_re");
+        mb.Entity<PlantillaEtiqueta>().ToTable("plantillas_etiqueta");
+        mb.Entity<EtiquetaImportada>().ToTable("etiquetas_importadas");
+        mb.Entity<TrabajoImpresionEtiqueta>().ToTable("trabajos_impresion_etiqueta");
 
         mb.Entity<Trazabilidad>(e =>
         {
@@ -315,6 +323,67 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.IvaImporte);
             e.Property(x => x.RecargoEquivalenciaPorcentaje).HasPrecision(5, 2);
             e.Ignore(x => x.RecargoEquivalenciaImporte);
+        });
+
+        // ---- TIPO IVA RE ----
+        mb.Entity<TipoIvaRe>(e =>
+        {
+            e.Property(x => x.IvaPorcentaje).HasPrecision(5, 2).IsRequired();
+            e.Property(x => x.RecargoEquivalenciaPorcentaje).HasPrecision(5, 2).IsRequired();
+            e.Property(x => x.Descripcion).HasMaxLength(200);
+            e.HasIndex(x => new { x.EmpresaId, x.IvaPorcentaje }).IsUnique();
+            e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
+        });
+
+        // ---- PLANTILLA ETIQUETA ----
+        mb.Entity<PlantillaEtiqueta>(e =>
+        {
+            e.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Descripcion).HasMaxLength(500);
+            e.Property(x => x.AnchoMm).HasPrecision(8, 2);
+            e.Property(x => x.AltoMm).HasPrecision(8, 2);
+            e.Property(x => x.TipoImpresora).HasConversion(new EnumToStringConverter<TipoImpresora>()).HasMaxLength(30);
+            e.Property(x => x.ContenidoJson).HasColumnType("jsonb").HasDefaultValue("{}");
+            e.Property(x => x.ContenidoHtml).HasColumnType("text");
+            e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
+            e.HasOne(x => x.Usuario).WithMany().HasForeignKey(x => x.UsuarioId);
+        });
+
+        // ---- ETIQUETA IMPORTADA ----
+        mb.Entity<EtiquetaImportada>(e =>
+        {
+            e.Property(x => x.Nombre).HasMaxLength(300).IsRequired();
+            e.Property(x => x.RutaArchivo).HasMaxLength(500).IsRequired();
+            e.Property(x => x.Formato).HasConversion(new EnumToStringConverter<FormatoEtiqueta>()).HasMaxLength(20);
+            e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
+            e.HasOne(x => x.Usuario).WithMany().HasForeignKey(x => x.UsuarioId);
+        });
+
+        // ---- TRABAJO IMPRESION ETIQUETA ----
+        mb.Entity<TrabajoImpresionEtiqueta>(e =>
+        {
+            e.Property(x => x.Estado).HasConversion(new EnumToStringConverter<EstadoImpresion>()).HasMaxLength(20);
+            e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
+            e.HasOne(x => x.PlantillaEtiqueta).WithMany().HasForeignKey(x => x.PlantillaEtiquetaId);
+            e.HasOne(x => x.Producto).WithMany().HasForeignKey(x => x.ProductoId);
+            e.HasOne(x => x.Lote).WithMany().HasForeignKey(x => x.LoteId);
+            e.HasOne(x => x.Usuario).WithMany().HasForeignKey(x => x.UsuarioId);
+        });
+
+        // ---- PRODUCTO: campos nutricionales ----
+        mb.Entity<Producto>(e =>
+        {
+            e.Property(x => x.ValorEnergeticoKj).HasPrecision(10, 2);
+            e.Property(x => x.ValorEnergeticoKcal).HasPrecision(10, 2);
+            e.Property(x => x.Grasas).HasPrecision(10, 2);
+            e.Property(x => x.GrasasSaturadas).HasPrecision(10, 2);
+            e.Property(x => x.HidratosCarbono).HasPrecision(10, 2);
+            e.Property(x => x.Azucares).HasPrecision(10, 2);
+            e.Property(x => x.Proteinas).HasPrecision(10, 2);
+            e.Property(x => x.Sal).HasPrecision(10, 2);
+            e.Property(x => x.IngredientesTexto).HasColumnType("text");
+            e.Property(x => x.Trazas).HasMaxLength(2000);
+            e.Property(x => x.Conservacion).HasMaxLength(500);
         });
 
         // columnas en snake_case automático para EF Core

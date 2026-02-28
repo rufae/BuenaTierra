@@ -133,6 +133,10 @@ public interface IUnitOfWork : IDisposable
     IRepository<ProductoIngrediente> ProductoIngredientes { get; }
     IRepository<Categoria> Categorias { get; }
     IRepository<ControlMateriaPrima> ControlMatPrimas { get; }
+    IRepository<TipoIvaRe> TiposIvaRe { get; }
+    IRepository<PlantillaEtiqueta> PlantillasEtiqueta { get; }
+    IRepository<EtiquetaImportada> EtiquetasImportadas { get; }
+    IRepository<TrabajoImpresionEtiqueta> TrabajosImpresion { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     Task BeginTransactionAsync(CancellationToken ct = default);

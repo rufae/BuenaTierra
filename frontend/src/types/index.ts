@@ -60,6 +60,19 @@ export interface Producto {
   // Stock
   stockMinimo: number | null
   stockMaximo: number | null
+  // Nutricional (por 100 g) – Reglamento UE 1169/2011
+  valorEnergeticoKj: number | null
+  valorEnergeticoKcal: number | null
+  grasas: number | null
+  grasasSaturadas: number | null
+  hidratosCarbono: number | null
+  azucares: number | null
+  proteinas: number | null
+  sal: number | null
+  // Etiquetado
+  ingredientesTexto: string | null
+  trazas: string | null
+  conservacion: string | null
 }
 
 export interface CreateProductoDto {
@@ -598,4 +611,111 @@ export interface Usuario {
   activo: boolean
   ultimoAcceso: string | null
   nombreCompleto: string
+}
+
+// ── Etiquetas ─────────────────────────────────────────────────────────────────
+
+export type TipoImpresora = 'A4' | 'TermicaDirecta' | 'TermicaTransferencia'
+export type FormatoEtiqueta = 'Docx' | 'Odt' | 'Pdf' | 'Png' | 'Jpg'
+export type EstadoImpresion = 'Pendiente' | 'Impreso' | 'Error'
+
+export interface PlantillaEtiqueta {
+  id: number
+  nombre: string
+  descripcion: string | null
+  anchoMm: number
+  altoMm: number
+  tipoImpresora: TipoImpresora
+  contenidoJson: string
+  contenidoHtml: string | null
+  esPlantillaBase: boolean
+  createdAt: string
+}
+
+export interface EtiquetaImportada {
+  id: number
+  nombre: string
+  formato: FormatoEtiqueta
+  tamanoBytes: number
+  rutaArchivo?: string
+  createdAt: string
+}
+
+export interface TrabajoImpresion {
+  id: number
+  plantillaNombre: string
+  productoNombre: string | null
+  codigoLote: string | null
+  copias: number
+  estado: EstadoImpresion
+  createdAt: string
+}
+
+export interface TipoIvaRe {
+  id: number
+  ivaPorcentaje: number
+  recargoEquivalenciaPorcentaje: number
+  descripcion: string | null
+}
+
+export interface CreatePlantillaDto {
+  nombre: string
+  descripcion?: string
+  anchoMm: number
+  altoMm: number
+  tipoImpresora?: string
+  contenidoJson?: string
+  contenidoHtml?: string
+}
+
+export interface ImprimirEtiquetaDto {
+  plantillaEtiquetaId: number
+  productoId?: number
+  loteId?: number
+  copias: number
+}
+
+export interface EtiquetaPreview {
+  plantilla: {
+    id: number
+    nombre: string
+    anchoMm: number
+    altoMm: number
+    contenidoJson: string
+    contenidoHtml: string | null
+  }
+  producto: {
+    id: number
+    nombre: string
+    codigo: string | null
+    codigoBarras: string | null
+    precioVenta: number
+    ivaPorcentaje: number
+    pesoUnitarioGr: number | null
+    unidadMedida: string
+    vidaUtilDias: number | null
+    ingredientesTexto: string | null
+    trazas: string | null
+    conservacion: string | null
+    valorEnergeticoKj: number | null
+    valorEnergeticoKcal: number | null
+    grasas: number | null
+    grasasSaturadas: number | null
+    hidratosCarbono: number | null
+    azucares: number | null
+    proteinas: number | null
+    sal: number | null
+  } | null
+  lote: {
+    id: number
+    codigoLote: string
+    fechaFabricacion: string
+    fechaCaducidad: string | null
+  } | null
+  empresa: {
+    nombre: string | null
+    cif: string | null
+    direccion: string | null
+    nrgs: string | null
+  } | null
 }

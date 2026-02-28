@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, Producto, SerieFacturacion } from '../types'
-import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText } from 'lucide-react'
+import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 import { DateInput } from '../components/DateInput'
@@ -11,6 +11,9 @@ const ESTADO_COLOR: Record<string, string> = {
   Pendiente: 'bg-amber-50 text-amber-700 border border-amber-200',
   Confirmado: 'bg-blue-50 text-blue-700 border border-blue-200',
   EnPreparacion: 'bg-purple-50 text-purple-700 border border-purple-200',
+  Preparado: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+  EnReparto: 'bg-orange-50 text-orange-700 border border-orange-200',
+  Entregado: 'bg-green-50 text-green-700 border border-green-200',
   Servido: 'bg-green-50 text-green-700 border border-green-200',
   Cancelado: 'bg-red-50 text-red-700 border border-red-200',
 }
@@ -77,6 +80,24 @@ export default function Pedidos() {
     mutationFn: (id: number) => api.post(`/pedidos/${id}/cancelar`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pedidos'] }); toast.success('Pedido cancelado') },
     onError: () => toast.error('Error al cancelar'),
+  })
+
+  const preparadoMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/pedidos/${id}/preparado`, {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pedidos'] }); toast.success('Pedido marcado como preparado') },
+    onError: () => toast.error('Error al actualizar estado'),
+  })
+
+  const enRepartoMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/pedidos/${id}/en-reparto`, {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pedidos'] }); toast.success('Pedido en reparto') },
+    onError: () => toast.error('Error al actualizar estado'),
+  })
+
+  const entregadoMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/pedidos/${id}/entregado`, {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pedidos'] }); toast.success('Pedido entregado') },
+    onError: () => toast.error('Error al actualizar estado'),
   })
 
   const crearAlbaranMutation = useMutation({
@@ -205,7 +226,22 @@ export default function Pedidos() {
                             <FileText className="w-3 h-3" /> Factura
                           </button>
                         )}
-                        {p.estado !== 'Cancelado' && p.estado !== 'Servido' && (
+                        {p.estado === 'EnPreparacion' && (
+                          <button onClick={() => preparadoMutation.mutate(p.id)} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                            <PackageCheck className="w-3 h-3" /> Preparado
+                          </button>
+                        )}
+                        {p.estado === 'Preparado' && (
+                          <button onClick={() => enRepartoMutation.mutate(p.id)} className="text-xs text-orange-600 hover:text-orange-800 flex items-center gap-1">
+                            <Truck className="w-3 h-3" /> En reparto
+                          </button>
+                        )}
+                        {p.estado === 'EnReparto' && (
+                          <button onClick={() => entregadoMutation.mutate(p.id)} className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
+                            <MapPin className="w-3 h-3" /> Entregado
+                          </button>
+                        )}
+                        {p.estado !== 'Cancelado' && p.estado !== 'Servido' && p.estado !== 'Entregado' && (
                           <button onClick={() => cancelarMutation.mutate(p.id)} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
                             <X className="w-3 h-3" /> Cancelar
                           </button>

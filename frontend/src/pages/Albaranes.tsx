@@ -8,6 +8,7 @@ import { fmtDate } from '../lib/dates'
 
 const ESTADO_COLOR: Record<string, string> = {
   Pendiente: 'bg-amber-50 text-amber-700 border border-amber-200',
+  EnReparto: 'bg-orange-50 text-orange-700 border border-orange-200',
   Entregado: 'bg-green-50 text-green-700 border border-green-200',
   Facturado: 'bg-blue-50 text-blue-700 border border-blue-200',
   Cancelado: 'bg-red-50 text-red-700 border border-red-200',
@@ -86,6 +87,18 @@ export default function Albaranes() {
     mutationFn: (id: number) => api.post(`/albaranes/${id}/entregar`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['albaranes'] }); toast.success('Albarán entregado') },
     onError: () => toast.error('Error al marcar como entregado'),
+  })
+
+  const enRepartoMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/albaranes/${id}/en-reparto`, {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['albaranes'] }); toast.success('Albarán en reparto') },
+    onError: () => toast.error('Error al actualizar estado'),
+  })
+
+  const cancelarMutation = useMutation({
+    mutationFn: (id: number) => api.post(`/albaranes/${id}/cancelar`, {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['albaranes'] }); toast.success('Albarán cancelado') },
+    onError: () => toast.error('Error al cancelar'),
   })
 
   const convertirMutation = useMutation({
@@ -207,8 +220,18 @@ export default function Albaranes() {
                           <Package className="w-3 h-3" /> Picking
                         </button>
                         {a.estado === 'Pendiente' && (
+                          <button onClick={() => enRepartoMutation.mutate(a.id)} className="text-xs text-orange-600 hover:text-orange-800 flex items-center gap-1">
+                            <Truck className="w-3 h-3" /> En reparto
+                          </button>
+                        )}
+                        {(a.estado === 'Pendiente' || a.estado === 'EnReparto') && (
                           <button onClick={() => entregarMutation.mutate(a.id)} className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
                             <Truck className="w-3 h-3" /> Entregar
+                          </button>
+                        )}
+                        {a.estado !== 'Facturado' && a.estado !== 'Cancelado' && a.estado !== 'Entregado' && (
+                          <button onClick={() => cancelarMutation.mutate(a.id)} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
+                            <X className="w-3 h-3" /> Cancelar
                           </button>
                         )}
                         {a.estado !== 'Facturado' && a.estado !== 'Cancelado' && (

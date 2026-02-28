@@ -34,6 +34,10 @@ public class UnitOfWork : IUnitOfWork
     private IRepository<ProductoIngrediente>? _productoIngredientes;
     private IRepository<Categoria>? _categorias;
     private IRepository<ControlMateriaPrima>? _controlMatPrimas;
+    private IRepository<TipoIvaRe>? _tiposIvaRe;
+    private IRepository<PlantillaEtiqueta>? _plantillasEtiqueta;
+    private IRepository<EtiquetaImportada>? _etiquetasImportadas;
+    private IRepository<TrabajoImpresionEtiqueta>? _trabajosImpresion;
 
     public UnitOfWork(AppDbContext context) => _context = context;
 
@@ -56,6 +60,10 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<ProductoIngrediente> ProductoIngredientes => _productoIngredientes ??= new Repository<ProductoIngrediente>(_context);
     public IRepository<Categoria> Categorias => _categorias ??= new Repository<Categoria>(_context);
     public IRepository<ControlMateriaPrima> ControlMatPrimas => _controlMatPrimas ??= new Repository<ControlMateriaPrima>(_context);
+    public IRepository<TipoIvaRe> TiposIvaRe => _tiposIvaRe ??= new Repository<TipoIvaRe>(_context);
+    public IRepository<PlantillaEtiqueta> PlantillasEtiqueta => _plantillasEtiqueta ??= new Repository<PlantillaEtiqueta>(_context);
+    public IRepository<EtiquetaImportada> EtiquetasImportadas => _etiquetasImportadas ??= new Repository<EtiquetaImportada>(_context);
+    public IRepository<TrabajoImpresionEtiqueta> TrabajosImpresion => _trabajosImpresion ??= new Repository<TrabajoImpresionEtiqueta>(_context);
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)
         => await _context.SaveChangesAsync(ct);

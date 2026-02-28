@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS empresas (
     email               VARCHAR(200),
     web                 VARCHAR(200),
     logo_url            VARCHAR(500),
+    numero_rgseaa       VARCHAR(50),
     es_obrador          BOOLEAN NOT NULL DEFAULT FALSE,
     empresa_padre_id    INTEGER REFERENCES empresas(id),
     activa              BOOLEAN NOT NULL DEFAULT TRUE,
@@ -173,6 +174,19 @@ CREATE TABLE IF NOT EXISTS productos (
     descuento_por_defecto NUMERIC(5,2),
     stock_minimo        NUMERIC(10,3),
     stock_maximo        NUMERIC(10,3),
+    -- Información nutricional (Reglamento UE 1169/2011, por 100 g)
+    valor_energetico_kj    NUMERIC(10,2),
+    valor_energetico_kcal  NUMERIC(10,2),
+    grasas                 NUMERIC(10,2),
+    grasas_saturadas       NUMERIC(10,2),
+    hidratos_carbono       NUMERIC(10,2),
+    azucares               NUMERIC(10,2),
+    proteinas              NUMERIC(10,2),
+    sal                    NUMERIC(10,2),
+    -- Etiquetado
+    ingredientes_texto     TEXT,            -- lista completa con alérgenos en MAYÚSCULAS
+    trazas                 VARCHAR(2000),   -- "Puede contener trazas de…"
+    conservacion           VARCHAR(500),    -- "Conservar en lugar fresco y seco"
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, codigo)
@@ -493,6 +507,103 @@ CREATE INDEX IF NOT EXISTS idx_auditoria_tabla ON auditoria(tabla_nombre, regist
 CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON auditoria(created_at);
 
 -- ============================================================
+-- TABLA: control_materias_primas
+-- Registro de recepción de materias primas (trazabilidad)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS control_materias_primas (
+    id                      SERIAL PRIMARY KEY,
+    empresa_id              INTEGER NOT NULL REFERENCES empresas(id),
+    fecha_entrada           DATE NOT NULL DEFAULT CURRENT_DATE,
+    ingrediente_id          INTEGER REFERENCES ingredientes(id),
+    producto                VARCHAR(300) NOT NULL,
+    unidades                NUMERIC(10,3) NOT NULL DEFAULT 0,
+    fecha_caducidad         DATE,
+    proveedor               VARCHAR(200),
+    lote                    VARCHAR(100),
+    fecha_apertura_lote     DATE,
+    condiciones_transporte  BOOLEAN NOT NULL DEFAULT TRUE,
+    mercancia_aceptada      BOOLEAN NOT NULL DEFAULT TRUE,
+    responsable             VARCHAR(200),
+    fecha_fin_existencia    DATE,
+    observaciones           TEXT,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ctrl_mp_empresa ON control_materias_primas(empresa_id);
+CREATE INDEX IF NOT EXISTS idx_ctrl_mp_fecha ON control_materias_primas(fecha_entrada);
+
+-- ============================================================
+-- TABLA: tipos_iva_re
+-- Relación IVA% → Recargo de Equivalencia% por empresa
+-- ============================================================
+CREATE TABLE IF NOT EXISTS tipos_iva_re (
+    id                              SERIAL PRIMARY KEY,
+    empresa_id                      INTEGER NOT NULL REFERENCES empresas(id),
+    iva_porcentaje                  NUMERIC(5,2) NOT NULL,
+    recargo_equivalencia_porcentaje NUMERIC(5,2) NOT NULL,
+    descripcion                     VARCHAR(200),
+    activo                          BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(empresa_id, iva_porcentaje)
+);
+
+-- ============================================================
+-- TABLA: plantillas_etiqueta
+-- Plantillas del editor visual de etiquetas
+-- ============================================================
+CREATE TABLE IF NOT EXISTS plantillas_etiqueta (
+    id                  SERIAL PRIMARY KEY,
+    empresa_id          INTEGER NOT NULL REFERENCES empresas(id),
+    nombre              VARCHAR(200) NOT NULL,
+    descripcion         VARCHAR(500),
+    ancho_mm            NUMERIC(8,2) NOT NULL DEFAULT 105,
+    alto_mm             NUMERIC(8,2) NOT NULL DEFAULT 57,
+    tipo_impresora      TEXT NOT NULL CHECK (tipo_impresora IN ('A4','TermicaDirecta','TermicaTransferencia')) DEFAULT 'A4',
+    contenido_json      JSONB DEFAULT '{}',
+    contenido_html      TEXT,
+    activa              BOOLEAN NOT NULL DEFAULT TRUE,
+    es_plantilla_base   BOOLEAN NOT NULL DEFAULT FALSE,
+    usuario_id          INTEGER REFERENCES usuarios(id),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_plantillas_empresa ON plantillas_etiqueta(empresa_id);
+
+-- ============================================================
+-- TABLA: etiquetas_importadas
+-- Archivos de etiquetas importados (.docx, .odt, .pdf…)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS etiquetas_importadas (
+    id                  SERIAL PRIMARY KEY,
+    empresa_id          INTEGER NOT NULL REFERENCES empresas(id),
+    nombre              VARCHAR(300) NOT NULL,
+    ruta_archivo        VARCHAR(500) NOT NULL,
+    formato             TEXT NOT NULL CHECK (formato IN ('Docx','Odt','Pdf','Png','Jpg')) DEFAULT 'Pdf',
+    tamano_bytes        BIGINT NOT NULL DEFAULT 0,
+    usuario_id          INTEGER REFERENCES usuarios(id),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_etiq_imp_empresa ON etiquetas_importadas(empresa_id);
+
+-- ============================================================
+-- TABLA: trabajos_impresion_etiqueta
+-- Cola de trabajos de impresión de etiquetas
+-- ============================================================
+CREATE TABLE IF NOT EXISTS trabajos_impresion_etiqueta (
+    id                      SERIAL PRIMARY KEY,
+    empresa_id              INTEGER NOT NULL REFERENCES empresas(id),
+    plantilla_etiqueta_id   INTEGER NOT NULL REFERENCES plantillas_etiqueta(id),
+    producto_id             INTEGER REFERENCES productos(id),
+    lote_id                 INTEGER REFERENCES lotes(id),
+    copias                  INTEGER NOT NULL DEFAULT 1,
+    estado                  TEXT NOT NULL CHECK (estado IN ('Pendiente','Impreso','Error')) DEFAULT 'Pendiente',
+    usuario_id              INTEGER NOT NULL REFERENCES usuarios(id),
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_trab_imp_empresa ON trabajos_impresion_etiqueta(empresa_id);
+CREATE INDEX IF NOT EXISTS idx_trab_imp_estado ON trabajos_impresion_etiqueta(estado);
+
+-- ============================================================
 -- VISTAS
 -- ============================================================
 
@@ -795,7 +906,8 @@ $$;
 DO $$ DECLARE t TEXT;
 BEGIN FOR t IN VALUES
     ('empresas'),('usuarios'),('clientes'),('productos'),
-    ('producciones'),('pedidos'),('albaranes'),('facturas')
+    ('producciones'),('pedidos'),('albaranes'),('facturas'),
+    ('control_materias_primas'),('plantillas_etiqueta')
 LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS trg_updated_at_%s ON %s;
                     CREATE TRIGGER trg_updated_at_%s BEFORE UPDATE ON %s

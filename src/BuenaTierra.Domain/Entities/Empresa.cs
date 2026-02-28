@@ -16,6 +16,7 @@ public class Empresa : BaseEntity
     public string? Email { get; set; }
     public string? Web { get; set; }
     public string? LogoUrl { get; set; }
+    public string? NumeroRgseaa { get; set; }          // Nº Registro General Sanitario de Empresas Alimentarias
     public bool EsObrador { get; set; } = false;
     public int? EmpresaPadreId { get; set; }
     public bool Activa { get; set; } = true;
