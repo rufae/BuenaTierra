@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Evitar timeout corto en tests con BD real -->
+    <xunitRunnerArguments>-timeout 60000</xunitRunnerArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk"                  Version="17.12.0" />
+    <PackageReference Include="xunit"                                   Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio"               Version="2.8.2" />
+    <PackageReference Include="coverlet.collector"                      Version="6.0.2" />
+    <!-- WebApplicationFactory para levantar la API en memoria -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing"        Version="9.0.0" />
+    <!-- PostgreSQL de test via Testcontainers (Docker) -->
+    <PackageReference Include="Testcontainers.PostgreSql"               Version="3.10.0" />
+    <!-- Autenticación y JWT helpers para tests -->
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt"        Version="8.3.3" />
+    <!-- FluentAssertions para asserts más legibles -->
+    <PackageReference Include="FluentAssertions"                        Version="6.12.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="FluentAssertions" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BuenaTierra.API\BuenaTierra.API.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -222,8 +222,11 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.EmpresaId, x.ProductoId, x.LoteId }).IsUnique();
             e.Property(x => x.CantidadDisponible).HasPrecision(10, 3);
             e.Property(x => x.CantidadReservada).HasPrecision(10, 3);
-            e.HasCheckConstraint("stock_disponible_positivo", "cantidad_disponible >= 0");
-            e.HasCheckConstraint("stock_reservada_positivo", "cantidad_reservada >= 0");
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("stock_disponible_positivo", "cantidad_disponible >= 0");
+                t.HasCheckConstraint("stock_reservada_positivo", "cantidad_reservada >= 0");
+            });
             e.HasOne(x => x.Lote).WithOne(x => x.Stock).HasForeignKey<Stock>(x => x.LoteId);
             e.HasOne(x => x.Producto).WithMany(x => x.Stocks).HasForeignKey(x => x.ProductoId);
         });

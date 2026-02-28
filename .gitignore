@@ -297,6 +297,12 @@ ASALocalRun/
 # Local History for Visual Studio
 .localhistory/
 
+# BuenaTierra runtime logs and output files
+api_err.txt
+api_out.txt
+tasks/logs/
+logs/
+
 # BeatPulse healthcheck temp database
 healthchecksdb
 

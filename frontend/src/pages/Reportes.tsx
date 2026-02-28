@@ -210,9 +210,9 @@ export default function Reportes() {
   }
 
   return (
-    <div className="flex flex-col flex-1 overflow-y-auto bg-gray-50">
+    <div className="flex flex-col flex-1 overflow-y-auto bg-cream-100">
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
+      <div className="bg-cream-50 border-b border-cream-200 px-6 py-4 shrink-0">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Informes y Análisis</h1>
@@ -241,15 +241,15 @@ export default function Reportes() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-0 mt-4 -mb-px">
+        <div className="flex gap-1 mt-4 mb-[-1px]">
           {TABS.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-2 px-5 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 px-4 py-2 text-sm rounded-t-lg font-medium transition-colors ${
                 tab === t.id
-                  ? 'border-brand-600 text-brand-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-500'
+                  : 'text-gray-500 hover:text-gray-700 border-b-2 border-transparent'
               }`}
             >
               {t.icon}

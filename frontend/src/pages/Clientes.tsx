@@ -7,7 +7,7 @@ import type {
   TipoCliente, FormaPago, TipoImpuesto, EstadoCliente, EstadoSincronizacion,
   TipoCondicionEspecial, TipoArticuloFamilia,
 } from '../types'
-import { Plus, Pencil, X, Loader2, Trash2, AlertCircle, Search, ChevronUp, ChevronDown, ChevronsUpDown, FilterX } from 'lucide-react'
+import { Plus, Pencil, X, Loader2, Trash2, AlertCircle, Search, ChevronUp, ChevronDown, ChevronsUpDown, FilterX, History } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Swal from 'sweetalert2'
 import { DateInput } from '../components/DateInput'
@@ -137,7 +137,7 @@ const EMPTY_CONDICION: UpsertCondicionEspecialDto = {
   descuento: 0,
 }
 
-type Tab = 'general' | 'domicilio' | 'contacto' | 'comercial' | 'otros' | 'condiciones'
+type Tab = 'general' | 'domicilio' | 'contacto' | 'comercial' | 'otros' | 'condiciones' | 'historial'
 
 // ── Validación de formulario ─────────────────────────────────────────────────
 
@@ -284,6 +284,7 @@ export default function Clientes() {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Cliente | null>(null)
+  const [historialCliente, setHistorialCliente] = useState<Cliente | null>(null)
   const [form, setForm] = useState<FormState>({ ...EMPTY, empresaId: user!.empresaId })
   const [tab, setTab] = useState<Tab>('general')
 
@@ -303,6 +304,31 @@ export default function Clientes() {
     queryKey: ['condiciones', editing?.id],
     enabled: !!editing?.id && tab === 'condiciones',
     queryFn: async () => (await api.get<{ data: ClienteCondicionEspecial[] }>(`/clientes/${editing!.id}/condiciones`)).data.data,
+  })
+
+  const { data: histFacturas = [] } = useQuery<{
+    id: number; numeroFactura: string; fechaFactura: string;
+    fechaVencimiento: string | null; estado: string; total: number; esSimplificada: boolean
+  }[]>({
+    queryKey: ['cliente-facturas', historialCliente?.id],
+    enabled: !!historialCliente?.id,
+    queryFn: async () => (await api.get<{ data: unknown[] }>(`/clientes/${historialCliente!.id}/facturas`)).data.data as never,
+  })
+
+  const { data: histAlbaranes = [] } = useQuery<{
+    id: number; numeroAlbaran: string; fechaAlbaran: string; estado: string; total: number
+  }[]>({
+    queryKey: ['cliente-albaranes', historialCliente?.id],
+    enabled: !!historialCliente?.id,
+    queryFn: async () => (await api.get<{ data: unknown[] }>(`/clientes/${historialCliente!.id}/albaranes`)).data.data as never,
+  })
+
+  const { data: histPedidos = [] } = useQuery<{
+    id: number; numeroPedido: string; fecha: string; fechaEntrega: string | null; estado: string; total: number
+  }[]>({
+    queryKey: ['cliente-pedidos', historialCliente?.id],
+    enabled: !!historialCliente?.id,
+    queryFn: async () => (await api.get<{ data: unknown[] }>(`/clientes/${historialCliente!.id}/pedidos`)).data.data as never,
   })
 
   // ── Filtros / paginación ──────────────────────────────────────────────────
@@ -568,6 +594,9 @@ export default function Clientes() {
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ESTADO_BADGE[c.estadoCliente]}`}>{c.estadoCliente}</span>
                   </td>
                   <td className="px-5 py-3 text-right flex justify-end gap-2">
+                    <button onClick={() => setHistorialCliente(c)} className="text-gray-400 hover:text-brand-700 transition-colors" title="Ver historial">
+                      <History className="w-4 h-4" />
+                    </button>
                     <button onClick={() => openEdit(c)} className="text-gray-400 hover:text-brand-600 transition-colors" title="Editar">
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -672,7 +701,7 @@ export default function Clientes() {
               ))}
             </div>
 
-            {tab !== 'condiciones' ? (
+            {tab === 'condiciones' ? null : (
               <form onSubmit={handleSubmit}>
                 {/* ── Error summary ── */}
                 {Object.keys(errors).length > 0 && (
@@ -882,7 +911,8 @@ export default function Clientes() {
                   </button>
                 </div>
               </form>
-            ) : (
+            )}
+            {tab === 'condiciones' && (
               /* ── CONDICIONES ESPECIALES TAB ── */
               <div className="px-6 py-5 space-y-4">
                 <div className="flex justify-end">
@@ -971,6 +1001,132 @@ export default function Clientes() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Historial ─────────────────────────────────────────────── */}
+      {historialCliente && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-8">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <History className="w-4 h-4 text-brand-600" />
+                  Historial — {historialCliente.razonSocial || historialCliente.nombreComercial || historialCliente.nombre}
+                </h2>
+                {historialCliente.nif && <p className="text-xs text-gray-500 mt-0.5">NIF: {historialCliente.nif}</p>}
+              </div>
+              <button onClick={() => setHistorialCliente(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="px-6 py-5 space-y-6">
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Facturas ({histFacturas.length})</h3>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                      <th className="px-3 py-2 text-left">Número</th>
+                      <th className="px-3 py-2 text-left">Fecha</th>
+                      <th className="px-3 py-2 text-left">Vto.</th>
+                      <th className="px-3 py-2 text-left">Estado</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {!histFacturas.length ? (
+                      <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400 text-xs">No hay facturas</td></tr>
+                    ) : histFacturas.map(f => (
+                      <tr key={f.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-mono text-xs text-brand-700">{f.numeroFactura}</td>
+                        <td className="px-3 py-2 text-gray-600">{new Date(f.fechaFactura).toLocaleDateString('es-ES')}</td>
+                        <td className="px-3 py-2 text-gray-500">{f.fechaVencimiento ? new Date(f.fechaVencimiento).toLocaleDateString('es-ES') : '—'}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            f.estado === 'Pagada' ? 'bg-green-100 text-green-700' :
+                            f.estado === 'Pendiente' ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>{f.estado}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold">{f.total.toFixed(2)} €</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Pedidos ({histPedidos.length})</h3>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                      <th className="px-3 py-2 text-left">Número</th>
+                      <th className="px-3 py-2 text-left">Fecha</th>
+                      <th className="px-3 py-2 text-left">Entrega</th>
+                      <th className="px-3 py-2 text-left">Estado</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {!histPedidos.length ? (
+                      <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400 text-xs">No hay pedidos</td></tr>
+                    ) : histPedidos.map(p => (
+                      <tr key={p.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-mono text-xs text-brand-700">{p.numeroPedido}</td>
+                        <td className="px-3 py-2 text-gray-600">{new Date(p.fecha).toLocaleDateString('es-ES')}</td>
+                        <td className="px-3 py-2 text-gray-500">{p.fechaEntrega ? new Date(p.fechaEntrega).toLocaleDateString('es-ES') : '—'}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            p.estado === 'Completado' ? 'bg-green-100 text-green-700' :
+                            p.estado === 'Pendiente'  ? 'bg-amber-100 text-amber-700' :
+                            p.estado === 'Cancelado'  ? 'bg-red-100 text-red-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>{p.estado}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold">{p.total.toFixed(2)} €</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Albaranes ({histAlbaranes.length})</h3>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                      <th className="px-3 py-2 text-left">Número</th>
+                      <th className="px-3 py-2 text-left">Fecha</th>
+                      <th className="px-3 py-2 text-left">Estado</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {!histAlbaranes.length ? (
+                      <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400 text-xs">No hay albaranes</td></tr>
+                    ) : histAlbaranes.map(a => (
+                      <tr key={a.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-mono text-xs text-brand-700">{a.numeroAlbaran}</td>
+                        <td className="px-3 py-2 text-gray-600">{new Date(a.fechaAlbaran).toLocaleDateString('es-ES')}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            a.estado === 'Facturado' ? 'bg-green-100 text-green-700' :
+                            a.estado === 'Pendiente' ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>{a.estado}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold">{a.total.toFixed(2)} €</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+
+              <div className="flex justify-end pt-2 border-t border-gray-100">
+                <button type="button" onClick={() => setHistorialCliente(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg transition-colors">
+                  Cerrar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

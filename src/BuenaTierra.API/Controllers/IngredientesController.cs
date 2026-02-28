@@ -411,6 +411,42 @@ public class ControlMatPrimasController : ControllerBase
         return Ok(new { data });
     }
 
+    // ── GET /api/control-materias-primas/stock-mp ────────────────────────────
+    // Devuelve todos los registros aceptados con el estado calculado por caducidad.
+    // La ruta literal «stock-mp» tiene prioridad sobre {id:int} (constraint int).
+    [HttpGet("stock-mp")]
+    public async Task<IActionResult> GetStockMp(CancellationToken ct = default)
+    {
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var alertDias = hoy.AddDays(7);
+
+        var data = await _uow.ControlMatPrimas.GetQueryable()
+            .Where(c => c.EmpresaId == EmpresaId && c.MercanciaAceptada)
+            .OrderBy(c => c.Producto).ThenByDescending(c => c.FechaEntrada)
+            .ToListAsync(ct);
+
+        var result = data.Select(c => new
+        {
+            c.Id,
+            c.Producto,
+            c.IngredienteId,
+            c.Unidades,
+            fechaEntrada = c.FechaEntrada.ToString("yyyy-MM-dd"),
+            fechaCaducidad = c.FechaCaducidad?.ToString("yyyy-MM-dd"),
+            c.Proveedor,
+            c.Lote,
+            fechaAperturaLote = c.FechaAperturaLote?.ToString("yyyy-MM-dd"),
+            fechaFinExistencia = c.FechaFinExistencia?.ToString("yyyy-MM-dd"),
+            c.Responsable,
+            c.Observaciones,
+            estado = c.FechaFinExistencia.HasValue ? "agotado" :
+                     c.FechaCaducidad.HasValue && c.FechaCaducidad.Value < hoy ? "caducado" :
+                     c.FechaCaducidad.HasValue && c.FechaCaducidad.Value < alertDias ? "por_caducar" : "activo",
+        }).ToList();
+
+        return Ok(new { data = result });
+    }
+
     // ── GET /api/control-materias-primas/{id} ────────────────────────────────
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken ct = default)

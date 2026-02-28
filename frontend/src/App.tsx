@@ -18,6 +18,8 @@ import FacturacionRapida from './pages/FacturacionRapida'
 import Reportes from './pages/Reportes'
 import Ingredientes from './pages/Ingredientes'
 import Usuarios from './pages/Usuarios'
+import Ajustes from './pages/Ajustes'
+import SeriesFacturacion from './pages/SeriesFacturacion'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import ShortcutsModal from './components/ShortcutsModal'
 
@@ -71,6 +73,8 @@ function AppRoutes() {
         <Route path="reportes" element={<Reportes />} />
         <Route path="ingredientes" element={<Ingredientes />} />
         <Route path="usuarios" element={<Usuarios />} />
+        <Route path="ajustes" element={<Ajustes />} />
+        <Route path="series" element={<SeriesFacturacion />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

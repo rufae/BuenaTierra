@@ -6,6 +6,7 @@ interface AuthContextValue {
   user: AuthUser | null
   login: (email: string, password: string, empresaId: number) => Promise<void>
   logout: () => void
+  updateUser: (patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email'>>) => void
   isAuthenticated: boolean
 }
 
@@ -37,8 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const updateUser = useCallback((patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email'>>) => {
+    setUser(prev => {
+      if (!prev) return prev
+      const updated = { ...prev, ...patch }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+      return updated
+    })
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, login, logout, updateUser, isAuthenticated: !!user }}>
       {children}
     </AuthContext.Provider>
   )
@@ -49,3 +59,4 @@ export function useAuth(): AuthContextValue {
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider')
   return ctx
 }
+
