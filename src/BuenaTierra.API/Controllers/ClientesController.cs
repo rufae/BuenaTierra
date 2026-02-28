@@ -292,6 +292,77 @@ public class ClientesController : ControllerBase
         return Ok(ApiResponse<bool>.Ok(true));
     }
 
+    // ── Historial de documentos del cliente ─────────────────────────────────────
+
+    /// <summary>GET /api/clientes/{id}/facturas — Últimas 50 facturas del cliente</summary>
+    [HttpGet("{id:int}/facturas")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<object>>>> GetFacturas(
+        int id, CancellationToken ct)
+    {
+        var facturas = await _db.Facturas
+            .Where(f => f.ClienteId == id && f.EmpresaId == EmpresaId)
+            .OrderByDescending(f => f.FechaFactura)
+            .Take(50)
+            .Select(f => new
+            {
+                f.Id,
+                f.NumeroFactura,
+                f.FechaFactura,
+                f.FechaVencimiento,
+                Estado = f.Estado.ToString(),
+                f.Total,
+                f.EsSimplificada,
+            })
+            .ToListAsync(ct);
+
+        return Ok(ApiResponse<IEnumerable<object>>.Ok(facturas));
+    }
+
+    /// <summary>GET /api/clientes/{id}/albaranes — Últimos 50 albaranes del cliente</summary>
+    [HttpGet("{id:int}/albaranes")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<object>>>> GetAlbaranes(
+        int id, CancellationToken ct)
+    {
+        var albaranes = await _db.Albaranes
+            .Where(a => a.ClienteId == id && a.EmpresaId == EmpresaId)
+            .OrderByDescending(a => a.FechaAlbaran)
+            .Take(50)
+            .Select(a => new
+            {
+                a.Id,
+                a.NumeroAlbaran,
+                a.FechaAlbaran,
+                Estado = a.Estado.ToString(),
+                a.Total,
+            })
+            .ToListAsync(ct);
+
+        return Ok(ApiResponse<IEnumerable<object>>.Ok(albaranes));
+    }
+
+    /// <summary>GET /api/clientes/{id}/pedidos — Últimos 50 pedidos del cliente</summary>
+    [HttpGet("{id:int}/pedidos")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<object>>>> GetPedidos(
+        int id, CancellationToken ct)
+    {
+        var pedidos = await _db.Pedidos
+            .Where(p => p.ClienteId == id && p.EmpresaId == EmpresaId)
+            .OrderByDescending(p => p.FechaPedido)
+            .Take(50)
+            .Select(p => new
+            {
+                p.Id,
+                NumeroPedido = p.NumeroPedido ?? $"PED-{p.Id}",
+                Fecha = p.FechaPedido.ToString("yyyy-MM-dd"),
+                FechaEntrega = p.FechaEntrega != null ? p.FechaEntrega.Value.ToString("yyyy-MM-dd") : null,
+                Estado = p.Estado.ToString(),
+                p.Total,
+            })
+            .ToListAsync(ct);
+
+        return Ok(ApiResponse<IEnumerable<object>>.Ok(pedidos));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Cliente MapToEntity(Cliente e, CreateClienteDto dto)

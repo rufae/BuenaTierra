@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Plus, Edit2, Trash2, Search, X, Save,
+  Plus, Edit2, Trash2, Search, X, Save, Loader2,
   AlertTriangle, ChevronDown, ChevronRight, Package, Info, ClipboardList,
-  FileDown, FileSpreadsheet,
+  FileDown, FileSpreadsheet, Boxes,
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -25,7 +25,7 @@ interface IngredienteProductoReq {
   esPrincipal: boolean
 }
 
-type Tab = 'ingredientes' | 'fichas' | 'control'
+type Tab = 'ingredientes' | 'fichas' | 'control' | 'stock'
 
 const ALERGENO_EMOJI: Record<string, string> = {
   GLUTEN: '🌾',
@@ -63,28 +63,29 @@ export default function Ingredientes() {
   const [tab, setTab] = useState<Tab>('ingredientes')
 
   return (
-    <div className="flex flex-col flex-1 overflow-y-auto bg-gray-50">
+    <div className="flex flex-col flex-1 overflow-y-auto bg-cream-100">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
+      <div className="bg-cream-50 border-b border-cream-200 px-6 py-4 shrink-0">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Ingredientes y Alérgenos</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Catálogo de ingredientes · Declaración de alérgenos (CE 1169/2011) · Fichas por producto
           </p>
         </div>
-        <div className="flex gap-0 mt-4 -mb-px">
+        <div className="flex gap-1 mt-4 mb-[-1px]">
           {([
             { id: 'ingredientes', label: 'Ingredientes' },
             { id: 'fichas', label: 'Fichas de alérgenos por producto' },
             { id: 'control', label: 'Control de ingredientes' },
+            { id: 'stock', label: 'Stock de materias primas' },
           ] as const).map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`px-5 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 py-2 text-sm rounded-t-lg font-medium transition-colors ${
                 tab === t.id
-                  ? 'border-brand-600 text-brand-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-500'
+                  : 'text-gray-500 hover:text-gray-700 border-b-2 border-transparent'
               }`}
             >
               {t.label}
@@ -98,6 +99,7 @@ export default function Ingredientes() {
         {tab === 'ingredientes' && <TabIngredientes />}
         {tab === 'fichas' && <TabFichas />}
         {tab === 'control' && <TabControlMaterias />}
+        {tab === 'stock' && <TabStockMP />}
       </div>
     </div>
   )
@@ -1258,6 +1260,234 @@ function TabFichas() {
               </div>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── TAB: Stock de materias primas ─────────────────────────────────────────────
+
+interface StockMpRow {
+  id: number
+  producto: string
+  ingredienteId: number | null
+  unidades: number
+  fechaEntrada: string
+  fechaCaducidad: string | null
+  proveedor: string | null
+  lote: string | null
+  fechaAperturaLote: string | null
+  fechaFinExistencia: string | null
+  responsable: string | null
+  observaciones: string | null
+  estado: 'activo' | 'por_caducar' | 'caducado' | 'agotado'
+}
+
+function TabStockMP() {
+  const [search, setSearch] = useState('')
+  const [filtroEstado, setFiltroEstado] = useState<'todos' | StockMpRow['estado']>('todos')
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['stock-mp'],
+    queryFn: async () => {
+      const r = await api.get<{ data: StockMpRow[] }>('/control-materias-primas/stock-mp')
+      return r.data.data
+    },
+    refetchInterval: 60_000,
+  })
+
+  const estadoStats = useMemo(() => {
+    const rows = data ?? []
+    return {
+      totalProductos: new Set(rows.filter(r => r.estado !== 'agotado').map(r => r.producto)).size,
+      activos: rows.filter(r => r.estado === 'activo').length,
+      porCaducar: rows.filter(r => r.estado === 'por_caducar').length,
+      caducados: rows.filter(r => r.estado === 'caducado').length,
+    }
+  }, [data])
+
+  const grupos = useMemo(() => {
+    const rows = (data ?? []).filter(r => {
+      if (filtroEstado !== 'todos' && r.estado !== filtroEstado) return false
+      const q = search.toLowerCase()
+      if (q && !r.producto.toLowerCase().includes(q)
+            && !(r.lote?.toLowerCase().includes(q))
+            && !(r.proveedor?.toLowerCase().includes(q))) return false
+      return true
+    })
+    const map = new Map<string, StockMpRow[]>()
+    for (const r of rows) {
+      if (!map.has(r.producto)) map.set(r.producto, [])
+      map.get(r.producto)!.push(r)
+    }
+    return Array.from(map.entries()).map(([producto, lotes]) => ({
+      producto,
+      lotes,
+      unidadesActivas: lotes.filter(l => l.estado !== 'agotado').reduce((s, l) => s + l.unidades, 0),
+      tieneAlerta: lotes.some(l => l.estado === 'caducado' || l.estado === 'por_caducar'),
+    })).sort((a, b) => a.producto.localeCompare(b.producto))
+  }, [data, search, filtroEstado])
+
+  function toggle(producto: string) {
+    setExpandidos(prev => {
+      const next = new Set(prev)
+      next.has(producto) ? next.delete(producto) : next.add(producto)
+      return next
+    })
+  }
+
+  const estadoBadge = (estado: StockMpRow['estado']) => {
+    const cfg: Record<StockMpRow['estado'], { cls: string; label: string }> = {
+      activo:      { cls: 'bg-green-100 text-green-700', label: 'Activo' },
+      por_caducar: { cls: 'bg-amber-100 text-amber-700', label: 'Por caducar' },
+      caducado:    { cls: 'bg-red-100 text-red-700',     label: 'Caducado' },
+      agotado:     { cls: 'bg-gray-100 text-gray-500',   label: 'Agotado' },
+    }
+    const { cls, label } = cfg[estado] ?? { cls: 'bg-gray-100 text-gray-500', label: estado }
+    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{label}</span>
+  }
+
+  const fmt = (d: string | null | undefined) => {
+    if (!d) return '—'
+    const [y, m, day] = d.split('T')[0].split('-')
+    return `${day}/${m}/${y}`
+  }
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center py-20 text-gray-400">
+      <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando stock…
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Productos en almacén',  value: estadoStats.totalProductos, color: 'text-brand-700',  bg: 'bg-brand-50'  },
+          { label: 'Lotes activos',          value: estadoStats.activos,         color: 'text-green-700', bg: 'bg-green-50'  },
+          { label: 'Por caducar (7 días)',   value: estadoStats.porCaducar,      color: 'text-amber-700', bg: 'bg-amber-50'  },
+          { label: 'Lotes caducados',        value: estadoStats.caducados,       color: 'text-red-700',   bg: 'bg-red-50'    },
+        ].map(c => (
+          <div key={c.label} className={`${c.bg} rounded-xl px-4 py-3 flex flex-col gap-0.5`}>
+            <span className="text-xs text-gray-500">{c.label}</span>
+            <span className={`text-2xl font-bold ${c.color}`}>{c.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar producto, lote, proveedor…"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
+          />
+        </div>
+        <div className="flex gap-1 flex-wrap">
+          {(['todos', 'activo', 'por_caducar', 'caducado', 'agotado'] as const).map(e => (
+            <button
+              key={e}
+              onClick={() => setFiltroEstado(e)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                filtroEstado === e
+                  ? 'bg-brand-600 text-white border-brand-600'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              {e === 'todos' ? 'Todos' : e === 'activo' ? 'Activos' : e === 'por_caducar' ? 'Por caducar' : e === 'caducado' ? 'Caducados' : 'Agotados'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Aviso de solo aceptados */}
+      <div className="flex gap-2 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700">
+        <Info className="w-4 h-4 shrink-0 mt-0.5" />
+        Solo se muestran registros con <b>&nbsp;Mercancía aceptada = Sí</b>. El estado se calcula automáticamente según la fecha de caducidad.
+      </div>
+
+      {/* Lista agrupada por producto */}
+      {grupos.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <Boxes className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Sin registros para los filtros actuales</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {grupos.map(({ producto, lotes, unidadesActivas, tieneAlerta }) => (
+            <div key={producto} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+              {/* Cabecera del grupo — clic para expandir */}
+              <button
+                onClick={() => toggle(producto)}
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+              >
+                <div className="flex items-center gap-3">
+                  {expandidos.has(producto)
+                    ? <ChevronDown className="w-4 h-4 text-gray-400" />
+                    : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                  <Package className="w-4 h-4 text-brand-500" />
+                  <span className="font-semibold text-sm text-gray-900">{producto}</span>
+                  {tieneAlerta && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" title="Tiene lotes próximos a caducar o caducados" />}
+                </div>
+                <div className="flex items-center gap-4 text-xs text-gray-500 shrink-0">
+                  <span><b className="text-gray-800">{lotes.length}</b> lote{lotes.length !== 1 ? 's' : ''}</span>
+                  <span className="font-bold text-brand-700">{unidadesActivas % 1 === 0 ? unidadesActivas : unidadesActivas.toFixed(2)} uds activas</span>
+                </div>
+              </button>
+
+              {/* Tabla de lotes expandida */}
+              {expandidos.has(producto) && (
+                <div className="border-t border-gray-100 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr className="text-gray-500 text-left">
+                        <th className="px-4 py-2 font-medium">Lote</th>
+                        <th className="px-4 py-2 font-medium">F. Entrada</th>
+                        <th className="px-4 py-2 font-medium">F. Caducidad</th>
+                        <th className="px-4 py-2 font-medium">Proveedor</th>
+                        <th className="px-4 py-2 font-medium">Responsable</th>
+                        <th className="px-4 py-2 font-medium text-right">Unidades</th>
+                        <th className="px-4 py-2 font-medium">Estado</th>
+                        <th className="px-4 py-2 font-medium">Fin existencia</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lotes.map(l => (
+                        <tr
+                          key={l.id}
+                          className={`border-t border-gray-100 hover:bg-gray-50 ${
+                            l.estado === 'caducado'    ? 'bg-red-50/50' :
+                            l.estado === 'por_caducar' ? 'bg-amber-50/40' :
+                            l.estado === 'agotado'     ? 'opacity-50' : ''
+                          }`}
+                        >
+                          <td className="px-4 py-2 font-mono font-semibold text-gray-700">{l.lote ?? '—'}</td>
+                          <td className="px-4 py-2 text-gray-600">{fmt(l.fechaEntrada)}</td>
+                          <td className={`px-4 py-2 font-medium ${
+                            l.estado === 'caducado'    ? 'text-red-600' :
+                            l.estado === 'por_caducar' ? 'text-amber-600' : 'text-gray-600'
+                          }`}>{fmt(l.fechaCaducidad)}</td>
+                          <td className="px-4 py-2 text-gray-600">{l.proveedor ?? '—'}</td>
+                          <td className="px-4 py-2 text-gray-600">{l.responsable ?? '—'}</td>
+                          <td className="px-4 py-2 text-right font-bold text-gray-900">
+                            {l.unidades % 1 === 0 ? l.unidades : l.unidades.toFixed(2)}
+                          </td>
+                          <td className="px-4 py-2">{estadoBadge(l.estado)}</td>
+                          <td className="px-4 py-2 text-gray-500 italic">{fmt(l.fechaFinExistencia)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

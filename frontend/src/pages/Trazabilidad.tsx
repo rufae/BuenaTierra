@@ -46,15 +46,15 @@ export default function Trazabilidad() {
   const [tab, setTab] = useState<Tab>('movimientos')
 
   return (
-    <div className="flex flex-col flex-1 overflow-y-auto bg-gray-50">
-      <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
+    <div className="flex flex-col flex-1 overflow-y-auto bg-cream-100">
+      <div className="bg-cream-50 border-b border-cream-200 px-6 py-4 shrink-0">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Trazabilidad</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Conforme a Reglamento (CE) 178/2002 · Declaración de alérgenos CE 1169/2011
           </p>
         </div>
-        <div className="flex gap-0 mt-4 -mb-px">
+        <div className="flex gap-1 mt-4 mb-[-1px]">
           {([
             { id: 'movimientos', label: 'Movimientos por fecha', icon: <FileDown className="w-3.5 h-3.5" /> },
             { id: 'producto', label: 'Por producto', icon: <Package className="w-3.5 h-3.5" /> },
@@ -63,10 +63,10 @@ export default function Trazabilidad() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-5 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg font-medium transition-colors ${
                 tab === t.id
-                  ? 'border-brand-600 text-brand-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-500'
+                  : 'text-gray-500 hover:text-gray-700 border-b-2 border-transparent'
               }`}
             >
               {t.icon}{t.label}

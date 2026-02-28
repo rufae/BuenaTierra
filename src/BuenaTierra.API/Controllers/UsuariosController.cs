@@ -212,7 +212,62 @@ public class UsuariosController : ControllerBase
             NombreCompleto = u.NombreCompleto,
         }));
     }
-}
+    /// <summary>PUT /api/usuarios/me — El usuario actualiza sus propios datos (nombre, apellidos, teléfono)</summary>
+    [HttpPut("me")]
+    public async Task<ActionResult<ApiResponse<object>>> UpdateMe(
+        [FromBody] UpdateMeRequest req, CancellationToken ct)
+    {
+        var u = await _uow.Usuarios.GetByIdAsync(UsuarioActualId, ct);
+        if (u is null) return NotFound(ApiResponse<object>.Fail("Usuario no encontrado"));
+
+        // Validar email si se cambia
+        if (!string.IsNullOrWhiteSpace(req.Email) &&
+            !req.Email.Equals(u.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            var existe = await _uow.Usuarios.FindAsync(
+                x => x.Email == req.Email.Trim().ToLower() && x.Id != UsuarioActualId, ct);
+            if (existe.Any())
+                return BadRequest(ApiResponse<object>.Fail("Ya existe un usuario con ese email"));
+            u.Email = req.Email.Trim().ToLower();
+        }
+
+        u.Nombre    = req.Nombre.Trim();
+        u.Apellidos = req.Apellidos?.Trim();
+        u.Telefono  = req.Telefono?.Trim();
+
+        await _uow.Usuarios.UpdateAsync(u, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<object>.Ok(new
+        {
+            u.Id, u.Nombre, u.Apellidos, u.Email, u.Telefono,
+            Rol = u.Rol.ToString(), NombreCompleto = u.NombreCompleto,
+        }, "Perfil actualizado correctamente"));
+    }
+
+    /// <summary>
+    /// PUT /api/usuarios/me/cambiar-password — El usuario cambia su propia contraseña
+    /// (requiere contraseña actual; no requiere rol Admin).
+    /// </summary>
+    [HttpPut("me/cambiar-password")]
+    public async Task<ActionResult<ApiResponse<string>>> CambiarPasswordMe(
+        [FromBody] CambiarPasswordMeRequest req, CancellationToken ct)
+    {
+        var u = await _uow.Usuarios.GetByIdAsync(UsuarioActualId, ct);
+        if (u is null) return NotFound(ApiResponse<string>.Fail("Usuario no encontrado"));
+
+        if (!BCrypt.Net.BCrypt.Verify(req.PasswordActual, u.PasswordHash))
+            return BadRequest(ApiResponse<string>.Fail("La contraseña actual no es correcta"));
+
+        if (string.IsNullOrWhiteSpace(req.NuevaPassword) || req.NuevaPassword.Length < 8)
+            return BadRequest(ApiResponse<string>.Fail("La nueva contraseña debe tener al menos 8 caracteres"));
+
+        u.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NuevaPassword);
+        await _uow.Usuarios.UpdateAsync(u, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<string>.Ok("Contraseña actualizada correctamente"));
+    }}
 
 // ── DTOs ──────────────────────────────────────────────────────────────────────
 
@@ -234,4 +289,6 @@ public record UpdateUsuarioRequest(
     bool Activo
 );
 
+public record UpdateMeRequest(string Nombre, string? Apellidos, string? Telefono, string? Email);
+public record CambiarPasswordMeRequest(string PasswordActual, string NuevaPassword);
 public record CambiarPasswordRequest(string NuevaPassword);

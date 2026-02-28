@@ -149,3 +149,6 @@ if (app.Environment.IsDevelopment())
 
 Log.Information("BuenaTierra API iniciando en entorno {Environment}", app.Environment.EnvironmentName);
 app.Run();
+
+// Requerido para WebApplicationFactory<Program> en tests de integración
+public partial class Program { }

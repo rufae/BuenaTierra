@@ -95,18 +95,24 @@ public class FacturaService : IFacturaService
             string numeroFactura = await _serieService.SiguienteNumeroAsync(
                 request.EmpresaId, request.SerieId, ct);
 
+            // Calcular fecha de vencimiento automática desde DiasPago del cliente
+            DateOnly? fechaVencimiento = cliente.DiasPago > 0
+                ? request.FechaFactura.AddDays(cliente.DiasPago)
+                : null;
+
             // Crear cabecera de factura
             var factura = new Factura
             {
-                EmpresaId = request.EmpresaId,
-                ClienteId = request.ClienteId,
-                SerieId = request.SerieId,
-                UsuarioId = request.UsuarioId,
+                EmpresaId     = request.EmpresaId,
+                ClienteId     = request.ClienteId,
+                SerieId       = request.SerieId,
+                UsuarioId     = request.UsuarioId,
                 NumeroFactura = numeroFactura,
-                FechaFactura = request.FechaFactura,
-                Estado = EstadoFactura.Emitida,
+                FechaFactura  = request.FechaFactura,
+                FechaVencimiento = fechaVencimiento,
+                Estado        = EstadoFactura.Emitida,
                 EsSimplificada = request.EsSimplificada,
-                Notas = request.Notas
+                Notas         = request.Notas
             };
 
             short orden = 0;
@@ -116,30 +122,30 @@ public class FacturaService : IFacturaService
             {
                 decimal precioUnitario = item.PrecioUnitario ?? producto.PrecioVenta;
                 decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje) : 0m;
+                // Aplicar descuento de la línea; fallback al descuento general del cliente
+                decimal descuentoEfectivo = item.Descuento > 0 ? item.Descuento : cliente.DescuentoGeneral;
 
                 foreach (var lote in lotes)
                 {
                     factura.Lineas.Add(new FacturaLinea
                     {
-                        ProductoId = item.ProductoId,
-                        LoteId = lote.LoteId > 0 ? lote.LoteId : null,
+                        ProductoId  = item.ProductoId,
+                        LoteId      = lote.LoteId > 0 ? lote.LoteId : null,
                         Descripcion = $"{producto.Nombre}" + (lote.LoteId > 0 ? $" (Lote: {lote.CodigoLote})" : ""),
-                        Cantidad = lote.Cantidad,
+                        Cantidad    = lote.Cantidad,
                         PrecioUnitario = precioUnitario,
-                        Descuento = item.Descuento,
+                        Descuento   = descuentoEfectivo,
                         IvaPorcentaje = producto.IvaPorcentaje,
                         RecargoEquivalenciaPorcentaje = rePorc,
-                        Orden = orden++
+                        Orden       = orden++
                     });
                 }
             }
 
-            // Calcular totales
-            factura.Subtotal = lineasConLotes.Sum(x =>
-                x.Lotes.Sum(l => Math.Round(l.Cantidad * (x.Item.PrecioUnitario ?? x.Producto.PrecioVenta) * (1 - x.Item.Descuento / 100), 4)));
+            // Calcular totales desde las líneas (que ya llevan el descuento efectivo)
+            factura.Subtotal = factura.Lineas.Sum(l => l.Subtotal);
             factura.BaseImponible = factura.Subtotal - factura.DescuentoTotal;
-            factura.IvaTotal = lineasConLotes.Sum(x =>
-                x.Lotes.Sum(l => Math.Round(l.Cantidad * (x.Item.PrecioUnitario ?? x.Producto.PrecioVenta) * (1 - x.Item.Descuento / 100) * x.Producto.IvaPorcentaje / 100, 4)));
+            factura.IvaTotal = factura.Lineas.Sum(l => l.IvaImporte);
             factura.RecargoEquivalenciaTotal = aplicaRE
                 ? Math.Round(factura.Lineas.Sum(l => l.Subtotal * l.RecargoEquivalenciaPorcentaje / 100), 2)
                 : 0m;
@@ -286,6 +292,10 @@ public class FacturaService : IFacturaService
                                 .Bold().FontSize(18).FontColor("#E67E22");
                             c.Item().AlignRight().Text($"Nº: {factura.NumeroFactura}").Bold().FontSize(11);
                             c.Item().AlignRight().Text($"Fecha: {factura.FechaFactura:dd/MM/yyyy}");
+                            if (factura.FechaVencimiento.HasValue)
+                                c.Item().AlignRight().Text($"Vencimiento: {factura.FechaVencimiento.Value:dd/MM/yyyy}")
+                                    .FontColor("#C0392B");
+                            c.Item().AlignRight().Text($"Forma de pago: {factura.Cliente?.FormaPago.ToString() ?? "Contado"}");
                             c.Item().AlignRight().Text($"Estado: {factura.Estado}");
                         });
                     });

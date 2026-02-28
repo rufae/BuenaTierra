@@ -134,17 +134,19 @@ public class AlbaranesController : ControllerBase
             {
                 decimal precio = item.PrecioUnitario ?? producto.PrecioVenta;
                 decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje) : 0m;
+                // Aplicar descuento de línea; fallback al descuento general del cliente
+                decimal descuentoEfectivo = item.Descuento > 0 ? item.Descuento : cliente.DescuentoGeneral;
 
                 foreach (var lote in lotes)
                 {
                     albaran.Lineas.Add(new AlbaranLinea
                     {
-                        ProductoId = item.ProductoId,
-                        LoteId = lote.LoteId > 0 ? lote.LoteId : null,
+                        ProductoId  = item.ProductoId,
+                        LoteId      = lote.LoteId > 0 ? lote.LoteId : null,
                         Descripcion = producto.Nombre + (lote.LoteId > 0 ? $" (Lote: {lote.CodigoLote})" : ""),
-                        Cantidad = lote.Cantidad,
+                        Cantidad     = lote.Cantidad,
                         PrecioUnitario = precio,
-                        Descuento = item.Descuento,
+                        Descuento    = descuentoEfectivo,
                         IvaPorcentaje = producto.IvaPorcentaje,
                         RecargoEquivalenciaPorcentaje = rePorc,
                         Orden = orden++

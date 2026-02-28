@@ -1,11 +1,54 @@
 import React, { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/authStore'
+import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, Package, Users, Factory,
   FileText, LogOut, Layers, Truck, ClipboardList,
   Activity, Zap, BarChart2, Leaf, Shield, Menu, X,
+  Wifi, WifiOff, UserCog, BookOpen,
 } from 'lucide-react'
+
+// ── Badge de estado del servidor ──────────────────────────────────────────────
+function ServerStatusBadge() {
+  const { data, isError, isFetching } = useQuery({
+    queryKey: ['health'],
+    queryFn:  async () => {
+      const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:5064'
+      const res  = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(4_000) })
+      if (!res.ok) throw new Error('offline')
+      return res.json() as Promise<{ status: string }>
+    },
+    refetchInterval:        30_000,   // poll cada 30 s
+    refetchIntervalInBackground: true,
+    retry:                  1,
+    staleTime:              20_000,
+  })
+
+  const online  = !isError && data?.status === 'healthy'
+  const loading = isFetching && !data
+
+  return (
+    <div
+      className="flex items-center gap-1.5 px-2 py-1 mt-1"
+      data-testid="health-badge"
+      aria-label="Estado servidor"
+    >
+      {loading ? (
+        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+      ) : online ? (
+        <Wifi className="w-3 h-3 text-emerald-500 shrink-0" />
+      ) : (
+        <WifiOff className="w-3 h-3 text-red-500 shrink-0" />
+      )}
+      <span className={`text-[10px] font-medium ${
+        loading ? 'text-amber-500' : online ? 'text-emerald-600' : 'text-red-500'
+      }`}>
+        {loading ? 'Conectando…' : online ? 'Servidor online' : 'Sin conexión'}
+      </span>
+    </div>
+  )
+}
 
 interface NavItem {
   to: string
@@ -26,6 +69,7 @@ const NAV_OBRADOR: NavItem[] = [
   { to: '/ingredientes',icon: <Leaf className="w-[18px] h-[18px]" />,            label: 'Ingredientes' },
   { to: '/trazabilidad',icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad', separator: true },
   { to: '/reportes',    icon: <BarChart2 className="w-[18px] h-[18px]" />,       label: 'Informes',    separator: true },
+  { to: '/ajustes',     icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',     separator: true },
 ]
 
 const NAV_REPARTIDOR: NavItem[] = [
@@ -33,6 +77,7 @@ const NAV_REPARTIDOR: NavItem[] = [
   { to: '/facturacion-rapida', icon: <Zap className="w-[18px] h-[18px]" />,             label: 'Facturación rápida' },
   { to: '/clientes',           icon: <Users className="w-[18px] h-[18px]" />,           label: 'Mis clientes', separator: true },
   { to: '/trazabilidad',       icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad' },
+  { to: '/ajustes',            icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',       separator: true },
 ]
 
 export default function Layout() {
@@ -43,7 +88,10 @@ export default function Layout() {
   const isRepartidor = user?.rol === 'UsuarioRepartidor'
   const isAdmin      = user?.rol === 'Admin'
   const adminItems: NavItem[] = isAdmin
-    ? [{ to: '/usuarios', icon: <Shield className="w-[18px] h-[18px]" />, label: 'Usuarios', separator: true }]
+    ? [
+        { to: '/usuarios', icon: <Shield   className="w-[18px] h-[18px]" />, label: 'Usuarios', separator: true },
+        { to: '/series',   icon: <BookOpen className="w-[18px] h-[18px]" />, label: 'Series'   },
+      ]
     : []
   const navItems = [...(isRepartidor ? NAV_REPARTIDOR : NAV_OBRADOR), ...adminItems]
 
@@ -90,8 +138,8 @@ export default function Layout() {
             <p className="font-display text-base font-bold text-white leading-tight tracking-wide truncate">
               BuenaTierra
             </p>
-            <p className="text-xs text-white/60 leading-tight truncate font-sans">
-              {isRepartidor ? 'Portal Repartidor' : 'Gestión del Obrador'}
+            <p className="text-xs text-white/75 leading-tight truncate font-sans">
+              {user?.nombre}{user?.apellidos ? ` ${user.apellidos}` : ''}
             </p>
           </div>
           {/* Botón cerrar — solo mobile */}
@@ -164,6 +212,7 @@ export default function Layout() {
             <LogOut className="w-3.5 h-3.5" />
             Cerrar sesión
           </button>
+          <ServerStatusBadge />
         </div>
       </aside>
 

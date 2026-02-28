@@ -1,7 +1,7 @@
 # CHECKLIST DE DESARROLLO - SISTEMA BUENATIERRA
 
-> **Última actualización:** 26 Febrero 2026 (2) — MODELO_NEGOCIO_NUEVO.md  
-> **Estado general:** MVP Backend + Frontend completado ✅ | PDF + Excel ✅ | Albaranes + Pedidos + Lotes + Trazabilidad ✅ | Dashboard KPIs reales ✅ | Módulo Repartidor POS ✅ | Navegación por rol ✅ | Informes y Analytics ✅ | Ingredientes & Alérgenos (CE 1169/2011) ✅ | Trazabilidad directa ✅ | Export Excel ✅ | Trazabilidad 3 tabs + Recall ✅ | Gestión de usuarios (Admin) ✅ | Rotación FIFO Analytics ✅ | Dashboard Multi-Tab ✅ | Performance (Cache + Pool + Índices) ✅ | Atajos de teclado ✅ | Responsive Mobile ✅ | Tests xUnit 23/23 ✅ | Docs completa ✅ | Lote auto-fill ddMMyyyy ✅ | Alérgenos en Productos (selector) ✅ | Botones PDF/Excel Facturación ✅ | APP_ESCRITORIO.md ✅ | Gobernanza del repositorio ✅
+> **Última actualización:** 26 Febrero 2026 (3) — FASE 11 Impresión de etiquetas  
+> **Estado general:** MVP Backend + Frontend completado ✅ | PDF + Excel ✅ | Albaranes + Pedidos + Lotes + Trazabilidad ✅ | Dashboard KPIs reales ✅ | Módulo Repartidor POS ✅ | Navegación por rol ✅ | Informes y Analytics ✅ | Ingredientes & Alérgenos (CE 1169/2011) ✅ | Trazabilidad directa ✅ | Export Excel ✅ | Trazabilidad 3 tabs + Recall ✅ | Gestión de usuarios (Admin) ✅ | Rotación FIFO Analytics ✅ | Dashboard Multi-Tab ✅ | Performance (Cache + Pool + Índices) ✅ | Atajos de teclado ✅ | Responsive Mobile ✅ | Tests xUnit 23/23 ✅ | Docs completa ✅ | Lote auto-fill ddMMyyyy ✅ | Alérgenos en Productos (selector) ✅ | Botones PDF/Excel Facturación ✅ | APP_ESCRITORIO.md ✅ | Gobernanza del repositorio ✅ | **Impresión de etiquetas Brother ⏳ PENDIENTE análisis**
 
 ---
 
@@ -138,7 +138,6 @@
 
 ### Integraciones Futuras
 - [ ] Preparación para integración contable
-- [ ] Preparación para SII (AEAT)
 - [ ] API para integraciones externas
 - [ ] Exportación a formatos estándar
 
@@ -159,19 +158,13 @@
 - [x] Interfaz responsive (mobile sidebar hamburger)
 - [ ] Modo offline parcial (si aplica)
 
-### Escalabilidad
-- [ ] Diseño para múltiples obradores
-- [ ] Diseño para múltiples repartidores
-- [ ] Sistema de configuración multi-empresa
-- [ ] Replicación de base de datos
-
 ## FASE 5: TESTING Y DOCUMENTACIÓN
 
 ### Testing
 - [x] Tests unitarios — 23 tests xUnit, 100% pasan (LoteAsignacion + Domain + Application)
-- [ ] Tests de integración (con BD real)
-- [ ] Tests de sistema (e2e Playwright)
-- [ ] Tests de carga (k6)
+- [x] Tests de integración (con BD real) — `tests/BuenaTierra.IntegrationTests/` + WebAppFactory + Testcontainers + 4 suites (Auth/FIFO/Albaran/Trazabilidad)
+- [x] Tests de sistema (e2e Playwright) — `tests/BuenaTierra.E2E/` + playwright.config.ts + obrador-flow + repartidor-pos
+- [x] Tests de carga (k6) — `tests/load/k6-ventas.js` + `k6-fifo-concurrencia.js`
 - [ ] Tests de seguridad (OWASP ZAP baseline)
 
 ### Documentación
@@ -179,7 +172,7 @@
 - [x] Manual de usuario (Repartidor) — docs/manual-repartidor.md
 - [x] Manual técnico — docs/manual-tecnico.md
 - [x] Manual de instalación — docs/manual-instalacion.md
-- [ ] Manual de mantenimiento
+- [x] Manual de mantenimiento — `docs/manual-mantenimiento.md` (BD, deploy, rollback, logs, seguridad, troubleshooting)
 - [x] Documentación de API — docs/api.md + Swagger /swagger
 
 ## FASE 6B: CORRECCIONES Y MEJORAS UX (23 Jun 2025) ✅ COMPLETADO
@@ -230,7 +223,7 @@
 - [ ] Plan de mantenimiento continuo y SLA (FOR-05)
 - [ ] Sistema de tickets/soporte operativo
 - [ ] Procedimientos de actualización documentados (DOC-02)
-- [ ] Manual de mantenimiento técnico (DOC-01)
+- [x] Manual de mantenimiento técnico (DOC-01) — `docs/manual-mantenimiento.md`
 - [ ] Monitorización básica activa (INF-03)
 
 ---
@@ -299,22 +292,22 @@
 ## FASE 8: TESTING COMPLETO
 
 ### Tests de Integración (BD real)
-- [ ] Configurar `WebApplicationFactory` + PostgreSQL de test en Docker (TST-01)
-- [ ] Tests de integración: flujo completo crear albarán → convertir factura → verificar stock
-- [ ] Tests de integración: FIFO — pedido con múltiples lotes genera split correcto
-- [ ] Tests de integración: trazabilidad — recall de ingrediente devuelve clientes correctos
-- [ ] Tests de integración: autenticación y autorización por rol
+- [x] Configurar `WebApplicationFactory` + PostgreSQL de test en Docker (TST-01) — `BuenaTierraWebAppFactory` con Testcontainers.PostgreSql
+- [x] Tests de integración: flujo completo crear albarán → convertir factura → verificar stock — `AlbaranFifoIntegrationTests`
+- [x] Tests de integración: FIFO — pedido con múltiples lotes genera split correcto — `FifoSplitIntegrationTests` (3 casos)
+- [x] Tests de integración: trazabilidad — recall de ingrediente devuelve clientes correctos — `TrazabilidadIntegrationTests`
+- [x] Tests de integración: autenticación y autorización por rol — `AuthIntegrationTests` (login/401/403/health)
 
 ### Tests E2E (Playwright)
-- [ ] Configurar Playwright en `tests/` (TST-02)
-- [ ] E2E: flujo obrador (crear cliente → producto → producción → albarán → factura)
-- [ ] E2E: flujo repartidor POS (seleccionar productos → generar factura → descargar PDF)
+- [x] Configurar Playwright en `tests/` (TST-02) — `playwright.config.ts` con Chromium, baseURL, retry CI
+- [x] E2E: flujo obrador (crear cliente → producto → producción → albarán → factura) — `obrador-flow.spec.ts`
+- [x] E2E: flujo repartidor POS (seleccionar productos → generar factura → descargar PDF) — `repartidor-pos.spec.ts`
 - [ ] E2E: flujo trazabilidad (buscar ingrediente → recall → exportar Excel)
 
 ### Tests de Carga
-- [ ] Configurar k6 (TST-03)
-- [ ] Escenario: 10 repartidores concurrentes creando facturas simultáneamente
-- [ ] Escenario: FIFO bajo concurrencia (no oversell de lotes)
+- [x] Configurar k6 (TST-03) — scripts listos en `tests/load/`
+- [x] Escenario: 10 repartidores concurrentes creando facturas simultáneamente — `k6-ventas.js` (VUs 5→10→0, p95<500ms)
+- [x] Escenario: FIFO bajo concurrencia (no oversell de lotes) — `k6-fifo-concurrencia.js` con métricas `facturas_fallidas`
 
 ### Tests de Seguridad
 - [ ] OWASP ZAP baseline scan (TST-04)
@@ -326,11 +319,11 @@
 ## FASE 9: MEJORAS TÉCNICAS Y DEUDA
 
 ### Deuda Técnica Prioritaria
-- [ ] Corregir `HasCheckConstraint` API obsoleta en EF Core 9 (DT-004 / KI-001)
+- [x] Corregir `HasCheckConstraint` API obsoleta en EF Core 9 (DT-004 / KI-001) — `AppDbContext.cs` → `ToTable(t => t.HasCheckConstraint(...))`
 - [ ] Implementar tabla `audit_log` para trazabilidad de accesos (DT-007 / NEW-03)
-- [ ] CI/CD pipeline GitHub Actions: build + test + docker push (DT-003 / NEW-01)
-- [ ] Health check endpoint expuesto en UI de administración (NEW-02)
-- [ ] Redirigir `api_err.txt` / `api_out.txt` a `.gitignore` o `tasks/logs/` (DT-008 / KI-003)
+- [x] CI/CD pipeline GitHub Actions: build + test + docker push (DT-003 / NEW-01) — `.github/workflows/ci.yml` (3 jobs: backend+frontend+docker)
+- [x] Health check endpoint expuesto en UI de administración (NEW-02) — `ServerStatusBadge` en sidebar, polling 30s
+- [x] Redirigir `api_err.txt` / `api_out.txt` a `.gitignore` o `tasks/logs/` (DT-008 / KI-003) — `.gitignore` actualizado
 
 ### Performance Avanzada
 - [ ] Particionado de tablas históricas (movimientos_stock) cuando >1M filas (INF-07)
@@ -357,3 +350,99 @@
 
 ---
 
+## FASE 11: IMPRESIÓN DE ETIQUETAS — Integración con impresora Brother térmica ⏳ PENDIENTE
+
+> **Estado:** Pendiente de análisis con el cliente. Se conoce el hardware (impresora Brother térmica) y el flujo general (app externa con listado de plantillas editables e impresión directa), pero se desconoce el formato de los archivos de plantilla y el nombre/versión exacta de la aplicación que usan actualmente. **No iniciar desarrollo hasta completar el bloque de preguntas abiertas.**
+
+### Preguntas abiertas — RESOLVER CON EL CLIENTE ANTES DE DISEÑAR
+- [ ] **¿Qué aplicación usan actualmente?** (P-Touch Editor, NiceLabel, ZebraDesigner, BarTender, LabelMark…)
+- [ ] **¿Cuál es el formato de los archivos de plantilla?** (`.lbx` P-Touch, `.nlbl` NiceLabel, `.btw` BarTender, `.zpl` ZPL, otro)
+- [ ] **¿Qué modelo exacto de impresora Brother?** (PT-P750W, QL-820NWB, TD-4550DNWB, TD-2135N…)
+- [ ] **¿La impresora está conectada por USB, WiFi o red LAN?** (condiciona la integración)
+- [ ] **¿Qué datos lleva cada etiqueta?** (nombre producto, lote, fecha fabricación, fecha caducidad, peso, alérgenos, nº registro sanitario, código de barras/QR…)
+- [ ] **¿Cuántas plantillas distintas tienen?** (una por producto, una por familia, una genérica…)
+- [ ] **¿El lote y la caducidad se escriben a mano en el campo, o se imprimen con el mismo ciclo de producción?**
+- [ ] **¿Quieren seguir usando la aplicación actual como base** o prefieren que la gestión de plantillas y la impresión se integre completamente en BuenaTierra?
+- [ ] **¿Necesitan imprimir desde el obrador solamente, o también el repartidor imprime etiquetas en el punto de venta?**
+- [ ] **¿El número de etiquetas a imprimir depende de la cantidad producida?** (imprimir N etiquetas = N unidades del lote)
+
+### Investigación técnica — PENDIENTE (tras conocer respuestas)
+- [ ] Identificar si Brother SDK / AirPrint / Brother iPrint&Label tienen API documentada accesible desde .NET/Web
+- [ ] Evaluar si el formato de plantilla actual es importable/reutilizable o hay que recrear las plantillas
+- [ ] Determinar si la integración debe ser nativa (app Electron/Tauri con acceso a driver) o web (WebUSB / WebBluetooth / servidor de impresión local)
+- [ ] Identificar si ZPL (Zebra Printer Language) o Brother-specific ESC/P es el protocolo de comunicación del modelo elegido
+- [ ] Evaluar librerías .NET disponibles: BrotherPrint SDK, CUPS (Linux), RawPrint (Windows), ZPL via socket TCP
+- [ ] Crear ADR-006 con la decisión de arquitectura de impresión
+
+### Diseño del módulo — PENDIENTE
+- [ ] Definir entidad `PlantillaEtiqueta` (id, nombre, productoId?, campos variables, diseño)
+- [ ] Definir flujo de datos: producción → genera lote → usuario selecciona plantilla → imprime N etiquetas con datos del lote
+- [ ] Diseñar pantalla "Imprimir etiquetas" accesible desde módulo de Producción (al finalizar una producción) y desde módulo de Lotes
+- [ ] Diseñar editor de plantillas: campos fijos (nombre producto, empresa, alérgenos) + campos variables (lote, fechas, cantidad)
+- [ ] Diseño UX: tabla de plantillas guardadas (listar, crear, editar, duplicar, eliminar, imprimir)
+- [ ] Decidir si las plantillas se almacenan en BD (campos JSON) o como archivos en servidor
+
+### Desarrollo backend — PENDIENTE
+- [ ] Endpoint `GET /api/etiquetas/plantillas` — listado de plantillas por empresa
+- [ ] Endpoint `POST /api/etiquetas/plantillas` — crear plantilla
+- [ ] Endpoint `PUT /api/etiquetas/plantillas/{id}` — editar plantilla
+- [ ] Endpoint `DELETE /api/etiquetas/plantillas/{id}` — eliminar plantilla
+- [ ] Endpoint `POST /api/etiquetas/imprimir` — enviar instrucción impresión (plantillaId, loteId, cantidad)
+- [ ] Lógica de relleno de campos variables con datos del lote (producto, fechas, código de barras)
+- [ ] Validación: el lote debe existir y no estar bloqueado antes de imprimir
+- [ ] Registro de impresiones: tabla `log_impresiones_etiquetas` para auditoría (cuándo, quién, lote, cantidad)
+
+### Desarrollo frontend — PENDIENTE
+- [ ] Página `Etiquetas.tsx` con dos tabs: "Plantillas" e "Historial de impresión"
+- [ ] Tab Plantillas: tabla con nombre, producto asociado (o genérica), última modificación — botones Editar / Duplicar / Imprimir / Eliminar
+- [ ] Editor de plantilla: canvas visual o formulario estructurado con preview de etiqueta
+- [ ] Modal "Imprimir": selector de lote (con autocompletado desde stock activo) + cantidad + confirmar
+- [ ] Integración con módulo Producción: botón "Imprimir etiquetas" al finalizar producción (pre-rellena lote y cantidad producida)
+- [ ] Integración con módulo Lotes: botón "Imprimir etiquetas" por lote
+- [ ] Indicador de estado de impresora (online/offline) si la API lo permite
+
+### Infraestructura de impresión — PENDIENTE
+- [ ] Definir si se usa un servicio local (agent en Windows del obrador) o impresión directa vía driver
+- [ ] Documentar configuración de la impresora en el servidor/PC del obrador
+- [ ] Configurar IP/nombre de red de la impresora en `appsettings.json` (o tabla de configuración)
+- [ ] Probar conectividad raw socket con el modelo exacto (puerto 9100 TCP en impresoras de red)
+- [ ] Documento de setup: instalación de driver Brother + configuración de red
+
+### Testing etiquetas — PENDIENTE
+- [ ] Test unitario: relleno de plantilla con datos de lote genera string de impresión correcto
+- [ ] Test integración: flujo producción → imprimir etiquetas → registro en log
+- [ ] Test manual: imprimir etiqueta de prueba en impresora física y validar legibilidad + datos
+- [ ] Verificar cumplimiento CE 1169/2011 (alérgenos visibles) y CE 178/2002 (lote trazable) en etiqueta impresa
+
+---
+## FASE 12: MEJORAS DE NEGOCIO — Descuentos, Vencimientos, Perfil, Historial, Series ✅
+
+### BLOQUE A — Lógica de descuentos y fechas en documentos
+- [x] `FacturaService`: aplicar `DescuentoGeneral` del cliente como fallback cuando `item.Descuento == 0`
+- [x] `FacturaService`: calcular `FechaVencimiento` automáticamente desde `cliente.DiasPago`
+- [x] `FacturaService`: mostrar `FechaVencimiento` (rojo) y `FormaPago` en PDF header derecho
+- [x] `FacturaService`: recalcular totales usando `factura.Lineas.Sum(l => l.Subtotal)` (evita recalcular con descuento ya aplicado)
+- [x] `AlbaranesController`: aplicar `DescuentoGeneral` del cliente como fallback en líneas de albarán
+
+### BLOQUE B — Perfil de usuario propio
+- [x] `UsuariosController`: `PUT /api/usuarios/me` — cualquier usuario actualiza nombre/apellidos/teléfono
+- [x] `UsuariosController`: `PUT /api/usuarios/me/cambiar-password` — cambio de contraseña con verificación BCrypt
+- [x] `UsuariosController`: nuevos DTOs `UpdateMeRequest` y `CambiarPasswordMeRequest` (sin eliminar `CambiarPasswordRequest` del admin)
+- [x] Frontend `Ajustes.tsx` — página con dos tabs: "Mi perfil" y "Contraseña"
+- [x] `App.tsx`: ruta `/ajustes` registrada
+- [x] `Layout.tsx`: enlace "Ajustes" con icono `UserCog` para roles Obrador y Repartidor
+
+### BLOQUE C — Historial de documentos por cliente
+- [x] `ClientesController`: `GET /api/clientes/{id}/facturas` — últimas 50 facturas del cliente
+- [x] `ClientesController`: `GET /api/clientes/{id}/albaranes` — últimos 50 albaranes del cliente
+- [x] `Clientes.tsx`: tipo `Tab` ampliado con `'historial'`
+- [x] `Clientes.tsx`: queries `histFacturas` e `histAlbaranes` (lazy, solo cuando tab activo)
+- [x] `Clientes.tsx`: tab "Historial" visible en modo edición con tablas de facturas y albaranes
+
+### BLOQUE D — Gestión de series de facturación (Admin)
+- [x] `SeriesController`: `GET /api/series/todas` — todas las series incluyendo inactivas (Admin)
+- [x] `SeriesController`: `PUT /api/series/{id}` — actualizar serie existente (Admin)
+- [x] `SeriesController`: `DELETE /api/series/{id}` — desactivar serie (soft delete, Admin)
+- [x] Frontend `SeriesFacturacion.tsx` — página CRUD con tabla, modal de creación y edición
+- [x] `App.tsx`: ruta `/series` registrada
+- [x] `Layout.tsx`: enlace "Series" con icono `BookOpen` en bloque Admin
