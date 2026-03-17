@@ -109,6 +109,13 @@ public class AlbaranesController : ControllerBase
                          || cliente.RecargoEquivalencia;
             decimal retencionPorc = !cliente.NoAplicarRetenciones && cliente.PorcentajeRetencion > 0
                 ? cliente.PorcentajeRetencion : 0m;
+
+            // Cargar tabla de RE desde BD para la empresa (en vez de hardcoded)
+            var tablaRE = aplicaRE
+                ? (await _uow.TiposIvaRe.FindAsync(t => t.EmpresaId == EmpresaId && t.Activo, ct))
+                    .ToDictionary(t => t.IvaPorcentaje, t => t.RecargoEquivalenciaPorcentaje)
+                : new Dictionary<decimal, decimal>();
+
             // Número de albarán (usa misma serie que facturas o serie propia)
             string numeroAlbaran;
             if (request.SerieId.HasValue)
@@ -133,7 +140,7 @@ public class AlbaranesController : ControllerBase
             foreach (var (item, producto, lotes) in lineasConLotes)
             {
                 decimal precio = item.PrecioUnitario ?? producto.PrecioVenta;
-                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje) : 0m;
+                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje, tablaRE) : 0m;
                 // Aplicar descuento de línea; fallback al descuento general del cliente
                 decimal descuentoEfectivo = item.Descuento > 0 ? item.Descuento : cliente.DescuentoGeneral;
 
@@ -206,6 +213,12 @@ public class AlbaranesController : ControllerBase
         decimal retencionPorc = !cliente.NoAplicarRetenciones && cliente.PorcentajeRetencion > 0
             ? cliente.PorcentajeRetencion : 0m;
 
+        // Cargar tabla de RE desde BD para la empresa
+        var tablaRE = aplicaRE
+            ? (await _uow.TiposIvaRe.FindAsync(t => t.EmpresaId == EmpresaId && t.Activo, ct))
+                .ToDictionary(t => t.IvaPorcentaje, t => t.RecargoEquivalenciaPorcentaje)
+            : new Dictionary<decimal, decimal>();
+
         // Obtener número de factura
         string numeroFactura = await _serieService.SiguienteNumeroAsync(EmpresaId, request.SerieId, ct);
 
@@ -231,7 +244,7 @@ public class AlbaranesController : ControllerBase
             short orden = 0;
             foreach (var linea in albaran.Lineas.OrderBy(l => l.Orden))
             {
-                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(linea.IvaPorcentaje) : 0m;
+                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(linea.IvaPorcentaje, tablaRE) : 0m;
                 factura.Lineas.Add(new FacturaLinea
                 {
                     ProductoId = linea.ProductoId,
@@ -350,12 +363,12 @@ public class AlbaranesController : ControllerBase
         return Ok(ApiResponse<string>.Ok("OK", "Albarán en reparto"));
     }
 
-    /// <summary>POST /api/albaranes/{id}/cancelar — Cancelar albarán</summary>
+    /// <summary>POST /api/albaranes/{id}/cancelar — Cancelar albarán y devolver stock consumido</summary>
     [HttpPost("{id:int}/cancelar")]
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<string>>> Cancelar(int id, CancellationToken ct)
     {
-        var albaran = await _uow.Albaranes.GetByIdAsync(id, ct);
+        var albaran = await _uow.Albaranes.GetConLineasAsync(id, ct);
         if (albaran == null || albaran.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Albarán no encontrado"));
         if (albaran.Estado == EstadoAlbaran.Facturado)
@@ -363,10 +376,52 @@ public class AlbaranesController : ControllerBase
         if (albaran.Estado == EstadoAlbaran.Cancelado)
             return BadRequest(ApiResponse<string>.Fail("El albarán ya está cancelado"));
 
-        albaran.Estado = EstadoAlbaran.Cancelado;
-        await _uow.Albaranes.UpdateAsync(albaran, ct);
-        await _uow.SaveChangesAsync(ct);
-        return Ok(ApiResponse<string>.Ok("OK", "Albarán cancelado"));
+        await _uow.BeginTransactionAsync(ct);
+        try
+        {
+            // Devolver stock de cada línea con lote asignado
+            foreach (var linea in albaran.Lineas.Where(l => l.LoteId.HasValue))
+            {
+                var stock = await _uow.Stock.GetByProductoLoteAsync(
+                    EmpresaId, linea.ProductoId, linea.LoteId!.Value, ct);
+
+                if (stock != null)
+                {
+                    decimal cantidadAntes = stock.CantidadDisponible;
+                    stock.CantidadDisponible += linea.Cantidad;
+                    stock.UpdatedAt = DateTime.UtcNow;
+                    await _uow.Stock.UpdateAsync(stock, ct);
+
+                    // Movimiento de stock (devolución)
+                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    {
+                        EmpresaId = EmpresaId,
+                        ProductoId = linea.ProductoId,
+                        LoteId = linea.LoteId!.Value,
+                        Tipo = TipoMovimientoStock.Devolucion,
+                        Cantidad = linea.Cantidad,
+                        CantidadAntes = cantidadAntes,
+                        CantidadDespues = stock.CantidadDisponible,
+                        ReferenciaTipo = "cancelacion_albaran",
+                        ReferenciaId = albaran.Id,
+                        UsuarioId = UsuarioId,
+                        Notas = $"Devolución por cancelación de albarán {albaran.NumeroAlbaran}"
+                    }, ct);
+                }
+            }
+
+            albaran.Estado = EstadoAlbaran.Cancelado;
+            await _uow.Albaranes.UpdateAsync(albaran, ct);
+            await _uow.SaveChangesAsync(ct);
+            await _uow.CommitTransactionAsync(ct);
+
+            return Ok(ApiResponse<string>.Ok("OK", "Albarán cancelado y stock devuelto"));
+        }
+        catch
+        {
+            await _uow.RollbackTransactionAsync(ct);
+            throw;
+        }
     }
 
     /// <summary>GET /api/albaranes/{id}/pdf — Generar PDF del albarán</summary>
@@ -570,9 +625,17 @@ public class AlbaranesController : ControllerBase
 
     // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-    /// <summary>Tasas legales de recargo de equivalencia según tipo de IVA (España).</summary>
-    private static decimal GetRecargoEquivalenciaPorcentaje(decimal ivaPorcentaje) =>
-        ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+    /// <summary>
+    /// Obtiene el porcentaje de RE desde la tabla tipos_iva_re de la empresa.
+    /// Fallback a tasas legales por defecto (España) si no hay match.
+    /// </summary>
+    private static decimal GetRecargoEquivalenciaPorcentaje(
+        decimal ivaPorcentaje, Dictionary<decimal, decimal> tablaRE)
+    {
+        if (tablaRE.TryGetValue(ivaPorcentaje, out var reDesdeDB))
+            return reDesdeDB;
+        return ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+    }
 
     private static AlbaranDetalle MapToDetalle(Albaran a) => new(
         a.Id,

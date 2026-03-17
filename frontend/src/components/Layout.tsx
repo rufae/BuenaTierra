@@ -86,7 +86,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  const isRepartidor = user?.rol === 'UsuarioRepartidor'
+  const isRepartidor = user?.rol === 'Repartidor'
   const isAdmin      = user?.rol === 'Admin'
   const adminItems: NavItem[] = isAdmin
     ? [

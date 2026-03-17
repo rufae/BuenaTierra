@@ -30,6 +30,7 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
         var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var empresaId = ctx.Empresas.First().Id;
+        var userId = ctx.Usuarios.First().Id;
 
         // Producto
         var producto = new BuenaTierra.Domain.Entities.Producto
@@ -51,34 +52,48 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
         {
             var prod = new BuenaTierra.Domain.Entities.Produccion
             {
-                EmpresaId      = empresaId,
-                ProductoId     = producto.Id,
-                FechaProduccion = hoy.AddDays(-3 + i),
-                Cantidad       = cantidades[i],
+                EmpresaId         = empresaId,
+                ProductoId        = producto.Id,
+                UsuarioId         = userId,
+                FechaProduccion   = hoy.AddDays(-3 + i),
+                CantidadProducida = cantidades[i],
             };
             ctx.Producciones.Add(prod);
             ctx.SaveChanges();
 
             var lote = new BuenaTierra.Domain.Entities.Lote
             {
-                ProduccionId   = prod.Id,
-                CodigoLote     = $"LOTE{(char)('A' + i)}-{prod.FechaProduccion:ddMMyyyy}",
-                FechaProduccion = prod.FechaProduccion,
-                FechaCaducidad  = hoy.AddDays(30),
-                CantidadInicial = cantidades[i],
-                CantidadActual  = cantidades[i],
+                EmpresaId        = empresaId,
+                ProductoId       = producto.Id,
+                ProduccionId     = prod.Id,
+                CodigoLote       = $"LOTE{(char)('A' + i)}-{prod.FechaProduccion:ddMMyyyy}-{Guid.NewGuid().ToString("N")[..8]}",
+                FechaFabricacion  = prod.FechaProduccion,
+                FechaCaducidad   = hoy.AddDays(30),
+                CantidadInicial  = cantidades[i],
             };
             ctx.Lotes.Add(lote);
+            ctx.SaveChanges();
+
+            // Stock entry for FIFO
+            ctx.Set<BuenaTierra.Domain.Entities.Stock>().Add(new BuenaTierra.Domain.Entities.Stock
+            {
+                EmpresaId          = empresaId,
+                ProductoId         = producto.Id,
+                LoteId             = lote.Id,
+                CantidadDisponible = cantidades[i],
+                CantidadReservada  = 0,
+            });
+            ctx.SaveChanges();
         }
 
         // Cliente
         var cliente = new BuenaTierra.Domain.Entities.Cliente
         {
-            EmpresaId  = empresaId,
-            Nombre     = "Cliente FIFO Test",
-            Email      = $"fifo-{Guid.NewGuid():N}@test.com",
-            TipoCliente = BuenaTierra.Domain.Enums.TipoCliente.Empresa,
-            Activo     = true,
+            EmpresaId = empresaId,
+            Nombre    = "Cliente FIFO Test",
+            Email     = $"fifo-{Guid.NewGuid():N}@test.com",
+            Tipo      = BuenaTierra.Domain.Enums.TipoCliente.Empresa,
+            Activo    = true,
         };
         ctx.Clientes.Add(cliente);
         ctx.SaveChanges();
@@ -107,8 +122,14 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
         res.StatusCode.Should().Be(HttpStatusCode.OK,
             because: "10 unidades distribuidas en 3 lotes debe crear la factura sin error");
 
-        var body = await res.Content.ReadFromJsonAsync<FacturaEnvelope>();
-        var factura = body!.Data;
+        // POST returns FacturaCreada (FacturaId, NumeroFactura, Total) — no Lineas
+        var created = (await res.Content.ReadFromJsonAsync<FacturaCreadaEnvelope>())!.Data;
+        created.FacturaId.Should().BeGreaterThan(0);
+
+        // GET the full factura to inspect lines
+        var getRes = await client.GetAsync($"/api/facturas/{created.FacturaId}");
+        getRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var factura = (await getRes.Content.ReadFromJsonAsync<FacturaDetalleEnvelope>())!.Data;
 
         // La factura debe tener 3 líneas (una por lote)
         factura.Lineas.Should().HaveCount(3,
@@ -118,13 +139,13 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
         var totalCantidad = factura.Lineas.Sum(l => l.Cantidad);
         totalCantidad.Should().Be(10);
 
-        // Cada línea debe tener un LoteId asignado
+        // Cada línea debe tener un CodigoLote asignado
         factura.Lineas.Should().AllSatisfy(l =>
-            l.LoteId.Should().NotBeNull("toda línea FIFO debe referenciar un lote"));
+            l.CodigoLote.Should().NotBeNullOrEmpty("toda línea FIFO debe referenciar un lote"));
 
-        // Los loteIds deben ser distintos
-        var loteIds = factura.Lineas.Select(l => l.LoteId).ToList();
-        loteIds.Should().OnlyHaveUniqueItems("cada línea corresponde a un lote diferente");
+        // Los códigos de lote deben ser distintos
+        var codes = factura.Lineas.Select(l => l.CodigoLote).ToList();
+        codes.Should().OnlyHaveUniqueItems("cada línea corresponde a un lote diferente");
     }
 
     [Fact]
@@ -142,7 +163,13 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
         });
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);
-        var factura = (await res.Content.ReadFromJsonAsync<FacturaEnvelope>())!.Data;
+
+        var created = (await res.Content.ReadFromJsonAsync<FacturaCreadaEnvelope>())!.Data;
+
+        // GET the full factura to inspect lines
+        var getRes = await client.GetAsync($"/api/facturas/{created.FacturaId}");
+        getRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var factura = (await getRes.Content.ReadFromJsonAsync<FacturaDetalleEnvelope>())!.Data;
 
         factura.Lineas.Should().HaveCount(1,
             because: "3 unidades caben exactamente en el lote A → 1 línea");
@@ -169,15 +196,12 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
 
     // ── DTOs de respuesta ────────────────────────────────────────────────────
 
-    private record FacturaEnvelope(FacturaDto Data);
+    // POST /api/facturas/crear → ApiResponse<FacturaCreada>
+    private record FacturaCreadaEnvelope(FacturaCreadaDto Data);
+    private record FacturaCreadaDto(int FacturaId, string NumeroFactura, decimal Total);
 
-    private record FacturaDto(
-        int Id,
-        string NumeroFactura,
-        List<FacturaLineaDto> Lineas);
-
-    private record FacturaLineaDto(
-        decimal Cantidad,
-        int? LoteId,
-        string? CodigoLote);
+    // GET /api/facturas/{id} → ApiResponse<FacturaDto>
+    private record FacturaDetalleEnvelope(FacturaDetalleDto Data);
+    private record FacturaDetalleDto(int Id, string NumeroFactura, List<FacturaLineaDto> Lineas);
+    private record FacturaLineaDto(decimal Cantidad, string? CodigoLote);
 }

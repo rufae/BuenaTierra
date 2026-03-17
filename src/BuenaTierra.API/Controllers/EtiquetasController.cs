@@ -290,6 +290,30 @@ public class EtiquetasController : ControllerBase
         return Ok(ApiResponse<object>.Ok(new { entity.Id, entity.IvaPorcentaje, entity.RecargoEquivalenciaPorcentaje }));
     }
 
+    [HttpPut("tipos-iva-re/{id:int}")]
+    [Authorize(Policy = "ObradorOrAdmin")]
+    public async Task<IActionResult> UpdateTipoIvaRe(int id, [FromBody] TipoIvaReRequest req, CancellationToken ct)
+    {
+        var e = await _uow.TiposIvaRe.GetByIdAsync(id, ct)
+            ?? throw new EntidadNotFoundException(nameof(TipoIvaRe), id);
+        if (e.EmpresaId != EmpresaId) return Forbid();
+
+        // Check duplicate (same IVA% but different id)
+        var duplicado = await _uow.TiposIvaRe.GetQueryable()
+            .AnyAsync(t => t.EmpresaId == EmpresaId && t.IvaPorcentaje == req.IvaPorcentaje && t.Id != id, ct);
+        if (duplicado)
+            return Conflict(ApiResponse<string>.Fail($"Ya existe otro tipo IVA con {req.IvaPorcentaje}%"));
+
+        e.IvaPorcentaje                 = req.IvaPorcentaje;
+        e.RecargoEquivalenciaPorcentaje = req.RecargoEquivalenciaPorcentaje;
+        e.Descripcion                   = req.Descripcion;
+
+        await _uow.TiposIvaRe.UpdateAsync(e, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<object>.Ok(new { e.Id, e.IvaPorcentaje, e.RecargoEquivalenciaPorcentaje, e.Descripcion }));
+    }
+
     [HttpDelete("tipos-iva-re/{id:int}")]
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<IActionResult> DeleteTipoIvaRe(int id, CancellationToken ct)
@@ -521,7 +545,16 @@ public class EtiquetasController : ControllerBase
         var fullHtml = WrapHtmlForPdf(html, plantilla.AnchoMm, plantilla.AltoMm);
         var pdfBytes = await _docSvc.ConvertHtmlToPdfAsync(fullHtml, plantilla.AnchoMm, plantilla.AltoMm, ct);
 
-        Response.Headers["Content-Disposition"] = $"inline; filename=\"{plantilla.Nombre}.pdf\"";
+        // Build filename: {producto}_{lote}.pdf or plantilla name as fallback
+        var producto2 = productoId.HasValue ? await _uow.Productos.GetByIdAsync(productoId.Value, ct) : null;
+        var lote2 = loteId.HasValue ? await _uow.Lotes.GetByIdAsync(loteId.Value, ct) : null;
+        var pdfName = producto2 != null && lote2 != null
+            ? $"{producto2.Nombre}_{lote2.CodigoLote}.pdf"
+            : producto2 != null
+                ? $"{producto2.Nombre}.pdf"
+                : $"{plantilla.Nombre}.pdf";
+
+        Response.Headers["Content-Disposition"] = $"inline; filename=\"{pdfName}\"";
         return File(pdfBytes, "application/pdf");
     }
 

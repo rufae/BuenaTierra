@@ -16,9 +16,11 @@ public class Usuario : BaseEntity
     public DateTime? UltimoAcceso { get; set; }
     public string? RefreshToken { get; set; }
     public DateTime? RefreshTokenExp { get; set; }
+    public int? ClienteId { get; set; }             // Vincula Repartidor → Cliente
 
     // Navegación
     public virtual Empresa Empresa { get; set; } = null!;
+    public virtual Cliente? ClienteVinculado { get; set; }
 
     public string NombreCompleto => $"{Nombre} {Apellidos}".Trim();
 }

@@ -17,7 +17,11 @@ const STORAGE_KEY = 'bt_auth'
 function loadStored(): AuthUser | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Asegurar que el objeto tiene el campo `rol` (migración datos viejos sin rol)
+    if (!parsed?.rol) return null
+    return parsed
   } catch {
     return null
   }
@@ -27,8 +31,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(loadStored)
 
   const login = useCallback(async (email: string, password: string, empresaId: number) => {
-    const res = await api.post('/auth/login', { email, password, empresaId })
-    const data: AuthUser = res.data.data
+    // 1. Obtener el token
+    const loginRes = await api.post('/auth/login', { email, password, empresaId })
+    const { token, refreshToken, expira } = loginRes.data.data as {
+      token: string; refreshToken: string; expira: string
+    }
+
+    // 2. Obtener los datos del usuario usando el token recién emitido
+    const meRes = await api.get('/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const me = meRes.data as {
+      id: string; email: string; nombre: string; empresaId: string; rol: string
+    }
+
+    // 3. Separar nombre / apellidos: el campo "nombre" del claim contiene NombreCompleto
+    const partes = (me.nombre ?? '').trim().split(' ')
+    const nombre    = partes[0] ?? ''
+    const apellidos = partes.slice(1).join(' ')
+
+    const data: AuthUser = {
+      usuarioId:  parseInt(me.id, 10),
+      empresaId:  parseInt(me.empresaId, 10),
+      nombre,
+      apellidos,
+      email:      me.email,
+      rol:        me.rol as AuthUser['rol'],
+      token,
+      refreshToken,
+      expira,
+    }
+
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
     setUser(data)
   }, [])

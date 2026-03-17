@@ -303,6 +303,11 @@ api_out.txt
 tasks/logs/
 logs/
 
+# SSL certificates (self-signed for dev, never commit)
+nginx/ssl/*.pem
+nginx/ssl/*.pfx
+nginx/ssl/*.key
+
 # BeatPulse healthcheck temp database
 healthchecksdb
 

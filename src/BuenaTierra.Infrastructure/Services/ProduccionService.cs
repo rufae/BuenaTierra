@@ -3,6 +3,7 @@ using BuenaTierra.Domain.Entities;
 using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace BuenaTierra.Infrastructure.Services;
@@ -258,12 +259,53 @@ public class ProduccionService : IProduccionService
             }
 
             await _uow.SaveChangesAsync(ct);
+            
+            // ── CONSUMO AUTOMÁTICO DE INGREDIENTES ──────────────────────────────
+            // Si el producto tiene receta (ProductoIngredientes), consumir materias primas
+            // del stock proporcionalmente a la cantidad producida.
+            await ConsumirIngredientesAsync(empresaId, produccion.ProductoId, cantidadNeta, produccionId, usuarioId, ct);
+
             await _uow.CommitTransactionAsync(ct);
         }
         catch
         {
             await _uow.RollbackTransactionAsync(ct);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Registra el consumo teórico de ingredientes basado en la receta del producto.
+    /// En el modelo actual, los ingredientes son entidades independientes sin stock propio.
+    /// Esta función calcula y registra (log) el consumo para futura auditoría/trazabilidad.
+    /// TODO: Cuando ingredientes tengan ProductoEquivalenteId (materia prima como producto),
+    ///       implementar consumo real de stock por FIFO.
+    /// </summary>
+    private async Task ConsumirIngredientesAsync(
+        int empresaId, int productoId, decimal cantidadProducida,
+        int produccionId, int usuarioId, CancellationToken ct)
+    {
+        var receta = await _uow.ProductoIngredientes.GetQueryable()
+            .Where(pi => pi.ProductoId == productoId)
+            .Include(pi => pi.Ingrediente)
+            .ToListAsync(ct);
+
+        if (!receta.Any()) return;
+
+        _logger.LogInformation(
+            "Registro de consumo de ingredientes: producto={ProductoId}, cantidad={Cantidad}, ingredientes={Count}",
+            productoId, cantidadProducida, receta.Count);
+
+        foreach (var ingredienteReceta in receta)
+        {
+            decimal cantidadConsumir = (ingredienteReceta.CantidadGr ?? 0) * cantidadProducida;
+            if (cantidadConsumir <= 0) continue;
+
+            _logger.LogInformation(
+                "  Consumo teórico: ingrediente={Nombre} (id={IngredienteId}), cantidad={Cantidad}g",
+                ingredienteReceta.Ingrediente?.Nombre ?? "?",
+                ingredienteReceta.IngredienteId,
+                cantidadConsumir);
         }
     }
 

@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     ultimo_acceso       TIMESTAMPTZ,
     refresh_token       VARCHAR(500),
     refresh_token_exp   TIMESTAMPTZ,
+    cliente_id          INTEGER,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, email)
@@ -101,6 +102,14 @@ CREATE TABLE IF NOT EXISTS clientes (
 CREATE INDEX IF NOT EXISTS idx_clientes_empresa ON clientes(empresa_id);
 CREATE INDEX IF NOT EXISTS idx_clientes_repartidor ON clientes(repartidor_empresa_id);
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes USING gin(to_tsvector('spanish', nombre || ' ' || COALESCE(apellidos,'') || ' ' || COALESCE(razon_social,'')));
+
+-- FK diferida: usuarios.cliente_id → clientes(id)
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_usuarios_cliente') THEN
+        ALTER TABLE usuarios ADD CONSTRAINT fk_usuarios_cliente
+            FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 -- ============================================================
 -- TABLA: categorias

@@ -34,6 +34,7 @@ public class TrazabilidadIntegrationTests : IClassFixture<BuenaTierraWebAppFacto
         using var scope = _factory.Services.CreateScope();
         var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var empresaId = ctx.Empresas.First().Id;
+        var userId = ctx.Usuarios.First().Id;
 
         var producto = new BuenaTierra.Domain.Entities.Producto
         {
@@ -50,41 +51,55 @@ public class TrazabilidadIntegrationTests : IClassFixture<BuenaTierraWebAppFacto
         var hoy = DateOnly.FromDateTime(DateTime.Today);
         var produccion = new BuenaTierra.Domain.Entities.Produccion
         {
-            EmpresaId       = empresaId,
-            ProductoId      = producto.Id,
-            FechaProduccion = hoy,
-            Cantidad        = 5,
+            EmpresaId         = empresaId,
+            ProductoId        = producto.Id,
+            UsuarioId         = userId,
+            FechaProduccion   = hoy,
+            CantidadProducida = 5,
         };
         ctx.Producciones.Add(produccion);
         ctx.SaveChanges();
 
-        var codigoLote = $"ALF-{hoy:ddMMyyyy}";
+        var codigoLote = $"ALF-{hoy:ddMMyyyy}-{Guid.NewGuid().ToString("N")[..8]}";
         var lote = new BuenaTierra.Domain.Entities.Lote
         {
-            ProduccionId    = produccion.Id,
-            CodigoLote      = codigoLote,
-            FechaProduccion = hoy,
-            FechaCaducidad  = hoy.AddDays(20),
-            CantidadInicial = 5,
-            CantidadActual  = 5,
+            EmpresaId        = empresaId,
+            ProductoId       = producto.Id,
+            ProduccionId     = produccion.Id,
+            CodigoLote       = codigoLote,
+            FechaFabricacion = hoy,
+            FechaCaducidad   = hoy.AddDays(20),
+            CantidadInicial  = 5,
         };
         ctx.Lotes.Add(lote);
+        ctx.SaveChanges();
+
+        // Stock entry
+        ctx.Set<BuenaTierra.Domain.Entities.Stock>().Add(new BuenaTierra.Domain.Entities.Stock
+        {
+            EmpresaId          = empresaId,
+            ProductoId         = producto.Id,
+            LoteId             = lote.Id,
+            CantidadDisponible = 5,
+            CantidadReservada  = 0,
+        });
+        ctx.SaveChanges();
 
         var c1 = new BuenaTierra.Domain.Entities.Cliente
         {
-            EmpresaId   = empresaId,
-            Nombre      = "ClienteTraz1",
-            Email       = $"traz1-{Guid.NewGuid():N}@test.com",
-            TipoCliente = BuenaTierra.Domain.Enums.TipoCliente.Empresa,
-            Activo      = true,
+            EmpresaId = empresaId,
+            Nombre    = "ClienteTraz1",
+            Email     = $"traz1-{Guid.NewGuid():N}@test.com",
+            Tipo      = BuenaTierra.Domain.Enums.TipoCliente.Empresa,
+            Activo    = true,
         };
         var c2 = new BuenaTierra.Domain.Entities.Cliente
         {
-            EmpresaId   = empresaId,
-            Nombre      = "ClienteTraz2",
-            Email       = $"traz2-{Guid.NewGuid():N}@test.com",
-            TipoCliente = BuenaTierra.Domain.Enums.TipoCliente.Empresa,
-            Activo      = true,
+            EmpresaId = empresaId,
+            Nombre    = "ClienteTraz2",
+            Email     = $"traz2-{Guid.NewGuid():N}@test.com",
+            Tipo      = BuenaTierra.Domain.Enums.TipoCliente.Empresa,
+            Activo    = true,
         };
         ctx.Clientes.AddRange(c1, c2);
         ctx.SaveChanges();
@@ -157,13 +172,6 @@ public class TrazabilidadIntegrationTests : IClassFixture<BuenaTierraWebAppFacto
 
         var res = await client.GetAsync($"/api/trazabilidad/lote/{seed.LoteId}");
 
-        // El endpoint puede no existir aún → saltamos este test si es 404 de ruta
-        if (res.StatusCode == HttpStatusCode.NotFound)
-        {
-            // Skip suave: el endpoint se implementará en FASE 5
-            return;
-        }
-
         res.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var body = await res.Content.ReadFromJsonAsync<TrazabilidadResponse>();
@@ -188,8 +196,6 @@ public class TrazabilidadIntegrationTests : IClassFixture<BuenaTierraWebAppFacto
 
         var res = await client.GetAsync(
             $"/api/facturas/trazabilidad/excel?desde={desde}&hasta={hasta}");
-
-        if (res.StatusCode == HttpStatusCode.NotFound) return;
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         res.Content.Headers.ContentType!.MediaType.Should()

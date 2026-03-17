@@ -256,6 +256,21 @@ function TabProducto() {
     setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
+  async function downloadRecallPdf(loteId: number, codigoLote: string) {
+    try {
+      const res = await api.get(`/trazabilidad/lote/${loteId}/recall-pdf`, { responseType: 'blob' })
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `recall_lote_${codigoLote}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('PDF de recall descargado')
+    } catch {
+      toast.error('Error al generar el PDF de recall')
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -316,6 +331,17 @@ function TabProducto() {
                   {lote.movimientos.length} mov.
                 </span>
               </button>
+              {/* Recall PDF button for this lote */}
+              {lote.movimientos.length > 0 && (
+                <div className="flex justify-end px-5 pb-2 -mt-2">
+                  <button
+                    onClick={e => { e.stopPropagation(); downloadRecallPdf(lote.id, lote.codigoLote) }}
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition font-medium"
+                  >
+                    <FileDown className="w-3.5 h-3.5" /> Recall PDF
+                  </button>
+                </div>
+              )}
               {expanded.has(lote.id) && (
                 <div className="border-t border-gray-100">
                   {lote.movimientos.length === 0 ? (

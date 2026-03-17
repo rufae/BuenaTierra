@@ -91,6 +91,13 @@ public class FacturaService : IFacturaService
                          || cliente.RecargoEquivalencia;
             decimal retencionPorc = !cliente.NoAplicarRetenciones && cliente.PorcentajeRetencion > 0
                 ? cliente.PorcentajeRetencion : 0m;
+
+            // Cargar tabla de RE desde BD para la empresa (en vez de hardcoded)
+            var tablaRE = aplicaRE
+                ? (await _uow.TiposIvaRe.FindAsync(t => t.EmpresaId == request.EmpresaId && t.Activo, ct))
+                    .ToDictionary(t => t.IvaPorcentaje, t => t.RecargoEquivalenciaPorcentaje)
+                : new Dictionary<decimal, decimal>();
+
             // Obtener número de factura
             string numeroFactura = await _serieService.SiguienteNumeroAsync(
                 request.EmpresaId, request.SerieId, ct);
@@ -121,7 +128,7 @@ public class FacturaService : IFacturaService
             foreach (var (item, producto, lotes) in lineasConLotes)
             {
                 decimal precioUnitario = item.PrecioUnitario ?? producto.PrecioVenta;
-                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje) : 0m;
+                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje, tablaRE) : 0m;
                 // Aplicar descuento de la línea; fallback al descuento general del cliente
                 decimal descuentoEfectivo = item.Descuento > 0 ? item.Descuento : cliente.DescuentoGeneral;
 
@@ -217,9 +224,18 @@ public class FacturaService : IFacturaService
         }
     }
 
-    /// <summary>Tasas legales de recargo de equivalencia según tipo de IVA (España).</summary>
-    private static decimal GetRecargoEquivalenciaPorcentaje(decimal ivaPorcentaje) =>
-        ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+    /// <summary>
+    /// Obtiene el porcentaje de RE desde la tabla tipos_iva_re de la empresa.
+    /// Si no hay match en BD, aplica las tasas legales por defecto (España).
+    /// </summary>
+    private static decimal GetRecargoEquivalenciaPorcentaje(
+        decimal ivaPorcentaje, Dictionary<decimal, decimal> tablaRE)
+    {
+        if (tablaRE.TryGetValue(ivaPorcentaje, out var reDesdeDB))
+            return reDesdeDB;
+        // Fallback hardcoded (tasas legales España vigentes)
+        return ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+    }
 
     public async Task<FacturaDto> GetFacturaAsync(int id, int empresaId, CancellationToken ct = default)    {
         var factura = await _uow.Facturas.GetConLineasAsync(id, ct)
@@ -603,11 +619,14 @@ public class FacturaService : IFacturaService
         var empresa = await _uow.Empresas.GetByIdAsync(empresaId, ct);
 
         // Cargar registros de trazabilidad con nav props
+        var desdeUtc = DateTime.SpecifyKind(desde.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        var hastaUtc = DateTime.SpecifyKind(hasta.ToDateTime(TimeOnly.MaxValue), DateTimeKind.Utc);
+
         var trazabilidades = await _uow.Trazabilidades
             .GetQueryable()
             .Where(t => t.EmpresaId == empresaId
-                     && t.FechaOperacion.Date >= desde.ToDateTime(TimeOnly.MinValue).Date
-                     && t.FechaOperacion.Date <= hasta.ToDateTime(TimeOnly.MinValue).Date)
+                     && t.FechaOperacion >= desdeUtc
+                     && t.FechaOperacion <= hastaUtc)
             .Include(t => t.Lote)
             .Include(t => t.Producto)
             .Include(t => t.Cliente)
@@ -700,6 +719,7 @@ public class FacturaService : IFacturaService
         BaseImponible = f.BaseImponible,
         IvaTotal = f.IvaTotal,
         Total = f.Total,
+        FechaVencimiento = f.FechaVencimiento,
         PdfUrl = f.PdfUrl,
         Lineas = f.Lineas.OrderBy(l => l.Orden).Select(l => new FacturaLineaDto
         {

@@ -12,6 +12,7 @@ services:
       - postgres_data:/var/lib/postgresql/data/pgdata
       - ./database/init:/docker-entrypoint-initdb.d:ro
       - ./database/backups:/backups
+      - ./database/backup.sh:/backups/backup.sh:ro
     ports:
       - "127.0.0.1:5433:5432"
     networks:
@@ -49,6 +50,7 @@ services:
     volumes:
       - api_logs:/app/logs
       - api_reports:/app/reports
+      - api_uploads:/app/uploads
 
   nginx:
     image: nginx:alpine
@@ -60,10 +62,23 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
+      - frontend_dist:/usr/share/nginx/html:ro
     depends_on:
       - api
+      - frontend_build
     networks:
       - buenatierra_net
+
+  frontend_build:
+    image: node:20-alpine
+    container_name: buenatierra_frontend_build
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - frontend_dist:/app/dist
+    command: sh -c "npm ci && npm run build"
+    environment:
+      VITE_API_URL: /api
 
   collabora:
     image: collabora/code:latest
@@ -97,6 +112,10 @@ volumes:
   api_logs:
     driver: local
   api_reports:
+    driver: local
+  api_uploads:
+    driver: local
+  frontend_dist:
     driver: local
 
 networks:

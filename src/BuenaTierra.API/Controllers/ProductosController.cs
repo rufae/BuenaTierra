@@ -127,6 +127,9 @@ public class ProductosController : ControllerBase
         p.RequiereLote           = r.RequiereLote;
         p.CompartidoRepartidores = r.CompartidoRepartidores;
         p.Activo                 = r.Activo;
+        p.Conservacion           = r.Conservacion;
+        p.TemperaturaMin         = r.TemperaturaMin;
+        p.TemperaturaMax         = r.TemperaturaMax;
     }
 
     [HttpDelete("{id:int}")]
@@ -329,5 +332,8 @@ public record ProductoRequest(
     decimal? StockMaximo,
     bool     RequiereLote,
     bool     CompartidoRepartidores,
-    bool     Activo
+    bool     Activo,
+    string?  Conservacion = null,
+    decimal? TemperaturaMin = null,
+    decimal? TemperaturaMax = null
 );

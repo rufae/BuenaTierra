@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
 import type { Cliente, Producto, SerieFacturacion, Factura } from '../types'
-import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, Ban, ArrowRight } from 'lucide-react'
+import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, Ban, ArrowRight, AlertTriangle, FileSpreadsheet } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 
@@ -30,6 +30,28 @@ const ESTADO_COLOR: Record<string, string> = {
   Enviada: 'bg-purple-50 text-purple-700',
   Cobrada: 'bg-green-50 text-green-700',
   Anulada: 'bg-red-50 text-red-700',
+}
+
+/** Comprueba si una factura está vencida */
+function isVencida(f: Factura): boolean {
+  if (f.estado === 'Cobrada' || f.estado === 'Anulada') return false
+  if (!f.fechaVencimiento) return false
+  return new Date(f.fechaVencimiento) < new Date()
+}
+
+/** Extrae mensaje descriptivo de error 422 (stock insuficiente) */
+function extractStockError(err: unknown): string {
+  const resp = (err as { response?: { status?: number; data?: { message?: string; detail?: string } } })?.response
+  if (resp?.status === 422) {
+    return resp.data?.message ?? resp.data?.detail ?? 'Stock insuficiente para completar la operación'
+  }
+  return resp?.data?.message ?? 'Error al crear factura'
+}
+
+interface FifoPreview {
+  productoId: number
+  productoNombre: string
+  asignaciones: { loteId: number; codigoLote: string; cantidad: number; fechaFabricacion: string; fechaCaducidad: string | null }[]
 }
 
 interface LineaItem {
@@ -69,6 +91,7 @@ export default function Facturacion() {
   const [lineas, setLineas] = useState<LineaItem[]>([])
   const [productoSel, setProductoSel] = useState(0)
   const [cantidadSel, setCantidadSel] = useState(1)
+  const [fifoPreviews, setFifoPreviews] = useState<FifoPreview[]>([])
 
   const { data: facturas, isLoading } = useQuery({
     queryKey: ['facturas', user?.empresaId],
@@ -121,8 +144,8 @@ export default function Facturacion() {
       closeForm()
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(msg ?? 'Error al crear factura')
+      const msg = extractStockError(err)
+      toast.error(msg, { duration: 6000, icon: '⚠️' })
     },
   })
 
@@ -155,9 +178,10 @@ export default function Facturacion() {
     const prod = productos?.find((p) => p.id === productoSel)
     if (!prod) return
     const existing = lineas.findIndex((l) => l.productoId === productoSel)
+    const newCantidad = existing >= 0 ? lineas[existing].cantidad + cantidadSel : cantidadSel
     if (existing >= 0) {
       const updated = [...lineas]
-      updated[existing].cantidad += cantidadSel
+      updated[existing].cantidad = newCantidad
       setLineas(updated)
     } else {
       setLineas([...lineas, {
@@ -168,12 +192,26 @@ export default function Facturacion() {
         descuento: 0,
       }])
     }
+    // Fetch FIFO preview
+    api.post<{ data: { loteId: number; codigoLote: string; cantidad: number; fechaFabricacion: string; fechaCaducidad: string | null }[] }>('/stock/simular-fifo', {
+      productoId: productoSel,
+      cantidad: newCantidad,
+    }).then(res => {
+      setFifoPreviews(prev => {
+        const filtered = prev.filter(p => p.productoId !== productoSel)
+        return [...filtered, { productoId: productoSel, productoNombre: prod.nombre, asignaciones: res.data.data }]
+      })
+    }).catch(() => {
+      // Don't block — preview is optional
+    })
     setProductoSel(0)
     setCantidadSel(1)
   }
 
   function removeLinea(idx: number) {
+    const removed = lineas[idx]
     setLineas(lineas.filter((_, i) => i !== idx))
+    setFifoPreviews(prev => prev.filter(p => p.productoId !== removed.productoId))
   }
 
   function closeForm() {
@@ -182,6 +220,7 @@ export default function Facturacion() {
     setSerieId(0)
     setLineas([])
     setNotas('')
+    setFifoPreviews([])
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -209,13 +248,22 @@ export default function Facturacion() {
           <h1 className="text-2xl font-bold text-gray-900">Facturación</h1>
           <p className="text-gray-500 text-sm mt-0.5">Los lotes se asignan automáticamente por FIFO</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Nueva factura
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => downloadBlob('/facturas/exportar-excel', 'facturas.xlsx')}
+            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Exportar Excel
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Nueva factura
+          </button>
+        </div>
       </div>
 
       {/* Facturas table */}
@@ -238,15 +286,22 @@ export default function Facturacion() {
               ) : !facturas?.length ? (
                 <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">No hay facturas todavía</td></tr>
               ) : facturas.map((f) => (
-                <tr key={f.id} className="hover:bg-gray-50 transition-colors">
+                <tr key={f.id} className={`hover:bg-gray-50 transition-colors ${isVencida(f) ? 'bg-red-50/60' : ''}`}>
                   <td className="px-5 py-3 font-mono text-xs font-semibold text-brand-700">{(f as unknown as { numeroFactura: string }).numeroFactura ?? '—'}</td>
                   <td className="px-5 py-3 font-medium text-gray-900">{(f as unknown as { cliente?: { nombre: string}; clienteNombre?: string }).cliente?.nombre ?? (f as unknown as { clienteNombre?: string }).clienteNombre ?? '—'}</td>
                   <td className="px-5 py-3 text-gray-500">{fmtDate((f as unknown as { fechaFactura: string }).fechaFactura)}</td>
                   <td className="px-5 py-3">
-                    {(() => {
-                      const estado = (f as unknown as { estado: string }).estado
-                      return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_COLOR[estado] ?? 'bg-gray-50 text-gray-600'}`}>{estado}</span>
-                    })()}
+                    <div className="flex items-center gap-1.5">
+                      {(() => {
+                        const estado = (f as unknown as { estado: string }).estado
+                        return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_COLOR[estado] ?? 'bg-gray-50 text-gray-600'}`}>{estado}</span>
+                      })()}
+                      {isVencida(f) && (
+                        <span className="flex items-center gap-0.5 text-xs text-red-600 font-medium" title="Factura vencida">
+                          <AlertTriangle className="w-3.5 h-3.5" /> Vencida
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-3 text-right font-bold text-gray-900">{(f as unknown as { total: number }).total?.toFixed(2)} €</td>
                   <td className="px-5 py-3 text-right">
@@ -389,6 +444,29 @@ export default function Facturacion() {
                     <span className="text-xs text-gray-500">Subtotal estimado (sin IVA):</span>
                     <span className="font-bold text-brand-700 text-lg">{totalEstimado.toFixed(2)} €</span>
                   </div>
+                </div>
+              )}
+
+              {/* FIFO Preview */}
+              {fifoPreviews.length > 0 && (
+                <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5" /> Preview FIFO — Lotes que se asignarán
+                  </p>
+                  {fifoPreviews.map(fp => (
+                    <div key={fp.productoId} className="text-xs text-blue-800">
+                      <span className="font-medium">{fp.productoNombre}:</span>
+                      {fp.asignaciones.length === 1 ? (
+                        <span className="ml-1">{fp.asignaciones[0].cantidad} ud → Lote {fp.asignaciones[0].codigoLote}</span>
+                      ) : (
+                        <ul className="ml-4 mt-0.5 list-disc">
+                          {fp.asignaciones.map((a, i) => (
+                            <li key={i}>{a.cantidad} ud → Lote {a.codigoLote} ({fmtDate(a.fechaFabricacion)})</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
 

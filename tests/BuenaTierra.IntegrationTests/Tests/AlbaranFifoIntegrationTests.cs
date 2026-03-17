@@ -23,6 +23,7 @@ public class AlbaranFifoIntegrationTests : IClassFixture<BuenaTierraWebAppFactor
         using var scope = _factory.Services.CreateScope();
         var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var empresaId = ctx.Empresas.First().Id;
+        var userId = ctx.Usuarios.First().Id;
 
         var producto = new BuenaTierra.Domain.Entities.Producto
         {
@@ -39,32 +40,46 @@ public class AlbaranFifoIntegrationTests : IClassFixture<BuenaTierraWebAppFactor
         var hoy = DateOnly.FromDateTime(DateTime.Today);
         var produccion = new BuenaTierra.Domain.Entities.Produccion
         {
-            EmpresaId       = empresaId,
-            ProductoId      = producto.Id,
-            FechaProduccion = hoy,
-            Cantidad        = 20,
+            EmpresaId        = empresaId,
+            ProductoId       = producto.Id,
+            UsuarioId        = userId,
+            FechaProduccion  = hoy,
+            CantidadProducida = 20,
         };
         ctx.Producciones.Add(produccion);
         ctx.SaveChanges();
 
         var lote = new BuenaTierra.Domain.Entities.Lote
         {
-            ProduccionId    = produccion.Id,
-            CodigoLote      = $"ROSQ-{hoy:ddMMyyyy}",
-            FechaProduccion = hoy,
-            FechaCaducidad  = hoy.AddDays(14),
-            CantidadInicial = 20,
-            CantidadActual  = 20,
+            EmpresaId        = empresaId,
+            ProductoId       = producto.Id,
+            ProduccionId     = produccion.Id,
+            CodigoLote       = $"ROSQ-{hoy:ddMMyyyy}-{Guid.NewGuid().ToString("N")[..8]}",
+            FechaFabricacion = hoy,
+            FechaCaducidad   = hoy.AddDays(14),
+            CantidadInicial  = 20,
         };
         ctx.Lotes.Add(lote);
+        ctx.SaveChanges();
+
+        // Stock entry — required for FIFO to find this lote
+        ctx.Set<BuenaTierra.Domain.Entities.Stock>().Add(new BuenaTierra.Domain.Entities.Stock
+        {
+            EmpresaId          = empresaId,
+            ProductoId         = producto.Id,
+            LoteId             = lote.Id,
+            CantidadDisponible = 20,
+            CantidadReservada  = 0,
+        });
+        ctx.SaveChanges();
 
         var cliente = new BuenaTierra.Domain.Entities.Cliente
         {
-            EmpresaId   = empresaId,
-            Nombre      = "Cliente ALB Test",
-            Email       = $"alb-{Guid.NewGuid():N}@test.com",
-            TipoCliente = BuenaTierra.Domain.Enums.TipoCliente.Empresa,
-            Activo      = true,
+            EmpresaId = empresaId,
+            Nombre    = "Cliente ALB Test",
+            Email     = $"alb-{Guid.NewGuid():N}@test.com",
+            Tipo      = BuenaTierra.Domain.Enums.TipoCliente.Empresa,
+            Activo    = true,
         };
         ctx.Clientes.Add(cliente);
         ctx.SaveChanges();
@@ -110,23 +125,29 @@ public class AlbaranFifoIntegrationTests : IClassFixture<BuenaTierraWebAppFactor
         crearRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var albaran = (await crearRes.Content.ReadFromJsonAsync<AlbaranEnvelope>())!.Data;
 
-        // 2. Convertir albarán → factura
+        // 2. Convertir albarán → factura (returns FacturaCreada: FacturaId, NumeroFactura, Total)
         var convertirRes = await client.PostAsJsonAsync(
             $"/api/albaranes/{albaran.Id}/convertir-factura", new { serieId });
 
         convertirRes.StatusCode.Should().Be(HttpStatusCode.OK,
             because: "el albarán en estado Pendiente debe convertirse a factura");
 
-        var facturaEnv = await convertirRes.Content.ReadFromJsonAsync<FacturaEnvelope>();
-        var factura = facturaEnv!.Data;
+        var facturaCreada = (await convertirRes.Content
+            .ReadFromJsonAsync<FacturaCreadaEnvelope>())!.Data;
 
-        factura.Id.Should().BeGreaterThan(0);
-        factura.NumeroFactura.Should().NotBeNullOrEmpty();
+        facturaCreada.FacturaId.Should().BeGreaterThan(0);
+        facturaCreada.NumeroFactura.Should().NotBeNullOrEmpty();
 
-        // Las líneas de la factura deben corresponder a las líneas del albarán
-        factura.Lineas.Sum(l => l.Cantidad).Should()
-            .Be(albaran.Lineas.Sum(l => l.Cantidad),
-                because: "cantidades totales deben coincidir tras conversión");
+        // 3. Obtener factura completa con líneas via GET
+        var getRes = await client.GetAsync($"/api/facturas/{facturaCreada.FacturaId}");
+        getRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var factura = (await getRes.Content.ReadFromJsonAsync<FacturaDetalleEnvelope>())!.Data;
+
+        // Las líneas de la factura deben sumar la misma cantidad del albarán (8)
+        factura.Lineas.Should().NotBeNullOrEmpty();
+        factura.Lineas.Sum(l => l.Cantidad).Should().Be(8,
+            because: "cantidades totales deben coincidir tras conversión");
     }
 
     [Fact]
@@ -156,11 +177,16 @@ public class AlbaranFifoIntegrationTests : IClassFixture<BuenaTierraWebAppFactor
 
     // ── DTOs ─────────────────────────────────────────────────────────────────
 
-    private record AlbaranEnvelope(AlbaranDto Data);
-    private record AlbaranDto(int Id, string NumeroAlbaran, List<LineaDto> Lineas);
+    // POST /api/albaranes/crear → ApiResponse<AlbaranCreado>
+    private record AlbaranEnvelope(AlbaranCreadoDto Data);
+    private record AlbaranCreadoDto(int Id, string NumeroAlbaran, decimal Total);
 
-    private record FacturaEnvelope(FacturaDto Data);
-    private record FacturaDto(int Id, string NumeroFactura, List<LineaDto> Lineas);
+    // POST /api/albaranes/{id}/convertir-factura → ApiResponse<FacturaCreada>
+    private record FacturaCreadaEnvelope(FacturaCreadaDto Data);
+    private record FacturaCreadaDto(int FacturaId, string NumeroFactura, decimal Total);
 
-    private record LineaDto(decimal Cantidad, int? LoteId);
+    // GET /api/facturas/{id} → ApiResponse<FacturaDto>
+    private record FacturaDetalleEnvelope(FacturaDetalleDto Data);
+    private record FacturaDetalleDto(int Id, string NumeroFactura, List<FacturaLineaDto> Lineas);
+    private record FacturaLineaDto(decimal Cantidad, string? CodigoLote);
 }

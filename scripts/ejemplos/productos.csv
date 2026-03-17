@@ -1,0 +1,7 @@
+nombre,precio_venta,iva_porcentaje,unidad_medida,vida_util_dias,stock_minimo,requiere_lote,codigo,referencia,precio_coste,descripcion
+Palmeras de hojaldre,2.50,10,ud,7,10,true,PALM-001,REF-PALM,1.20,Palmeras de hojaldre artesanal
+Rosquillas de anís,1.80,10,ud,5,20,true,ROSQ-001,REF-ROSQ,0.90,Rosquillas tradicionales con anís
+Tarta de tres leches,18.00,10,ud,3,5,true,TART-001,REF-TART,9.00,Tarta tres leches formato grande
+Croissant mantequilla,1.50,10,ud,2,30,true,CROI-001,REF-CROI,0.70,Croissant artesanal de mantequilla
+Magdalenas limón (pack 6),4.20,10,pack,5,15,true,MADG-001,REF-MADG,2.00,Pack 6 magdalenas de limón
+Polvorón surtido (caja 400g),6.50,10,caja,90,8,true,POLV-001,REF-POLV,3.20,Caja surtida de polvorones artesanos

@@ -1,7 +1,11 @@
-import { useState, useEffect, FormEvent } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useState, useEffect, FormEvent, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { User, Lock, Loader2, Eye, EyeOff, Phone, Mail, Shield, Building2, CheckCircle2, KeyRound } from 'lucide-react'
+import {
+  User, Lock, Loader2, Eye, EyeOff, Phone, Mail, Shield, Building2,
+  CheckCircle2, KeyRound, Settings, Percent, Printer, Package, Server,
+  Upload, Trash2, Plus, Pencil, Save,
+} from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../store/authStore'
 
@@ -10,17 +14,48 @@ interface UpdateMeRequest { nombre: string; apellidos: string; telefono: string;
 interface CambiarPasswordRequest { passwordActual: string; nuevaPassword: string }
 interface MeData { id: number; nombre: string; apellidos: string; email: string; telefono: string | null; rol: string }
 
-type Tab = 'perfil' | 'password'
+interface EmpresaData {
+  id: number; nombre: string; nif: string; razonSocial: string | null
+  direccion: string | null; codigoPostal: string | null; ciudad: string | null
+  provincia: string | null; pais: string; telefono: string | null
+  email: string | null; web: string | null; logoUrl: string | null
+  numeroRgseaa: string | null; esObrador: boolean; configuracion: string
+}
+
+interface TipoIvaRe {
+  id: number; ivaPorcentaje: number; recargoEquivalenciaPorcentaje: number; descripcion: string | null
+}
+
+interface SerieFacturacion {
+  id: number; codigo: string; prefijo: string | null; descripcion: string | null; activa: boolean
+}
+
+interface ConfiguracionEmpresa {
+  serieFacturaDefecto?: number
+  serieAlbaranDefecto?: number
+  stockMinimoGlobal?: number
+  diasAlertaCaducidad?: number
+  smtpHost?: string
+  smtpPort?: number
+  smtpUser?: string
+  smtpPassword?: string
+  smtpFromEmail?: string
+  smtpUseSsl?: boolean
+  impresoras?: { nombre: string; tipo: string; ip?: string }[]
+}
+
+type Tab = 'perfil' | 'password' | 'empresa' | 'series' | 'iva' | 'stock' | 'smtp'
 
 const ROL_CONFIG: Record<string, { label: string; color: string }> = {
   Admin:              { label: 'Administrador', color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  UsuarioObrador:     { label: 'Obrador',       color: 'bg-brand-100 text-brand-700 border-brand-200'   },
-  UsuarioRepartidor:  { label: 'Repartidor',    color: 'bg-blue-100 text-blue-700 border-blue-200'      },
+  Obrador:     { label: 'Obrador',       color: 'bg-brand-100 text-brand-700 border-brand-200'   },
+  Repartidor:  { label: 'Repartidor',    color: 'bg-blue-100 text-blue-700 border-blue-200'      },
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────────
-function Field({ label, value, onChange, type = 'text', icon }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; icon?: React.ReactNode
+function Field({ label, value, onChange, type = 'text', icon, placeholder, disabled }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string
+  icon?: React.ReactNode; placeholder?: string; disabled?: boolean
 }) {
   return (
     <div>
@@ -31,10 +66,28 @@ function Field({ label, value, onChange, type = 'text', icon }: {
           type={type}
           value={value}
           onChange={e => onChange(e.target.value)}
-          className={`w-full border border-gray-200 rounded-xl py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-colors ${icon ? 'pl-9 pr-3' : 'px-3'}`}
+          placeholder={placeholder}
+          disabled={disabled}
+          className={`w-full border border-gray-200 rounded-xl py-2.5 text-sm bg-white focus:outline-none focus:ring-2
+            focus:ring-brand-400/50 focus:border-brand-400 transition-colors disabled:bg-gray-50 disabled:text-gray-400
+            ${icon ? 'pl-9 pr-3' : 'px-3'}`}
         />
       </div>
     </div>
+  )
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">{children}</h3>
+}
+
+function SaveBtn({ loading, label = 'Guardar' }: { loading: boolean; label?: string }) {
+  return (
+    <button type="submit" disabled={loading}
+      className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+      {label}
+    </button>
   )
 }
 
@@ -55,6 +108,8 @@ function pwStrength(pw: string): { score: number; label: string; color: string }
 // ── component ─────────────────────────────────────────────────────────────────
 export default function Ajustes() {
   const { user, updateUser } = useAuth()
+  const qc = useQueryClient()
+  const isAdmin = user?.rol === 'Admin'
   const [tab, setTab] = useState<Tab>('perfil')
 
   const initials = [user?.nombre, user?.apellidos]
@@ -62,36 +117,54 @@ export default function Ajustes() {
 
   const rolConfig = ROL_CONFIG[user?.rol ?? ''] ?? { label: user?.rol ?? '', color: 'bg-gray-100 text-gray-600 border-gray-200' }
 
-  // ── GET /me para obtener teléfono (no está en el token) ───────────────────
+  // ═══════════════════════════════════════════════════════
+  // QUERIES
+  // ═══════════════════════════════════════════════════════
+
   const { data: meData } = useQuery<MeData>({
     queryKey: ['me', user?.usuarioId],
     enabled: !!user,
     queryFn: async () => (await api.get('/usuarios/me')).data.data,
   })
 
-  // ── Perfil form ────────────────────────────────────────────────────────────
+  const { data: empresa } = useQuery<EmpresaData>({
+    queryKey: ['empresa'],
+    enabled: isAdmin,
+    queryFn: async () => (await api.get('/empresa')).data.data,
+  })
+
+  const { data: tiposIva, refetch: refetchIva } = useQuery<TipoIvaRe[]>({
+    queryKey: ['tipos-iva-re'],
+    enabled: isAdmin,
+    queryFn: async () => (await api.get('/etiquetas/tipos-iva-re')).data.data,
+  })
+
+  const { data: series } = useQuery<SerieFacturacion[]>({
+    queryKey: ['series'],
+    enabled: isAdmin,
+    queryFn: async () => (await api.get('/series')).data.data,
+  })
+
+  // ═══════════════════════════════════════════════════════
+  // PERFIL
+  // ═══════════════════════════════════════════════════════
+
   const [perfil, setPerfil] = useState({
-    nombre:    user?.nombre    ?? '',
-    apellidos: user?.apellidos ?? '',
-    telefono:  '',
-    email:     user?.email     ?? '',
+    nombre: user?.nombre ?? '', apellidos: user?.apellidos ?? '',
+    telefono: '', email: user?.email ?? '',
   })
 
   useEffect(() => {
     if (meData) {
       setPerfil(p => ({
-        ...p,
-        nombre:    meData.nombre    || p.nombre,
-        apellidos: meData.apellidos || p.apellidos,
-        email:     meData.email     || p.email,
-        telefono:  meData.telefono  ?? '',
+        ...p, nombre: meData.nombre || p.nombre, apellidos: meData.apellidos || p.apellidos,
+        email: meData.email || p.email, telefono: meData.telefono ?? '',
       }))
     }
   }, [meData?.id])
 
   const perfilMutation = useMutation({
-    mutationFn: (data: UpdateMeRequest) =>
-      api.put<{ data: MeData; message: string }>('/usuarios/me', data),
+    mutationFn: (data: UpdateMeRequest) => api.put<{ data: MeData; message: string }>('/usuarios/me', data),
     onSuccess: (res, vars) => {
       toast.success(res.data.message ?? 'Perfil actualizado')
       updateUser({ nombre: vars.nombre, apellidos: vars.apellidos, email: vars.email })
@@ -105,17 +178,18 @@ export default function Ajustes() {
     perfilMutation.mutate(perfil)
   }
 
-  // ── Password form ──────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════
+  // PASSWORD
+  // ═══════════════════════════════════════════════════════
+
   const [pwForm, setPwForm] = useState({ passwordActual: '', nuevaPassword: '', confirmar: '' })
   const [showActual, setShowActual] = useState(false)
-  const [showNueva,  setShowNueva]  = useState(false)
-
+  const [showNueva, setShowNueva] = useState(false)
   const strength = pwStrength(pwForm.nuevaPassword)
-  const pwMatch  = pwForm.confirmar && pwForm.confirmar === pwForm.nuevaPassword
+  const pwMatch = pwForm.confirmar && pwForm.confirmar === pwForm.nuevaPassword
 
   const pwMutation = useMutation({
-    mutationFn: (data: CambiarPasswordRequest) =>
-      api.put<{ data: string; message: string }>('/usuarios/me/cambiar-password', data),
+    mutationFn: (data: CambiarPasswordRequest) => api.put<{ data: string; message: string }>('/usuarios/me/cambiar-password', data),
     onSuccess: res => {
       toast.success(res.data.message ?? 'Contraseña actualizada')
       setPwForm({ passwordActual: '', nuevaPassword: '', confirmar: '' })
@@ -129,25 +203,161 @@ export default function Ajustes() {
   function handlePwSubmit(e: FormEvent) {
     e.preventDefault()
     if (pwForm.nuevaPassword !== pwForm.confirmar) { toast.error('Las contraseñas nuevas no coinciden'); return }
-    if (pwForm.nuevaPassword.length < 8)           { toast.error('Mínimo 8 caracteres'); return }
+    if (pwForm.nuevaPassword.length < 8) { toast.error('Mínimo 8 caracteres'); return }
     pwMutation.mutate({ passwordActual: pwForm.passwordActual, nuevaPassword: pwForm.nuevaPassword })
   }
 
+  // ═══════════════════════════════════════════════════════
+  // EMPRESA
+  // ═══════════════════════════════════════════════════════
+
+  const [empForm, setEmpForm] = useState({
+    nombre: '', nif: '', razonSocial: '', direccion: '', codigoPostal: '',
+    ciudad: '', provincia: '', pais: 'España', telefono: '', email: '',
+    web: '', numeroRgseaa: '',
+  })
+
+  useEffect(() => {
+    if (empresa) {
+      setEmpForm({
+        nombre: empresa.nombre, nif: empresa.nif, razonSocial: empresa.razonSocial ?? '',
+        direccion: empresa.direccion ?? '', codigoPostal: empresa.codigoPostal ?? '',
+        ciudad: empresa.ciudad ?? '', provincia: empresa.provincia ?? '',
+        pais: empresa.pais, telefono: empresa.telefono ?? '', email: empresa.email ?? '',
+        web: empresa.web ?? '', numeroRgseaa: empresa.numeroRgseaa ?? '',
+      })
+    }
+  }, [empresa?.id])
+
+  const empMutation = useMutation({
+    mutationFn: (data: typeof empForm) => api.put('/empresa', data),
+    onSuccess: () => {
+      toast.success('Datos de empresa actualizados')
+      qc.invalidateQueries({ queryKey: ['empresa'] })
+    },
+    onError: () => toast.error('Error al actualizar la empresa'),
+  })
+
+  function handleEmpSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!empForm.nombre.trim() || !empForm.nif.trim()) { toast.error('Nombre y NIF son obligatorios'); return }
+    empMutation.mutate(empForm)
+  }
+
+  // Logo upload
+  const logoRef = useRef<HTMLInputElement>(null)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
+
+  async function handleLogoUpload(file: File) {
+    setUploadingLogo(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      await api.post('/empresa/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      toast.success('Logo actualizado')
+      qc.invalidateQueries({ queryKey: ['empresa'] })
+    } catch { toast.error('Error al subir el logo') }
+    finally { setUploadingLogo(false) }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // IVA / RE
+  // ═══════════════════════════════════════════════════════
+
+  const [ivaForm, setIvaForm] = useState({ ivaPorcentaje: '', recargoEquivalenciaPorcentaje: '', descripcion: '' })
+  const [editIvaId, setEditIvaId] = useState<number | null>(null)
+
+  const ivaMutation = useMutation({
+    mutationFn: async (data: { id?: number; ivaPorcentaje: number; recargoEquivalenciaPorcentaje: number; descripcion: string }) => {
+      if (data.id) return api.put(`/etiquetas/tipos-iva-re/${data.id}`, data)
+      return api.post('/etiquetas/tipos-iva-re', data)
+    },
+    onSuccess: () => {
+      toast.success(editIvaId ? 'Tipo IVA actualizado' : 'Tipo IVA creado')
+      setIvaForm({ ivaPorcentaje: '', recargoEquivalenciaPorcentaje: '', descripcion: '' })
+      setEditIvaId(null)
+      refetchIva()
+    },
+    onError: () => toast.error('Error al guardar tipo IVA'),
+  })
+
+  const deleteIvaMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/etiquetas/tipos-iva-re/${id}`),
+    onSuccess: () => { toast.success('Tipo IVA eliminado'); refetchIva() },
+    onError: () => toast.error('Error al eliminar'),
+  })
+
+  function handleIvaSubmit(e: FormEvent) {
+    e.preventDefault()
+    const iva = parseFloat(ivaForm.ivaPorcentaje)
+    const re = parseFloat(ivaForm.recargoEquivalenciaPorcentaje || '0')
+    if (isNaN(iva)) { toast.error('IVA % es obligatorio'); return }
+    ivaMutation.mutate({ id: editIvaId ?? undefined, ivaPorcentaje: iva, recargoEquivalenciaPorcentaje: re, descripcion: ivaForm.descripcion })
+  }
+
+  function openEditIva(t: TipoIvaRe) {
+    setEditIvaId(t.id)
+    setIvaForm({ ivaPorcentaje: String(t.ivaPorcentaje), recargoEquivalenciaPorcentaje: String(t.recargoEquivalenciaPorcentaje), descripcion: t.descripcion ?? '' })
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // STOCK PARAMS + SERIES DEFAULT (from Configuracion JSON)
+  // ═══════════════════════════════════════════════════════
+
+  const [config, setConfig] = useState<ConfiguracionEmpresa>({})
+
+  useEffect(() => {
+    if (empresa?.configuracion) {
+      try { setConfig(JSON.parse(empresa.configuracion)) } catch { /* ignore */ }
+    }
+  }, [empresa?.configuracion])
+
+  const configMutation = useMutation({
+    mutationFn: (cfg: ConfiguracionEmpresa) => api.put('/empresa/configuracion', { configuracion: JSON.stringify(cfg) }),
+    onSuccess: () => {
+      toast.success('Configuración actualizada')
+      qc.invalidateQueries({ queryKey: ['empresa'] })
+    },
+    onError: () => toast.error('Error al guardar configuración'),
+  })
+
+  function handleConfigSave(e: FormEvent) {
+    e.preventDefault()
+    configMutation.mutate(config)
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // TABS CONFIG
+  // ═══════════════════════════════════════════════════════
+
+  const userTabs = [
+    { id: 'perfil'   as Tab, icon: <User className="w-4 h-4" />,     label: 'Mi perfil' },
+    { id: 'password' as Tab, icon: <KeyRound className="w-4 h-4" />, label: 'Contraseña' },
+  ]
+
+  const adminTabs = [
+    { id: 'empresa' as Tab, icon: <Building2 className="w-4 h-4" />, label: 'Empresa' },
+    { id: 'series'  as Tab, icon: <Settings className="w-4 h-4" />,  label: 'Series' },
+    { id: 'iva'     as Tab, icon: <Percent className="w-4 h-4" />,   label: 'IVA / RE' },
+    { id: 'stock'   as Tab, icon: <Package className="w-4 h-4" />,   label: 'Stock' },
+    { id: 'smtp'    as Tab, icon: <Server className="w-4 h-4" />,    label: 'SMTP' },
+  ]
+
+  const allTabs = isAdmin ? [...userTabs, ...adminTabs] : userTabs
+
   // ── render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-5">
+    <div className="p-6 max-w-3xl mx-auto space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Ajustes de cuenta</h1>
-        <p className="text-gray-500 text-sm mt-0.5">Actualiza tu información personal y seguridad</p>
+        <h1 className="text-2xl font-bold text-gray-900">Ajustes</h1>
+        <p className="text-gray-500 text-sm mt-0.5">Perfil personal{isAdmin ? ' y configuración de empresa' : ''}</p>
       </div>
 
-      {/* Tarjeta de perfil ─────────────────────────────────────────────────── */}
+      {/* Tarjeta de perfil */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        {/* Banda de color superior */}
         <div className="h-16 bg-brand-gradient" />
         <div className="px-6 pb-5 -mt-8">
-          {/* Avatar */}
           <div className="flex items-end justify-between mb-3">
             <div className="w-16 h-16 rounded-2xl bg-white border-4 border-white shadow-md flex items-center justify-center text-xl font-bold text-brand-700 bg-brand-50 shrink-0">
               {initials || <User className="w-7 h-7 text-brand-400" />}
@@ -156,124 +366,85 @@ export default function Ajustes() {
               {rolConfig.label}
             </span>
           </div>
-
-          {/* Nombre + chips de info */}
           <h2 className="text-lg font-bold text-gray-900 leading-tight">
             {[user?.nombre, user?.apellidos].filter(Boolean).join(' ') || '—'}
           </h2>
-
           <div className="flex flex-wrap gap-3 mt-3">
             <span className="flex items-center gap-1.5 text-xs text-gray-500">
-              <Mail className="w-3.5 h-3.5 text-brand-400" />
-              {user?.email ?? '—'}
+              <Mail className="w-3.5 h-3.5 text-brand-400" />{user?.email ?? '—'}
             </span>
             {meData?.telefono && (
               <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                <Phone className="w-3.5 h-3.5 text-brand-400" />
-                {meData.telefono}
+                <Phone className="w-3.5 h-3.5 text-brand-400" />{meData.telefono}
               </span>
             )}
             <span className="flex items-center gap-1.5 text-xs text-gray-500">
-              <Building2 className="w-3.5 h-3.5 text-brand-400" />
-              Empresa #{user?.empresaId}
+              <Building2 className="w-3.5 h-3.5 text-brand-400" />Empresa #{user?.empresaId}
             </span>
             <span className="flex items-center gap-1.5 text-xs text-gray-500">
-              <Shield className="w-3.5 h-3.5 text-brand-400" />
-              ID #{user?.usuarioId}
+              <Shield className="w-3.5 h-3.5 text-brand-400" />ID #{user?.usuarioId}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Tabs + formularios ─────────────────────────────────────────────────── */}
+      {/* Tabs + Content */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        {/* Tabs */}
-        <div className="flex gap-1 px-5 pt-4 border-b border-gray-100 mb-[-1px]">
-          {([
-            { id: 'perfil'   as Tab, icon: <User   className="w-4 h-4" />, label: 'Mi perfil'  },
-            { id: 'password' as Tab, icon: <KeyRound className="w-4 h-4" />, label: 'Contraseña' },
-          ]).map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
+        {/* Tab bar */}
+        <div className="flex flex-wrap gap-1 px-5 pt-4 border-b border-gray-100 mb-[-1px]">
+          {allTabs.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg font-medium transition-colors ${
                 tab === t.id
                   ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-500'
                   : 'text-gray-500 hover:text-gray-700 border-b-2 border-transparent'
-              }`}
-            >
+              }`}>
               {t.icon}{t.label}
             </button>
           ))}
         </div>
 
-        {/* ── Perfil panel ── */}
+        {/* ── PERFIL ── */}
         {tab === 'perfil' && (
           <form onSubmit={handlePerfilSubmit} className="p-6 space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Nombre *"   value={perfil.nombre}    onChange={v => setPerfil(p => ({ ...p, nombre: v }))}    icon={<User className="w-3.5 h-3.5" />} />
-              <Field label="Apellidos"  value={perfil.apellidos} onChange={v => setPerfil(p => ({ ...p, apellidos: v }))} />
+              <Field label="Nombre *" value={perfil.nombre} onChange={v => setPerfil(p => ({ ...p, nombre: v }))} icon={<User className="w-3.5 h-3.5" />} />
+              <Field label="Apellidos" value={perfil.apellidos} onChange={v => setPerfil(p => ({ ...p, apellidos: v }))} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Teléfono"   value={perfil.telefono}  onChange={v => setPerfil(p => ({ ...p, telefono: v }))}  type="tel"   icon={<Phone className="w-3.5 h-3.5" />} />
-              <Field label="Email"      value={perfil.email}     onChange={v => setPerfil(p => ({ ...p, email: v }))}     type="email" icon={<Mail  className="w-3.5 h-3.5" />} />
+              <Field label="Teléfono" value={perfil.telefono} onChange={v => setPerfil(p => ({ ...p, telefono: v }))} type="tel" icon={<Phone className="w-3.5 h-3.5" />} />
+              <Field label="Email" value={perfil.email} onChange={v => setPerfil(p => ({ ...p, email: v }))} type="email" icon={<Mail className="w-3.5 h-3.5" />} />
             </div>
-            <p className="text-xs text-gray-400 flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-brand-400 shrink-0" />
-              Los cambios se aplicarán inmediatamente en toda la aplicación
-            </p>
-            <div className="flex justify-end pt-1">
-              <button
-                type="submit"
-                disabled={perfilMutation.isPending}
-                className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-              >
-                {perfilMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                Guardar cambios
-              </button>
-            </div>
+            <div className="flex justify-end pt-1"><SaveBtn loading={perfilMutation.isPending} label="Guardar cambios" /></div>
           </form>
         )}
 
-        {/* ── Contraseña panel ── */}
+        {/* ── PASSWORD ── */}
         {tab === 'password' && (
           <form onSubmit={handlePwSubmit} className="p-6 space-y-4">
-            {/* Actual */}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Contraseña actual *</label>
               <div className="relative">
-                <input
-                  type={showActual ? 'text' : 'password'}
-                  value={pwForm.passwordActual}
-                  onChange={e => setPwForm(p => ({ ...p, passwordActual: e.target.value }))}
-                  required
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-colors"
-                />
+                <input type={showActual ? 'text' : 'password'} value={pwForm.passwordActual}
+                  onChange={e => setPwForm(p => ({ ...p, passwordActual: e.target.value }))} required
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-colors" />
                 <button type="button" onClick={() => setShowActual(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   {showActual ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
-
-            {/* Nueva */}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">
                 Nueva contraseña * <span className="text-gray-400 font-normal">(mín. 8 caracteres)</span>
               </label>
               <div className="relative">
-                <input
-                  type={showNueva ? 'text' : 'password'}
-                  value={pwForm.nuevaPassword}
-                  onChange={e => setPwForm(p => ({ ...p, nuevaPassword: e.target.value }))}
-                  required
-                  minLength={8}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-colors"
-                />
+                <input type={showNueva ? 'text' : 'password'} value={pwForm.nuevaPassword}
+                  onChange={e => setPwForm(p => ({ ...p, nuevaPassword: e.target.value }))} required minLength={8}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-colors" />
                 <button type="button" onClick={() => setShowNueva(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   {showNueva ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {/* Barra de fortaleza */}
               {pwForm.nuevaPassword.length > 0 && (
                 <div className="mt-2 space-y-1">
                   <div className="flex gap-1">
@@ -285,48 +456,275 @@ export default function Ajustes() {
                 </div>
               )}
             </div>
-
-            {/* Confirmar */}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Confirmar nueva contraseña *</label>
               <div className="relative">
-                <input
-                  type="password"
-                  value={pwForm.confirmar}
-                  onChange={e => setPwForm(p => ({ ...p, confirmar: e.target.value }))}
-                  required
+                <input type="password" value={pwForm.confirmar}
+                  onChange={e => setPwForm(p => ({ ...p, confirmar: e.target.value }))} required
                   className={`w-full border rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 transition-colors ${
                     pwForm.confirmar
-                      ? pwMatch
-                        ? 'border-emerald-400 focus:ring-emerald-400/50'
-                        : 'border-red-400 bg-red-50 focus:ring-red-400/50'
+                      ? pwMatch ? 'border-emerald-400 focus:ring-emerald-400/50'
+                                : 'border-red-400 bg-red-50 focus:ring-red-400/50'
                       : 'border-gray-200 focus:ring-brand-400/50 focus:border-brand-400'
-                  }`}
-                />
+                  }`} />
                 {pwForm.confirmar && (
                   <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                    {pwMatch
-                      ? <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                      : <EyeOff className="w-4 h-4 text-red-400" />
-                    }
+                    {pwMatch ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <EyeOff className="w-4 h-4 text-red-400" />}
                   </span>
                 )}
               </div>
-              {pwForm.confirmar && !pwMatch && (
-                <p className="text-xs text-red-500 mt-1">Las contraseñas no coinciden</p>
-              )}
+              {pwForm.confirmar && !pwMatch && <p className="text-xs text-red-500 mt-1">Las contraseñas no coinciden</p>}
+            </div>
+            <div className="flex justify-end pt-1"><SaveBtn loading={pwMutation.isPending} label="Cambiar contraseña" /></div>
+          </form>
+        )}
+
+        {/* ── EMPRESA ── */}
+        {tab === 'empresa' && isAdmin && (
+          <form onSubmit={handleEmpSubmit} className="p-6 space-y-5">
+            {/* Logo */}
+            <div>
+              <SectionTitle><Upload className="w-4 h-4 text-brand-500" /> Logo de empresa</SectionTitle>
+              <div className="flex items-center gap-4">
+                {empresa?.logoUrl ? (
+                  <img src={empresa.logoUrl} alt="Logo" className="w-20 h-20 object-contain rounded-xl border border-gray-200 bg-gray-50" />
+                ) : (
+                  <div className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400">
+                    <Building2 className="w-8 h-8" />
+                  </div>
+                )}
+                <div>
+                  <input ref={logoRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden"
+                    onChange={e => e.target.files?.[0] && handleLogoUpload(e.target.files[0])} />
+                  <button type="button" onClick={() => logoRef.current?.click()} disabled={uploadingLogo}
+                    className="text-sm text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1.5">
+                    {uploadingLogo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    {empresa?.logoUrl ? 'Cambiar logo' : 'Subir logo'}
+                  </button>
+                  <p className="text-xs text-gray-400 mt-1">PNG, JPG, WebP o SVG. Max 5MB</p>
+                </div>
+              </div>
             </div>
 
-            <div className="flex justify-end pt-1">
-              <button
-                type="submit"
-                disabled={pwMutation.isPending}
-                className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-              >
-                {pwMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                Cambiar contraseña
-              </button>
+            <hr className="border-gray-100" />
+
+            {/* Datos fiscales */}
+            <SectionTitle><Building2 className="w-4 h-4 text-brand-500" /> Datos fiscales</SectionTitle>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Nombre / Razón social *" value={empForm.nombre} onChange={v => setEmpForm(p => ({ ...p, nombre: v }))} />
+              <Field label="NIF / CIF *" value={empForm.nif} onChange={v => setEmpForm(p => ({ ...p, nif: v }))} />
             </div>
+            <Field label="Razón social (si difiere)" value={empForm.razonSocial} onChange={v => setEmpForm(p => ({ ...p, razonSocial: v }))} />
+            <Field label="Nº RGSEAA" value={empForm.numeroRgseaa} onChange={v => setEmpForm(p => ({ ...p, numeroRgseaa: v }))} placeholder="26.XXXXX/XX" />
+
+            <hr className="border-gray-100" />
+
+            {/* Dirección */}
+            <SectionTitle><Mail className="w-4 h-4 text-brand-500" /> Dirección y contacto</SectionTitle>
+            <Field label="Dirección" value={empForm.direccion} onChange={v => setEmpForm(p => ({ ...p, direccion: v }))} />
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="C.P." value={empForm.codigoPostal} onChange={v => setEmpForm(p => ({ ...p, codigoPostal: v }))} />
+              <Field label="Ciudad" value={empForm.ciudad} onChange={v => setEmpForm(p => ({ ...p, ciudad: v }))} />
+              <Field label="Provincia" value={empForm.provincia} onChange={v => setEmpForm(p => ({ ...p, provincia: v }))} />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="Teléfono" value={empForm.telefono} onChange={v => setEmpForm(p => ({ ...p, telefono: v }))} type="tel" icon={<Phone className="w-3.5 h-3.5" />} />
+              <Field label="Email" value={empForm.email} onChange={v => setEmpForm(p => ({ ...p, email: v }))} type="email" icon={<Mail className="w-3.5 h-3.5" />} />
+              <Field label="Web" value={empForm.web} onChange={v => setEmpForm(p => ({ ...p, web: v }))} placeholder="https://..." />
+            </div>
+
+            <div className="flex justify-end pt-2"><SaveBtn loading={empMutation.isPending} /></div>
+          </form>
+        )}
+
+        {/* ── SERIES POR DEFECTO ── */}
+        {tab === 'series' && isAdmin && (
+          <form onSubmit={handleConfigSave} className="p-6 space-y-5">
+            <SectionTitle><Settings className="w-4 h-4 text-brand-500" /> Series por defecto</SectionTitle>
+            <p className="text-xs text-gray-500 -mt-2">Selecciona qué serie de facturación se usará por defecto al crear facturas y albaranes.</p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Serie facturas</label>
+                <select value={config.serieFacturaDefecto ?? ''} onChange={e => setConfig(c => ({ ...c, serieFacturaDefecto: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full border border-gray-200 rounded-xl py-2.5 px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-400/50">
+                  <option value="">— Sin asignar —</option>
+                  {(series ?? []).filter(s => s.activa).map(s => <option key={s.id} value={s.id}>{s.codigo} — {s.descripcion ?? s.prefijo}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Serie albaranes</label>
+                <select value={config.serieAlbaranDefecto ?? ''} onChange={e => setConfig(c => ({ ...c, serieAlbaranDefecto: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full border border-gray-200 rounded-xl py-2.5 px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-400/50">
+                  <option value="">— Sin asignar —</option>
+                  {(series ?? []).filter(s => s.activa).map(s => <option key={s.id} value={s.id}>{s.codigo} — {s.descripcion ?? s.prefijo}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Impresoras */}
+            <hr className="border-gray-100" />
+            <SectionTitle><Printer className="w-4 h-4 text-brand-500" /> Impresoras de etiquetas</SectionTitle>
+            <p className="text-xs text-gray-500 -mt-2">Configura impresoras para la impresión directa de etiquetas.</p>
+
+            {(config.impresoras ?? []).map((imp, idx) => (
+              <div key={idx} className="flex items-end gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Nombre</label>
+                  <input value={imp.nombre} onChange={e => {
+                    const arr = [...(config.impresoras ?? [])]; arr[idx] = { ...arr[idx], nombre: e.target.value }
+                    setConfig(c => ({ ...c, impresoras: arr }))
+                  }} className="w-full border border-gray-200 rounded-xl py-2 px-3 text-sm" />
+                </div>
+                <div className="w-32">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Tipo</label>
+                  <select value={imp.tipo} onChange={e => {
+                    const arr = [...(config.impresoras ?? [])]; arr[idx] = { ...arr[idx], tipo: e.target.value }
+                    setConfig(c => ({ ...c, impresoras: arr }))
+                  }} className="w-full border border-gray-200 rounded-xl py-2 px-3 text-sm">
+                    <option value="sistema">Sistema</option>
+                    <option value="red">Red (IP)</option>
+                  </select>
+                </div>
+                <div className="w-40">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">IP (si red)</label>
+                  <input value={imp.ip ?? ''} onChange={e => {
+                    const arr = [...(config.impresoras ?? [])]; arr[idx] = { ...arr[idx], ip: e.target.value }
+                    setConfig(c => ({ ...c, impresoras: arr }))
+                  }} placeholder="192.168.1.100" className="w-full border border-gray-200 rounded-xl py-2 px-3 text-sm" />
+                </div>
+                <button type="button" onClick={() => {
+                  const arr = (config.impresoras ?? []).filter((_, i) => i !== idx)
+                  setConfig(c => ({ ...c, impresoras: arr }))
+                }} className="p-2 text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            ))}
+
+            <button type="button" onClick={() => setConfig(c => ({ ...c, impresoras: [...(c.impresoras ?? []), { nombre: '', tipo: 'sistema', ip: '' }] }))}
+              className="text-sm text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1.5">
+              <Plus className="w-4 h-4" /> Añadir impresora
+            </button>
+
+            <div className="flex justify-end pt-2"><SaveBtn loading={configMutation.isPending} /></div>
+          </form>
+        )}
+
+        {/* ── IVA / RE ── */}
+        {tab === 'iva' && isAdmin && (
+          <div className="p-6 space-y-5">
+            <SectionTitle><Percent className="w-4 h-4 text-brand-500" /> Tipos de IVA y Recargo de equivalencia</SectionTitle>
+
+            {/* Table */}
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600">IVA %</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600">RE %</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-600">Descripción</th>
+                    <th className="w-20 px-4 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {(tiposIva ?? []).map(t => (
+                    <tr key={t.id} className="hover:bg-gray-50/50">
+                      <td className="px-4 py-2.5 font-medium">{t.ivaPorcentaje}%</td>
+                      <td className="px-4 py-2.5">{t.recargoEquivalenciaPorcentaje}%</td>
+                      <td className="px-4 py-2.5 text-gray-500">{t.descripcion ?? '—'}</td>
+                      <td className="px-4 py-2.5 flex gap-1 justify-end">
+                        <button onClick={() => openEditIva(t)} className="p-1 text-gray-400 hover:text-brand-600"><Pencil className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => deleteIvaMutation.mutate(t.id)} className="p-1 text-gray-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {(tiposIva ?? []).length === 0 && (
+                    <tr><td colSpan={4} className="text-center py-6 text-gray-400">No hay tipos de IVA configurados</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleIvaSubmit} className="flex items-end gap-3">
+              <div className="w-28">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">IVA % *</label>
+                <input type="number" step="0.01" value={ivaForm.ivaPorcentaje} onChange={e => setIvaForm(p => ({ ...p, ivaPorcentaje: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl py-2 px-3 text-sm" placeholder="21" />
+              </div>
+              <div className="w-28">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">RE %</label>
+                <input type="number" step="0.01" value={ivaForm.recargoEquivalenciaPorcentaje} onChange={e => setIvaForm(p => ({ ...p, recargoEquivalenciaPorcentaje: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl py-2 px-3 text-sm" placeholder="5.2" />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Descripción</label>
+                <input value={ivaForm.descripcion} onChange={e => setIvaForm(p => ({ ...p, descripcion: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl py-2 px-3 text-sm" placeholder="IVA general" />
+              </div>
+              <button type="submit" disabled={ivaMutation.isPending}
+                className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded-xl">
+                {ivaMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : editIvaId ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {editIvaId ? 'Actualizar' : 'Añadir'}
+              </button>
+              {editIvaId && (
+                <button type="button" onClick={() => { setEditIvaId(null); setIvaForm({ ivaPorcentaje: '', recargoEquivalenciaPorcentaje: '', descripcion: '' }) }}
+                  className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">Cancelar</button>
+              )}
+            </form>
+          </div>
+        )}
+
+        {/* ── STOCK PARAMS ── */}
+        {tab === 'stock' && isAdmin && (
+          <form onSubmit={handleConfigSave} className="p-6 space-y-5">
+            <SectionTitle><Package className="w-4 h-4 text-brand-500" /> Parámetros de stock</SectionTitle>
+            <p className="text-xs text-gray-500 -mt-2">Configuración global de stock. Estos valores se usan como fallback cuando un producto no tiene configuración propia.</p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Stock mínimo global</label>
+                <input type="number" min="0" value={config.stockMinimoGlobal ?? ''} onChange={e => setConfig(c => ({ ...c, stockMinimoGlobal: e.target.value ? Number(e.target.value) : undefined }))}
+                  placeholder="10" className="w-full border border-gray-200 rounded-xl py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400/50" />
+                <p className="text-xs text-gray-400 mt-1">Si el stock de un producto baja de este valor, se mostrará una alerta</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Días alerta de caducidad</label>
+                <input type="number" min="0" value={config.diasAlertaCaducidad ?? ''} onChange={e => setConfig(c => ({ ...c, diasAlertaCaducidad: e.target.value ? Number(e.target.value) : undefined }))}
+                  placeholder="7" className="w-full border border-gray-200 rounded-xl py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400/50" />
+                <p className="text-xs text-gray-400 mt-1">Lotes que caducan en los próximos X días se marcarán como "próximos a caducar"</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2"><SaveBtn loading={configMutation.isPending} /></div>
+          </form>
+        )}
+
+        {/* ── SMTP ── */}
+        {tab === 'smtp' && isAdmin && (
+          <form onSubmit={handleConfigSave} className="p-6 space-y-5">
+            <SectionTitle><Server className="w-4 h-4 text-brand-500" /> Configuración SMTP</SectionTitle>
+            <p className="text-xs text-gray-500 -mt-2">Datos del servidor de correo para el envío de facturas por email.</p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Servidor SMTP" value={config.smtpHost ?? ''} onChange={v => setConfig(c => ({ ...c, smtpHost: v }))} placeholder="smtp.gmail.com" />
+              <Field label="Puerto" value={String(config.smtpPort ?? '')} onChange={v => setConfig(c => ({ ...c, smtpPort: v ? Number(v) : undefined }))} type="number" placeholder="587" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Usuario" value={config.smtpUser ?? ''} onChange={v => setConfig(c => ({ ...c, smtpUser: v }))} icon={<Mail className="w-3.5 h-3.5" />} />
+              <Field label="Contraseña" value={config.smtpPassword ?? ''} onChange={v => setConfig(c => ({ ...c, smtpPassword: v }))} type="password" icon={<Lock className="w-3.5 h-3.5" />} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Email remitente" value={config.smtpFromEmail ?? ''} onChange={v => setConfig(c => ({ ...c, smtpFromEmail: v }))} type="email" placeholder="facturas@miobrador.es" />
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={config.smtpUseSsl ?? true} onChange={e => setConfig(c => ({ ...c, smtpUseSsl: e.target.checked }))}
+                    className="rounded border-gray-300 text-brand-500 focus:ring-brand-400" />
+                  <span className="text-sm text-gray-700">Usar SSL/TLS</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2"><SaveBtn loading={configMutation.isPending} /></div>
           </form>
         )}
       </div>

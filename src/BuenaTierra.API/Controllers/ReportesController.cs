@@ -314,8 +314,11 @@ public class ReportesController : ControllerBase
             case "clientes":
                 await ExportClientes(wb, d, h, ct);
                 break;
+            case "rotacion":
+                await ExportRotacion(wb, d, h, ct);
+                break;
             default:
-                return BadRequest("tipo no válido. Usa: ventas, stock, produccion, clientes");
+                return BadRequest("tipo no válido. Usa: ventas, stock, produccion, clientes, rotacion");
         }
 
         using var ms = new MemoryStream();
@@ -506,6 +509,59 @@ public class ReportesController : ControllerBase
         ws.Columns().AdjustToContents();
     }
 
+    private async Task ExportRotacion(IXLWorkbook wb, DateOnly desde, DateOnly hasta, CancellationToken ct)
+    {
+        var ws = wb.Worksheets.Add("Rotación");
+        var headers = new[] { "Producto", "Stock actual", "Vendido", "Rotación", "Días cobertura", "Clasificación" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(1, i + 1).Value = headers[i];
+            ws.Cell(1, i + 1).Style.Font.Bold = true;
+            ws.Cell(1, i + 1).Style.Fill.BackgroundColor = XLColor.FromArgb(0xE8, 0xDE, 0xF8);
+        }
+
+        var diasPeriodo = (hasta.ToDateTime(TimeOnly.MinValue) - desde.ToDateTime(TimeOnly.MinValue)).TotalDays;
+        if (diasPeriodo <= 0) diasPeriodo = 1;
+
+        var productos = await _uow.Productos.GetQueryable()
+            .Where(p => p.EmpresaId == EmpresaId && p.Activo)
+            .Select(p => new { p.Id, p.Nombre })
+            .ToListAsync(ct);
+
+        var stocks = await _uow.Stock.GetQueryable()
+            .Where(s => s.EmpresaId == EmpresaId && s.CantidadDisponible > 0)
+            .GroupBy(s => s.ProductoId)
+            .Select(g => new { ProductoId = g.Key, Disp = g.Sum(s => s.CantidadDisponible) })
+            .ToDictionaryAsync(x => x.ProductoId, x => x.Disp, ct);
+
+        var ventas = await _uow.Facturas.GetQueryable()
+            .Where(f => f.EmpresaId == EmpresaId && f.FechaFactura >= desde && f.FechaFactura <= hasta)
+            .SelectMany(f => f.Lineas)
+            .GroupBy(l => l.ProductoId)
+            .Select(g => new { ProductoId = g.Key, Vendido = g.Sum(l => l.Cantidad) })
+            .ToDictionaryAsync(x => x.ProductoId, x => x.Vendido, ct);
+
+        int row = 2;
+        foreach (var p in productos.OrderByDescending(p => ventas.GetValueOrDefault(p.Id, 0)))
+        {
+            var stockDisp = (double)(stocks.GetValueOrDefault(p.Id, 0));
+            var vendido = (double)(ventas.GetValueOrDefault(p.Id, 0));
+            var rot = stockDisp > 0 && vendido > 0 ? Math.Round(vendido / stockDisp, 2) : 0;
+            var dias = vendido > 0 ? Math.Round(diasPeriodo * stockDisp / vendido, 0) : 0;
+            var clasif = vendido == 0 ? "Sin movimiento" : rot >= 2 ? "Alta" : rot >= 1 ? "Media" : "Baja";
+
+            ws.Cell(row, 1).Value = p.Nombre;
+            ws.Cell(row, 2).Value = stockDisp;
+            ws.Cell(row, 3).Value = vendido;
+            ws.Cell(row, 4).Value = rot;
+            ws.Cell(row, 5).Value = dias;
+            ws.Cell(row, 6).Value = clasif;
+            row++;
+        }
+
+        ws.Columns().AdjustToContents();
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/reportes/rotacion?desde=&hasta=
     // Análisis de rotación de productos: ventas del período vs stock actual.
@@ -626,6 +682,57 @@ public class ReportesController : ControllerBase
             desde = d.ToString("yyyy-MM-dd"),
             hasta = h.ToString("yyyy-MM-dd"),
             diasPeriodo = (int)diasPeriodo,
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/reportes/sanidad?desde=&hasta=&productoId=
+    // Informe de trazabilidad para Sanidad (CE 178/2002) — JSON preview
+    // ─────────────────────────────────────────────────────────────────────────
+    [HttpGet("sanidad")]
+    public async Task<IActionResult> GetSanidad(
+        [FromQuery] DateOnly? desde = null,
+        [FromQuery] DateOnly? hasta = null,
+        [FromQuery] int? productoId = null,
+        CancellationToken ct = default)
+    {
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var d = desde ?? hoy.AddDays(-29);
+        var h = hasta ?? hoy;
+
+        var query = _uow.Facturas.GetQueryable()
+            .Where(f => f.EmpresaId == EmpresaId
+                     && f.FechaFactura >= d && f.FechaFactura <= h
+                     && f.Estado != Domain.Enums.EstadoFactura.Anulada)
+            .Include(f => f.Cliente)
+            .Include(f => f.Lineas).ThenInclude(l => l.Producto)
+            .Include(f => f.Lineas).ThenInclude(l => l.Lote)
+            .AsNoTracking();
+
+        var facturas = await query.OrderBy(f => f.FechaFactura).ToListAsync(ct);
+
+        var rows = facturas
+            .SelectMany(f => f.Lineas.Where(l => l.LoteId != null && (productoId == null || l.ProductoId == productoId))
+                .Select(l => new
+                {
+                    lote = l.Lote?.CodigoLote ?? "—",
+                    producto = l.Producto?.Nombre ?? "—",
+                    fechaFabricacion = l.Lote?.FechaFabricacion.ToString("dd/MM/yy") ?? "—",
+                    fechaCaducidad = l.Lote?.FechaCaducidad?.ToString("dd/MM/yy") ?? "—",
+                    cantidadProducida = l.Lote?.CantidadInicial ?? 0,
+                    vendidoA = f.Cliente != null ? (f.Cliente.RazonSocial ?? f.Cliente.Nombre ?? "—") : "—",
+                    facturaNumero = f.NumeroFactura ?? $"FAC-{f.Id}",
+                    fechaVenta = f.FechaFactura.ToString("dd/MM/yy"),
+                    cantidadVendida = l.Cantidad,
+                }))
+            .ToList();
+
+        return Ok(new
+        {
+            rows,
+            total = rows.Count,
+            desde = d.ToString("yyyy-MM-dd"),
+            hasta = h.ToString("yyyy-MM-dd"),
         });
     }
 }
