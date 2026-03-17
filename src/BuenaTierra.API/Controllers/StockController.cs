@@ -68,6 +68,47 @@ public class StockController : ControllerBase
             request.Cantidad, request.Motivo, UsuarioId, ct);
         return Ok(ApiResponse<string>.Ok("Ajuste realizado correctamente"));
     }
+
+    /// <summary>
+    /// POST /api/stock/simular-fifo — Simula asignación FIFO sin consumir stock.
+    /// Útil para preview en el formulario de factura antes de confirmar.
+    /// </summary>
+    [HttpPost("simular-fifo")]
+    public async Task<ActionResult<ApiResponse<List<LoteAsignado>>>> SimularFifo(
+        [FromBody] SimularFifoRequest request, CancellationToken ct)
+    {
+        // AsignarLotesAsync solo lee — no modifica stock.
+        // El consumo real ocurre en FacturaService.CrearFacturaAsync.
+        var asignaciones = await _loteService.AsignarLotesAsync(
+            EmpresaId, request.ProductoId, request.Cantidad, ct);
+
+        return Ok(ApiResponse<List<LoteAsignado>>.Ok(asignaciones,
+            $"FIFO simulado: {asignaciones.Count} lote(s) para {request.Cantidad} unidades"));
+    }
+
+    /// <summary>
+    /// GET /api/stock/producto/{productoId}/lotes — Lotes con stock disponible ordenados FIFO.
+    /// Incluye detalle de cada lote para vista previa del split.
+    /// </summary>
+    [HttpGet("producto/{productoId:int}/lotes")]
+    public async Task<ActionResult<ApiResponse<List<LoteDisponibleDto>>>> GetLotesFifo(
+        int productoId, CancellationToken ct)
+    {
+        var lotes = await _uow.Lotes.GetDisponiblesFIFOAsync(EmpresaId, productoId, ct);
+        var resultado = lotes.Select(l => new LoteDisponibleDto(
+            LoteId: l.Id,
+            CodigoLote: l.CodigoLote,
+            FechaFabricacion: l.FechaFabricacion,
+            FechaCaducidad: l.FechaCaducidad,
+            Disponible: l.Stock != null
+                ? l.Stock.CantidadDisponible - l.Stock.CantidadReservada
+                : 0
+        )).Where(l => l.Disponible > 0).ToList();
+
+        return Ok(ApiResponse<List<LoteDisponibleDto>>.Ok(resultado));
+    }
 }
 
 public record AjusteStockRequest(int ProductoId, int LoteId, decimal Cantidad, string Motivo);
+public record SimularFifoRequest(int ProductoId, decimal Cantidad);
+public record LoteDisponibleDto(int LoteId, string CodigoLote, DateOnly FechaFabricacion, DateOnly? FechaCaducidad, decimal Disponible);

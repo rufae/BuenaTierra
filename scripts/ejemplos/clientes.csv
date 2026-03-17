@@ -1,0 +1,6 @@
+nombre,tipo,nif,email,telefono,ciudad,provincia,forma_pago,dias_pago,notas
+Super Pasteles S.L.,Empresa,B12345678,contacto@superpasteles.com,912345678,Madrid,Madrid,Transfer30,30,Cliente habitual
+Panadería García,Autonomo,12345678Z,garcia@panaderia.com,934567890,Barcelona,Barcelona,Contado,0,Recoge en tienda
+María López,Particular,,maria.lopez@gmail.com,666111222,Valencia,Valencia,Efectivo,0,
+Cafetería El Rincón S.L.,Empresa,B87654321,info@elrincon.com,943210987,San Sebastián,Guipúzcoa,Transfer60,60,Pedidos lunes y jueves
+Juan Martínez Ruiz,Autonomo,87654321A,jmartinez@correo.es,677999888,Sevilla,Sevilla,Domiciliacion,30,Proveedor de hostelería

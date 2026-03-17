@@ -4,13 +4,15 @@ import api from '../lib/api'
 import type { Usuario } from '../types'
 import {
   Shield, Plus, Pencil, KeyRound, Trash2, Loader2,
-  CheckCircle2, XCircle, UserCircle2,
+  CheckCircle2, XCircle, UserCircle2, Link2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type Rol = 'Admin' | 'Obrador' | 'Repartidor'
+
+interface ClienteSimple { id: number; nombre: string; tipo: string }
 
 const ROL_BADGE: Record<string, string> = {
   Admin:      'bg-purple-100 text-purple-800 border-purple-200',
@@ -183,6 +185,7 @@ export default function Usuarios() {
 function ModalCrear({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({
     nombre: '', apellidos: '', email: '', telefono: '', rol: 'Obrador' as Rol, password: '', confirm: '',
+    clienteId: '' as string,
   })
   const [loading, setLoading] = useState(false)
 
@@ -200,6 +203,7 @@ function ModalCrear({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
         nombre: form.nombre, apellidos: form.apellidos || null,
         email: form.email, telefono: form.telefono || null,
         rol: form.rol, password: form.password,
+        clienteId: form.rol === 'Repartidor' && form.clienteId ? Number(form.clienteId) : null,
       })
       toast.success('Usuario creado')
       onSaved()
@@ -228,6 +232,7 @@ function ModalEditar({ usuario, onClose, onSaved }: { usuario: Usuario; onClose:
   const [form, setForm] = useState({
     nombre: usuario.nombre, apellidos: usuario.apellidos ?? '', email: usuario.email,
     telefono: usuario.telefono ?? '', rol: usuario.rol as Rol, activo: usuario.activo,
+    clienteId: usuario.clienteId ? String(usuario.clienteId) : '',
   })
   const [loading, setLoading] = useState(false)
 
@@ -241,6 +246,7 @@ function ModalEditar({ usuario, onClose, onSaved }: { usuario: Usuario; onClose:
         nombre: form.nombre, apellidos: form.apellidos || null,
         email: form.email, telefono: form.telefono || null,
         rol: form.rol, activo: form.activo,
+        clienteId: form.rol === 'Repartidor' && form.clienteId ? Number(form.clienteId) : null,
       })
       toast.success('Usuario actualizado')
       onSaved()
@@ -328,6 +334,17 @@ function FormFields({
   set: (k: string, v: string) => void
   showPassword?: boolean
 }) {
+  const isRepartidor = String(form.rol) === 'Repartidor'
+
+  const { data: clientes } = useQuery<ClienteSimple[]>({
+    queryKey: ['clientes-simple'],
+    queryFn: () => api.get('/clientes?soloActivos=true').then(r =>
+      (r.data.data as any[]).map(c => ({ id: c.id, nombre: c.nombre, tipo: c.tipo }))
+    ),
+    enabled: isRepartidor,
+    staleTime: 60_000,
+  })
+
   const fields: { key: string; label: string; type?: string; required?: boolean; placeholder?: string }[] = [
     { key: 'nombre',    label: 'Nombre',    required: true,  placeholder: 'Nombre' },
     { key: 'apellidos', label: 'Apellidos', placeholder: 'Apellidos (opcional)' },
@@ -354,14 +371,31 @@ function FormFields({
         ))}
       </div>
 
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">Rol</label>
-        <select value={String(form.rol)} onChange={e => set('rol', e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40">
-          <option value="Obrador">Obrador</option>
-          <option value="Repartidor">Repartidor</option>
-          <option value="Admin">Admin</option>
-        </select>
+      <div className="flex items-end gap-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Rol</label>
+          <select value={String(form.rol)} onChange={e => set('rol', e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40">
+            <option value="Obrador">Obrador</option>
+            <option value="Repartidor">Repartidor</option>
+            <option value="Admin">Admin</option>
+          </select>
+        </div>
+
+        {isRepartidor && (
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              <Link2 className="inline w-3 h-3 mr-1" />Cliente vinculado
+            </label>
+            <select value={String(form.clienteId ?? '')} onChange={e => set('clienteId', e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40">
+              <option value="">— Sin vincular —</option>
+              {(clientes ?? []).map(c => (
+                <option key={c.id} value={c.id}>{c.nombre} ({c.tipo})</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {showPassword && (

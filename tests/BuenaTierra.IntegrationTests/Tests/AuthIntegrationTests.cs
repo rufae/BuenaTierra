@@ -20,11 +20,13 @@ public class AuthIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
     public async Task Login_ConCredencialesValidas_RetornaTokenJwt()
     {
         var client = _factory.CreateClient();
+        var empresaId = _factory.GetEmpresaId();
 
         var res = await client.PostAsJsonAsync("/api/auth/login", new
         {
             email    = "admin@test.com",
             password = "Test#1234",
+            empresaId,
         });
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -36,11 +38,13 @@ public class AuthIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
     public async Task Login_ConPasswordIncorrecto_Retorna401()
     {
         var client = _factory.CreateClient();
+        var empresaId = _factory.GetEmpresaId();
 
         var res = await client.PostAsJsonAsync("/api/auth/login", new
         {
             email    = "admin@test.com",
             password = "passwords_incorrecta",
+            empresaId,
         });
 
         res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -50,11 +54,13 @@ public class AuthIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
     public async Task Login_ConEmailInexistente_Retorna401()
     {
         var client = _factory.CreateClient();
+        var empresaId = _factory.GetEmpresaId();
 
         var res = await client.PostAsJsonAsync("/api/auth/login", new
         {
             email    = "noexiste@test.com",
             password = "cualquiercosa",
+            empresaId,
         });
 
         res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);

@@ -36,7 +36,7 @@ function formatDate(d: string | null) {
 
 function formatDateShort(d: string | null) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 const IMPRESORA_LABELS: Record<string, string> = {

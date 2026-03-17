@@ -5,8 +5,10 @@ export interface AuthUser {
   nombre: string
   apellidos: string
   email: string
-  rol: 'Admin' | 'UsuarioObrador' | 'UsuarioRepartidor'
+  rol: 'Admin' | 'Obrador' | 'Repartidor'
   token: string
+  refreshToken?: string
+  expira?: string
 }
 
 // ── API wrapper ───────────────────────────────────────────────────────────────
@@ -269,6 +271,7 @@ export interface Factura {
   id: number
   numeroFactura: string
   fechaFactura: string
+  fechaVencimiento: string | null
   estado: string
   esSimplificada: boolean
   cliente: { id: number; nombre: string; nif: string | null }
@@ -611,6 +614,7 @@ export interface Usuario {
   activo: boolean
   ultimoAcceso: string | null
   nombreCompleto: string
+  clienteId: number | null
 }
 
 // ── Etiquetas ─────────────────────────────────────────────────────────────────

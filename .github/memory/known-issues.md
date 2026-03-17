@@ -23,15 +23,20 @@ warning CS0618: 'RelationalEntityTypeBuilderExtensions.HasCheckConstraint(...)' 
 
 ---
 
-### KI-002 — Tests de integración con BD real no implementados
+### KI-002 — Tests de integración implementados pero sin ejecutar contra BD real ⚠️ ACTUALIZADO
 
 **Severidad:** Media (riesgo para refactoring futuro)  
-**Área:** `tests/BuenaTierra.Tests/`  
-**Síntoma:** 23 tests xUnit existentes son unitarios (sin BD). No hay cobertura de endpoints críticos contra PostgreSQL real.  
-**Causa raíz:** Prioridad de velocidad en MVP. Tests de integración requieren `WebApplicationFactory` + BD de test.  
-**Workaround activo:** Pruebas manuales vía Swagger + frontend durante desarrollo.  
-**Solución pendiente:** Implementar suite de integración. Ver `backlog.md` TST-01.  
-**Riesgo:** Un refactor en `LoteAsignacionService` o `FacturaService` podría romperse sin detección automática.
+**Área:** `tests/BuenaTierra.IntegrationTests/`  
+**Síntoma actualizado:** Los tests de integración existen (Testcontainers + PostgreSQL efímero) y COMPILAN correctamente (0 errores). No se han ejecutado contra una BD real todavía.  
+**Fixes aplicados (sesión actual):**
+- `Produccion.Cantidad` → `CantidadProducida`
+- `Lote.FechaProduccion` → `FechaFabricacion`
+- `Lote.CantidadActual` → eliminado (no existe; stock en tabla separada)
+- `Cliente.TipoCliente` → `Cliente.Tipo`
+- `Empresa.Cif` → `Empresa.Nif`
+- `IConfigurationBuilder.AddInMemoryCollection` → añadido `using Microsoft.Extensions.Configuration;`
+**Siguiente paso:** Ejecutar `dotnet test tests/BuenaTierra.IntegrationTests/` y corregir fallos de lógica si los hay.  
+**Riesgo:** Tests compilan pero podrían fallar en runtime si algún endpoint cambió su contrato.
 
 ---
 

@@ -139,6 +139,50 @@ public class ClientesController : ControllerBase
         return Ok(ApiResponse<IEnumerable<Cliente>>.Ok(clientes));
     }
 
+    /// <summary>GET /api/clientes/exportar-excel — Exporta lista de clientes a Excel</summary>
+    [HttpGet("exportar-excel")]
+    public async Task<IActionResult> ExportarExcel(CancellationToken ct)
+    {
+        var clientes = await _uow.Clientes.GetByEmpresaAsync(EmpresaId, false, ct);
+        var list = clientes.ToList();
+
+        using var package = new OfficeOpenXml.ExcelPackage();
+        var ws = package.Workbook.Worksheets.Add("Clientes");
+
+        string[] headers = { "Código", "Tipo", "Nombre", "NIF", "Teléfono", "Email", "Ciudad", "Estado", "Forma Pago", "R.E.", "Activo" };
+        for (int i = 0; i < headers.Length; i++)
+            ws.Cells[1, i + 1].Value = headers[i];
+
+        using (var hr = ws.Cells[1, 1, 1, headers.Length])
+        {
+            hr.Style.Font.Bold = true;
+            hr.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+            hr.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(68, 114, 196));
+            hr.Style.Font.Color.SetColor(System.Drawing.Color.White);
+        }
+
+        int row = 2;
+        foreach (var c in list)
+        {
+            ws.Cells[row, 1].Value = c.CodigoClienteInterno;
+            ws.Cells[row, 2].Value = c.Tipo.ToString();
+            ws.Cells[row, 3].Value = c.NombreCompleto;
+            ws.Cells[row, 4].Value = c.Nif;
+            ws.Cells[row, 5].Value = c.Telefono;
+            ws.Cells[row, 6].Value = c.Email;
+            ws.Cells[row, 7].Value = c.Ciudad;
+            ws.Cells[row, 8].Value = c.EstadoCliente.ToString();
+            ws.Cells[row, 9].Value = c.FormaPago.ToString();
+            ws.Cells[row, 10].Value = c.RecargoEquivalencia ? "Sí" : "No";
+            ws.Cells[row, 11].Value = c.Activo ? "Sí" : "No";
+            row++;
+        }
+        ws.Cells.AutoFitColumns();
+
+        var bytes = package.GetAsByteArray();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "clientes.xlsx");
+    }
+
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ApiResponse<Cliente>>> Get(int id, CancellationToken ct)
     {
@@ -361,6 +405,23 @@ public class ClientesController : ControllerBase
             .ToListAsync(ct);
 
         return Ok(ApiResponse<IEnumerable<object>>.Ok(pedidos));
+    }
+
+    // ── Saldos pendientes ───────────────────────────────────────────────────────
+
+    /// <summary>GET /api/clientes/saldos-pendientes — Suma de facturas emitidas no cobradas por cliente</summary>
+    [HttpGet("saldos-pendientes")]
+    public async Task<ActionResult<ApiResponse<Dictionary<int, decimal>>>> GetSaldosPendientes(CancellationToken ct)
+    {
+        var saldos = await _db.Facturas
+            .Where(f => f.EmpresaId == EmpresaId
+                     && f.Estado != Domain.Enums.EstadoFactura.Cobrada
+                     && f.Estado != Domain.Enums.EstadoFactura.Anulada)
+            .GroupBy(f => f.ClienteId)
+            .Select(g => new { ClienteId = g.Key, Total = g.Sum(f => f.Total) })
+            .ToDictionaryAsync(x => x.ClienteId, x => x.Total, ct);
+
+        return Ok(ApiResponse<Dictionary<int, decimal>>.Ok(saldos));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

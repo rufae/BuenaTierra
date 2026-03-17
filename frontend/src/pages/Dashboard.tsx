@@ -28,6 +28,8 @@ interface DashboardStats {
   lotesProximoCaducar: number
   produccionHoy: number
   totalClientes: number
+  facturasPendientesCobroCount: number
+  facturasPendientesCobroImporte: number
   ultimasFacturas: Array<{
     id: number; numeroFactura: string; fecha: string; clienteNombre: string; total: number; estado: string
   }>
@@ -73,7 +75,7 @@ export default function Dashboard() {
     refetchInterval: 60_000,
   })
 
-  const isRepartidor = user?.rol === 'UsuarioRepartidor'
+  const isRepartidor = user?.rol === 'Repartidor'
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -177,6 +179,10 @@ export default function Dashboard() {
                 <StatCard title="Facturas del mes" value={stats?.facturasMesCount ?? 0}
                   sub={`Hoy: ${stats?.facturasHoyCount ?? 0}`}
                   icon={<FileText className="w-5 h-5 text-gray-600" />} color="bg-gray-50" onClick={() => navigate('/facturacion')} />
+                <StatCard title="Pend. de cobro" value={stats?.facturasPendientesCobroCount ?? 0}
+                  sub={`${(stats?.facturasPendientesCobroImporte ?? 0).toFixed(2)} \u20ac`}
+                  icon={<TrendingUp className="w-5 h-5 text-red-600" />}
+                  color="bg-red-50" alert={(stats?.facturasPendientesCobroCount ?? 0) > 0} onClick={() => navigate('/facturacion')} />
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <RecentPanel

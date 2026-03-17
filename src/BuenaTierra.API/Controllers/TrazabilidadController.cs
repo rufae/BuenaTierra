@@ -2,6 +2,10 @@ using BuenaTierra.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using QuestPDF;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 using System.Security.Claims;
 
 namespace BuenaTierra.API.Controllers;
@@ -34,11 +38,14 @@ public class TrazabilidadController : ControllerBase
         var desdeVal = DateOnly.TryParse(desde, out var d) ? d : DateOnly.FromDateTime(DateTime.Today.AddDays(-30));
         var hastaVal = DateOnly.TryParse(hasta, out var h) ? h : DateOnly.FromDateTime(DateTime.Today);
 
+        var desdeUtc = DateTime.SpecifyKind(desdeVal.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        var hastaUtc = DateTime.SpecifyKind(hastaVal.ToDateTime(TimeOnly.MaxValue), DateTimeKind.Utc);
+
         var registros = await _uow.Trazabilidades
             .GetQueryable()
             .Where(t => t.EmpresaId == EmpresaId
-                     && t.FechaOperacion.Date >= desdeVal.ToDateTime(TimeOnly.MinValue).Date
-                     && t.FechaOperacion.Date <= hastaVal.ToDateTime(TimeOnly.MinValue).Date)
+                     && t.FechaOperacion >= desdeUtc
+                     && t.FechaOperacion <= hastaUtc)
             .Include(t => t.Lote).ThenInclude(l => l.Stock)
             .Include(t => t.Producto)
             .Include(t => t.Cliente)
@@ -226,5 +233,245 @@ public class TrazabilidadController : ControllerBase
         };
 
         return Ok(new { success = true, data = result });
+    }
+
+    // ── GET /api/trazabilidad/lote/{loteId} ──────────────────────────────────
+    /// Trazabilidad JSON para un lote: qué clientes recibieron producto de este lote.
+    [HttpGet("lote/{loteId:int}")]
+    public async Task<IActionResult> GetByLote(int loteId, CancellationToken ct)
+    {
+        var lote = await _uow.Lotes.GetQueryable()
+            .Where(l => l.Id == loteId && l.EmpresaId == EmpresaId)
+            .Include(l => l.Producto)
+            .Include(l => l.Stock)
+            .FirstOrDefaultAsync(ct);
+        if (lote is null) return NotFound();
+
+        // Trazabilidades de venta + facturas directas con este lote
+        var trazas = await _uow.Trazabilidades.GetQueryable()
+            .Where(t => t.LoteId == loteId && t.TipoOperacion == "venta_factura")
+            .Include(t => t.Cliente)
+            .Include(t => t.Factura)
+            .OrderBy(t => t.FechaOperacion)
+            .ToListAsync(ct);
+
+        // También buscar facturas que contengan líneas de este lote
+        // (for direct seeds without trazabilidad records)
+        var facturasConLote = await _uow.Facturas.GetQueryable()
+            .Where(f => f.EmpresaId == EmpresaId && f.Lineas.Any(l => l.LoteId == loteId))
+            .Include(f => f.Lineas.Where(l => l.LoteId == loteId))
+            .Include(f => f.Cliente)
+            .ToListAsync(ct);
+
+        var facturaClienteData = facturasConLote
+            .Where(f => !trazas.Any(t => t.ClienteId == f.ClienteId))
+            .Select(f => new { ClienteId = f.ClienteId, Cantidad = f.Lineas.Sum(l => l.Cantidad), ClienteNombre = f.Cliente?.NombreCompleto ?? f.Cliente?.Nombre ?? "—" });
+
+        // Combinar datos de trazabilidades y factura-líneas
+        var clienteData = trazas
+            .Where(t => t.ClienteId.HasValue)
+            .Select(t => new { ClienteId = t.ClienteId!.Value, t.Cantidad, ClienteNombre = t.Cliente?.NombreCompleto ?? t.Cliente?.Nombre ?? "—" })
+            .Concat(facturaClienteData)
+            .GroupBy(x => x.ClienteId)
+            .Select(g => new
+            {
+                clienteId = g.Key,
+                nombreCliente = g.First().ClienteNombre,
+                cantidad = g.Sum(x => x.Cantidad),
+            }).ToList();
+
+        return Ok(new { success = true, data = clienteData });
+    }
+
+    // ── GET /api/trazabilidad/lote/{loteId}/recall-pdf ───────────────────────
+    /// PDF de recall: para un lote dado, genera un informe con todos los clientes
+    /// que recibieron producto de ese lote, incluyendo cantidades y facturas.
+    [HttpGet("lote/{loteId:int}/recall-pdf")]
+    public async Task<IActionResult> GetRecallPdf(int loteId, CancellationToken ct)
+    {
+        var lote = await _uow.Lotes.GetQueryable()
+            .Where(l => l.Id == loteId && l.EmpresaId == EmpresaId)
+            .Include(l => l.Producto)
+            .Include(l => l.Stock)
+            .FirstOrDefaultAsync(ct);
+        if (lote is null) return NotFound();
+
+        var empresa = await _uow.Empresas.GetByIdAsync(EmpresaId, ct);
+
+        // Todas las trazabilidades de venta para este lote
+        var trazas = await _uow.Trazabilidades.GetQueryable()
+            .Where(t => t.LoteId == loteId && t.TipoOperacion == "venta_factura")
+            .Include(t => t.Cliente)
+            .Include(t => t.Factura)
+            .OrderBy(t => t.FechaOperacion)
+            .ToListAsync(ct);
+
+        // Agrupar por cliente
+        var clientesAfectados = trazas
+            .Where(t => t.ClienteId.HasValue)
+            .GroupBy(t => t.ClienteId)
+            .Select(g => new
+            {
+                Nombre = g.First().Cliente?.NombreCompleto ?? g.First().Cliente?.Nombre ?? "—",
+                Nif = g.First().Cliente?.Nif ?? "—",
+                Telefono = g.First().Cliente?.Telefono,
+                TotalUnidades = g.Sum(t => t.Cantidad),
+                Facturas = string.Join(", ", g.Where(t => t.Factura != null).Select(t => t.Factura!.NumeroFactura).Distinct()),
+                PrimeraVenta = g.Min(t => t.FechaOperacion),
+                UltimaVenta = g.Max(t => t.FechaOperacion),
+            }).ToList();
+
+        // Generar PDF con QuestPDF
+        Settings.License = LicenseType.Community;
+
+        var doc = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(1.5f, Unit.Centimetre);
+                page.DefaultTextStyle(x => x.FontSize(9).FontFamily("Arial"));
+
+                // ─── HEADER ───────────────────────────────────────────
+                page.Header().Column(col =>
+                {
+                    col.Item().Row(row =>
+                    {
+                        row.RelativeItem().Column(c =>
+                        {
+                            c.Item().Text(empresa?.RazonSocial ?? empresa?.Nombre ?? "BuenaTierra")
+                                .Bold().FontSize(14);
+                            if (empresa != null)
+                            {
+                                c.Item().Text($"NIF: {empresa.Nif}");
+                                if (empresa.Direccion != null)
+                                    c.Item().Text(empresa.Direccion);
+                                if (empresa.Ciudad != null)
+                                    c.Item().Text($"{empresa.CodigoPostal} {empresa.Ciudad} ({empresa.Provincia})");
+                            }
+                        });
+
+                        row.ConstantItem(220).Column(c =>
+                        {
+                            c.Item().AlignRight().Text("INFORME RECALL / RETIRADA")
+                                .Bold().FontSize(14).FontColor("#C0392B");
+                            c.Item().AlignRight().Text($"Fecha: {DateTime.Now:dd/MM/yyyy HH:mm}").FontSize(8);
+                        });
+                    });
+
+                    col.Item().PaddingTop(5).LineHorizontal(2).LineColor("#C0392B");
+
+                    // Datos del lote
+                    col.Item().PaddingTop(10).Background("#FFF3F3").Padding(10).Column(c =>
+                    {
+                        c.Item().Text("DATOS DEL LOTE AFECTADO").Bold().FontSize(10).FontColor("#C0392B");
+                        c.Spacing(3);
+                        c.Item().Text($"Producto: {lote.Producto?.Nombre ?? "—"}").FontSize(9);
+                        c.Item().Text($"Código producto: {lote.Producto?.Codigo ?? "—"}").FontSize(9);
+                        c.Item().Text($"Nº Lote: {lote.CodigoLote}").Bold().FontSize(10);
+                        c.Item().Text($"Fecha fabricación: {lote.FechaFabricacion:dd/MM/yyyy}").FontSize(9);
+                        c.Item().Text($"Fecha caducidad: {lote.FechaCaducidad?.ToString("dd/MM/yyyy") ?? "N/A"}").FontSize(9);
+                        c.Item().Text($"Cantidad producida: {lote.CantidadInicial:N2}").FontSize(9);
+                        c.Item().Text($"Stock actual: {lote.Stock?.CantidadDisponible ?? 0:N2}").FontSize(9);
+                        c.Item().Text($"Estado: {EstadoLote(lote.Bloqueado, lote.FechaCaducidad, lote.Stock?.CantidadDisponible)}").FontSize(9);
+                    });
+
+                    col.Item().PaddingTop(8).LineHorizontal(0.5f).LineColor("#DDDDDD");
+                });
+
+                // ─── CONTENT ──────────────────────────────────────────
+                page.Content().PaddingTop(10).Column(col =>
+                {
+                    col.Item().Text($"CLIENTES AFECTADOS ({clientesAfectados.Count})")
+                        .Bold().FontSize(11);
+                    col.Item().PaddingTop(4);
+
+                    if (clientesAfectados.Count == 0)
+                    {
+                        col.Item().Text("No se han encontrado ventas registradas para este lote.")
+                            .FontSize(9).FontColor("#888888").Italic();
+                    }
+                    else
+                    {
+                        col.Item().Table(table =>
+                        {
+                            table.ColumnsDefinition(cols =>
+                            {
+                                cols.RelativeColumn(3);     // Nombre
+                                cols.RelativeColumn(1.5f);  // NIF
+                                cols.ConstantColumn(55);    // Cantidad
+                                cols.RelativeColumn(2.5f);  // Facturas
+                                cols.RelativeColumn(1.5f);  // Primera venta
+                                cols.RelativeColumn(1.5f);  // Última venta
+                            });
+
+                            static IContainer HeaderCell(IContainer container) =>
+                                container.Background("#C0392B").Padding(4).AlignCenter();
+
+                            table.Header(header =>
+                            {
+                                header.Cell().Element(HeaderCell).Text("Cliente").Bold().FontColor(Colors.White).FontSize(8);
+                                header.Cell().Element(HeaderCell).Text("NIF/CIF").Bold().FontColor(Colors.White).FontSize(8);
+                                header.Cell().Element(HeaderCell).Text("Cantidad").Bold().FontColor(Colors.White).FontSize(8);
+                                header.Cell().Element(HeaderCell).Text("Facturas").Bold().FontColor(Colors.White).FontSize(8);
+                                header.Cell().Element(HeaderCell).Text("Primera venta").Bold().FontColor(Colors.White).FontSize(8);
+                                header.Cell().Element(HeaderCell).Text("Última venta").Bold().FontColor(Colors.White).FontSize(8);
+                            });
+
+                            bool odd = true;
+                            foreach (var cli in clientesAfectados.OrderByDescending(c => c.TotalUnidades))
+                            {
+                                string bg = odd ? "#FFFFFF" : "#FFF8F8";
+                                odd = !odd;
+
+                                IContainer BodyCell(IContainer c) => c.Background(bg).Padding(3);
+                                IContainer BodyCellRight(IContainer c) => c.Background(bg).Padding(3).AlignRight();
+
+                                table.Cell().Element(BodyCell).Text(cli.Nombre).FontSize(8);
+                                table.Cell().Element(BodyCell).Text(cli.Nif).FontSize(8);
+                                table.Cell().Element(BodyCellRight).Text($"{cli.TotalUnidades:N2}").FontSize(8).Bold();
+                                table.Cell().Element(BodyCell).Text(cli.Facturas).FontSize(7);
+                                table.Cell().Element(BodyCell).Text($"{cli.PrimeraVenta:dd/MM/yyyy}").FontSize(8);
+                                table.Cell().Element(BodyCell).Text($"{cli.UltimaVenta:dd/MM/yyyy}").FontSize(8);
+                            }
+                        });
+
+                        // Totales
+                        col.Item().PaddingTop(10).Background("#F5F5F5").Padding(8).Row(row =>
+                        {
+                            row.RelativeItem().Text($"Total unidades distribuidas: {clientesAfectados.Sum(c => c.TotalUnidades):N2}")
+                                .Bold().FontSize(9);
+                            row.RelativeItem().AlignRight()
+                                .Text($"Total clientes afectados: {clientesAfectados.Count}")
+                                .Bold().FontSize(9);
+                        });
+                    }
+                });
+
+                // ─── FOOTER ───────────────────────────────────────────
+                page.Footer().Column(col =>
+                {
+                    col.Item().LineHorizontal(0.5f).LineColor("#DDDDDD");
+                    col.Item().PaddingTop(4).Row(row =>
+                    {
+                        row.RelativeItem().Text(
+                            "Informe generado conforme al Reglamento (CE) Nº 178/2002 del Parlamento Europeo " +
+                            "y al Sistema de Alerta Rápida para Alimentos y Piensos (RASFF). " +
+                            "Documento válido para comunicación con autoridades sanitarias.")
+                            .FontSize(6).FontColor("#888888").Italic();
+                        row.ConstantItem(60).AlignRight().Text(text =>
+                        {
+                            text.Span("Página ").FontSize(7).FontColor("#888888");
+                            text.CurrentPageNumber().FontSize(7).FontColor("#888888");
+                            text.Span(" / ").FontSize(7).FontColor("#888888");
+                            text.TotalPages().FontSize(7).FontColor("#888888");
+                        });
+                    });
+                });
+            });
+        });
+
+        var bytes = doc.GeneratePdf();
+        return File(bytes, "application/pdf", $"recall_lote_{lote.CodigoLote}.pdf");
     }
 }

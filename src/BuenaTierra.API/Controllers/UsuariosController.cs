@@ -38,6 +38,7 @@ public class UsuariosController : ControllerBase
             u.Activo,
             u.UltimoAcceso,
             NombreCompleto = u.NombreCompleto,
+            u.ClienteId,
         });
         return Ok(ApiResponse<IEnumerable<object>>.Ok(result));
     }
@@ -56,6 +57,7 @@ public class UsuariosController : ControllerBase
         {
             u.Id, u.Nombre, u.Apellidos, u.Email, u.Telefono,
             Rol = u.Rol.ToString(), u.Activo, u.UltimoAcceso, NombreCompleto = u.NombreCompleto,
+            u.ClienteId,
         }));
     }
 
@@ -85,6 +87,7 @@ public class UsuariosController : ControllerBase
             Rol        = rol,
             Activo     = true,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
+            ClienteId  = rol == RolUsuario.Repartidor ? req.ClienteId : null,
         };
 
         var creado = await _uow.Usuarios.AddAsync(nuevo, ct);
@@ -93,7 +96,7 @@ public class UsuariosController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = creado.Id }, ApiResponse<object>.Ok(new
         {
             creado.Id, creado.Nombre, creado.Apellidos, creado.Email,
-            Rol = creado.Rol.ToString(), creado.Activo,
+            Rol = creado.Rol.ToString(), creado.Activo, creado.ClienteId,
         }));
     }
 
@@ -135,6 +138,7 @@ public class UsuariosController : ControllerBase
         u.Telefono = req.Telefono?.Trim();
         u.Rol      = rol;
         u.Activo   = req.Activo;
+        u.ClienteId = rol == RolUsuario.Repartidor ? req.ClienteId : null;
 
         await _uow.Usuarios.UpdateAsync(u, ct);
         await _uow.SaveChangesAsync(ct);
@@ -142,7 +146,7 @@ public class UsuariosController : ControllerBase
         return Ok(ApiResponse<object>.Ok(new
         {
             u.Id, u.Nombre, u.Apellidos, u.Email,
-            Rol = u.Rol.ToString(), u.Activo,
+            Rol = u.Rol.ToString(), u.Activo, u.ClienteId,
         }));
     }
 
@@ -277,7 +281,8 @@ public record CreateUsuarioRequest(
     string Email,
     string? Telefono,
     string Rol,
-    string Password
+    string Password,
+    int? ClienteId
 );
 
 public record UpdateUsuarioRequest(
@@ -286,7 +291,8 @@ public record UpdateUsuarioRequest(
     string Email,
     string? Telefono,
     string Rol,
-    bool Activo
+    bool Activo,
+    int? ClienteId
 );
 
 public record UpdateMeRequest(string Nombre, string? Apellidos, string? Telefono, string? Email);

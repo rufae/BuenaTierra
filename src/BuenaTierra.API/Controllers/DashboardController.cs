@@ -112,6 +112,12 @@ public class DashboardController : ControllerBase
         var totalClientes = await _uow.Clientes.GetQueryable()
             .CountAsync(c => c.EmpresaId == EmpresaId && c.Activo, ct);
 
+        // ── Facturas pendientes de cobro ─────────────────────────────────────────
+        var pendientesCobro = await facturasQuery
+            .Where(f => f.Estado == EstadoFactura.Emitida || f.Estado == EstadoFactura.Enviada)
+            .Select(f => new { f.Total })
+            .ToListAsync(ct);
+
         return Ok(new
         {
             success = true,
@@ -126,6 +132,8 @@ public class DashboardController : ControllerBase
                 lotesProximoCaducar,
                 produccionHoy,
                 totalClientes,
+                facturasPendientesCobroCount = pendientesCobro.Count,
+                facturasPendientesCobroImporte = pendientesCobro.Sum(f => f.Total),
                 ultimasFacturas,
                 ultimosPedidos,
             }

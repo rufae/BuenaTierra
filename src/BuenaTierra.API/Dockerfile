@@ -34,7 +34,7 @@ RUN addgroup --system --gid 1001 appgroup && \
 WORKDIR /app
 
 # Crear directorios necesarios
-RUN mkdir -p logs reports && chown -R appuser:appgroup /app
+RUN mkdir -p logs reports uploads/logos && chown -R appuser:appgroup /app
 
 COPY --from=publish --chown=appuser:appgroup /app/publish .
 

@@ -42,6 +42,7 @@ interface FormState {
   precioVenta: string; precioCoste: string; descuentoPorDefecto: string
   proveedorHabitual: string; referencia: string; fabricante: string
   stockMinimo: string; stockMaximo: string
+  conservacion: string; temperaturaMin: string; temperaturaMax: string
   activo: boolean; requiereLote: boolean; compartidoRepartidores: boolean
 }
 
@@ -52,6 +53,7 @@ const EMPTY_FORM: FormState = {
   precioVenta: '', precioCoste: '', descuentoPorDefecto: '',
   proveedorHabitual: '', referencia: '', fabricante: '',
   stockMinimo: '', stockMaximo: '',
+  conservacion: '', temperaturaMin: '', temperaturaMax: '',
   activo: true, requiereLote: true, compartidoRepartidores: true,
 }
 
@@ -88,7 +90,7 @@ export default function Productos() {
   const [ingSearch, setIngSearch] = useState('')
   const [nuevaFamilia, setNuevaFamilia] = useState('')
   const [showNuevaFamilia, setShowNuevaFamilia] = useState(false)
-  const [formErrors, setFormErrors] = useState<{ nombre?: string; precioVenta?: string }>({})
+  const [formErrors, setFormErrors] = useState<{ nombre?: string; precioVenta?: string; codigoBarras?: string }>({})
 
   // ── Queries ─────────────────────────────────────────────────────────────────
   const { data: productos = [], isLoading } = useQuery<Producto[]>({
@@ -203,6 +205,9 @@ export default function Productos() {
       fabricante: p.fabricante ?? '',
       stockMinimo: p.stockMinimo != null ? String(p.stockMinimo) : '',
       stockMaximo: p.stockMaximo != null ? String(p.stockMaximo) : '',
+      conservacion: (p as unknown as { conservacion?: string }).conservacion ?? '',
+      temperaturaMin: (p as unknown as { temperaturaMin?: number }).temperaturaMin != null ? String((p as unknown as { temperaturaMin: number }).temperaturaMin) : '',
+      temperaturaMax: (p as unknown as { temperaturaMax?: number }).temperaturaMax != null ? String((p as unknown as { temperaturaMax: number }).temperaturaMax) : '',
       activo: p.activo,
       requiereLote: p.requiereLote,
       compartidoRepartidores: p.compartidoRepartidores,
@@ -246,15 +251,24 @@ export default function Productos() {
       activo: form.activo,
       requiereLote: form.requiereLote,
       compartidoRepartidores: form.compartidoRepartidores,
+      conservacion: form.conservacion || null,
+      temperaturaMin: n(form.temperaturaMin),
+      temperaturaMax: n(form.temperaturaMax),
     }
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    const errors: { nombre?: string; precioVenta?: string } = {}
+    const errors: { nombre?: string; precioVenta?: string; codigoBarras?: string } = {}
     if (!form.nombre.trim()) errors.nombre = 'El nombre del producto es obligatorio'
     const pv = parseFloat(form.precioVenta)
     if (isNaN(pv) || pv < 0) errors.precioVenta = 'El precio de venta debe ser un valor válido (≥ 0)'
+    if (form.codigoBarras.length > 0 && form.codigoBarras.length === 13) {
+      const digits = form.codigoBarras.split('').map(Number)
+      const sum = digits.slice(0, 12).reduce((acc, d, i) => acc + d * (i % 2 === 0 ? 1 : 3), 0)
+      const check = (10 - (sum % 10)) % 10
+      if (check !== digits[12]) errors.codigoBarras = `Dígito de control EAN-13 inválido (esperado: ${check})`
+    }
     if (Object.keys(errors).length > 0) { setFormErrors(errors); return }
     setFormErrors({})
     setSaving(true)
@@ -561,9 +575,16 @@ export default function Productos() {
                     <input value={form.codigo} onChange={e => setF('codigo', e.target.value)}
                       placeholder="P-001" className={INP} />
                   </Field>
-                  <Field label="Código de barras">
-                    <input value={form.codigoBarras} onChange={e => setF('codigoBarras', e.target.value)}
-                      placeholder="8400000000000" className={INP} />
+                  <Field label="Código de barras (EAN-13)">
+                    <input value={form.codigoBarras} onChange={e => {
+                      const v = e.target.value.replace(/\D/g, '').slice(0, 13)
+                      setF('codigoBarras', v)
+                    }}
+                      placeholder="8400000000000" className={INP} maxLength={13} />
+                    {form.codigoBarras.length > 0 && form.codigoBarras.length !== 13 && (
+                      <p className="text-xs text-amber-600 mt-0.5">EAN-13 requiere exactamente 13 dígitos</p>
+                    )}
+                    {formErrors.codigoBarras && <p className="text-xs text-red-600 mt-0.5">{formErrors.codigoBarras}</p>}
                   </Field>
                   <Field label="Nombre / Descripción *" span2>
                     <input value={form.nombre}
@@ -684,6 +705,31 @@ export default function Productos() {
                       onChange={e => setF('stockMaximo', e.target.value)}
                       placeholder="0" className={INP} />
                   </Field>
+
+                  {/* Sección: Conservación */}
+                  <div className="col-span-2 text-xs font-semibold uppercase text-gray-400 tracking-wide border-b border-gray-100 pb-1 mt-2">
+                    Conservación
+                  </div>
+                  <Field label="Modo de conservación">
+                    <select value={form.conservacion} onChange={e => setF('conservacion', e.target.value)} className={INP}>
+                      <option value="">Sin especificar</option>
+                      <option value="Ambiente">Ambiente</option>
+                      <option value="Refrigerado">Refrigerado</option>
+                      <option value="Congelado">Congelado</option>
+                    </select>
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Temp. mín (°C)">
+                      <input type="number" step="0.1" value={form.temperaturaMin}
+                        onChange={e => setF('temperaturaMin', e.target.value)}
+                        placeholder="ej: 2" className={INP} />
+                    </Field>
+                    <Field label="Temp. máx (°C)">
+                      <input type="number" step="0.1" value={form.temperaturaMax}
+                        onChange={e => setF('temperaturaMax', e.target.value)}
+                        placeholder="ej: 8" className={INP} />
+                    </Field>
+                  </div>
 
                   {/* Opciones */}
                   <div className="col-span-2 flex flex-wrap gap-4 pt-2">

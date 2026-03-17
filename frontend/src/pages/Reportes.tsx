@@ -5,7 +5,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, Cell,
 } from 'recharts'
 import {
-  TrendingUp, Package, Factory, Users, Download, RefreshCw, AlertTriangle, RotateCcw,
+  TrendingUp, Package, Factory, Users, Download, RefreshCw, AlertTriangle, RotateCcw, ShieldCheck,
 } from 'lucide-react'
 import api from '../lib/api'
 import toast from 'react-hot-toast'
@@ -111,7 +111,7 @@ interface RotacionData {
   diasPeriodo: number
 }
 
-type Tab = 'ventas' | 'stock' | 'produccion' | 'clientes' | 'rotacion'
+type Tab = 'ventas' | 'stock' | 'produccion' | 'clientes' | 'rotacion' | 'sanidad'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -132,6 +132,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'produccion', label: 'Producción', icon: <Factory className="w-4 h-4" /> },
   { id: 'clientes', label: 'Clientes', icon: <Users className="w-4 h-4" /> },
   { id: 'rotacion', label: 'Rotación', icon: <RotateCcw className="w-4 h-4" /> },
+  { id: 'sanidad', label: 'Sanidad', icon: <ShieldCheck className="w-4 h-4" /> },
 ]
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -180,12 +181,24 @@ export default function Reportes() {
     enabled: tab === 'rotacion',
   })
 
+  const sanidadQ = useQuery<{
+    rows: Array<{
+      lote: string; producto: string; fechaFabricacion: string; fechaCaducidad: string;
+      cantidadProducida: number; vendidoA: string; facturaNumero: string; fechaVenta: string; cantidadVendida: number
+    }>; total: number; desde: string; hasta: string
+  }>({
+    queryKey: ['reportes', 'sanidad', desde, hasta],
+    queryFn: () => api.get(`/reportes/sanidad?desde=${desde}&hasta=${hasta}`).then(r => r.data),
+    enabled: tab === 'sanidad',
+  })
+
   const queryMap: Record<Tab, { isLoading: boolean; isError: boolean }> = {
     ventas: ventasQ,
     stock: stockQ,
     produccion: produccionQ,
     clientes: clientesQ,
     rotacion: rotacionQ,
+    sanidad: sanidadQ,
   }
   const activeQ = queryMap[tab]
   const isLoading = activeQ.isLoading
@@ -194,6 +207,19 @@ export default function Reportes() {
   // ── Export ───────────────────────────────────────────────────────────────
   async function handleExport() {
     try {
+      // Sanidad uses a dedicated endpoint
+      if (tab === 'sanidad') {
+        const res = await api.get(`/facturas/trazabilidad/excel?desde=${desde}&hasta=${hasta}`, { responseType: 'blob' })
+        const url = URL.createObjectURL(new Blob([res.data],
+          { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `trazabilidad_sanidad_${desde}.xlsx`
+        link.click()
+        URL.revokeObjectURL(url)
+        toast.success('Informe Sanidad descargado')
+        return
+      }
       const params = new URLSearchParams({ tipo: tab, desde, hasta })
       const res = await api.get(`/reportes/export?${params}`, { responseType: 'blob' })
       const url = URL.createObjectURL(new Blob([res.data],
@@ -217,7 +243,7 @@ export default function Reportes() {
           <div>
             <h1 className="text-xl font-bold text-gray-900">Informes y Análisis</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              Ventas · Stock · Producción · Clientes · Rotación
+              Ventas · Stock · Producción · Clientes · Rotación · Sanidad
             </p>
           </div>
 
@@ -987,12 +1013,74 @@ export default function Reportes() {
             </div>
           </>
         )}
+
+        {/* ── SANIDAD ──────────────────────────────────────────────── */}
+        {tab === 'sanidad' && !sanidadQ.isLoading && sanidadQ.data && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <KpiCard
+                label="Registros de trazabilidad"
+                value={String(sanidadQ.data.total)}
+                sub={`${sanidadQ.data.desde} → ${sanidadQ.data.hasta}`}
+                color="brand"
+              />
+              <KpiCard
+                label="Informe Sanidad CE 178/2002"
+                value="Excel"
+                sub="Pulsa Exportar para descargar"
+                color="green"
+              />
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h2 className="text-sm font-semibold text-gray-700">
+                  Trazabilidad de ventas por lote — Reglamento CE 178/2002
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Lote · Producto · Fabricación · Caducidad · Vendido a · Factura · Fecha venta · Cantidad
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      {['Lote', 'Producto', 'F. Fabricación', 'F. Caducidad', 'Cant. producida', 'Vendido a', 'Factura nº', 'F. Venta', 'Cant. vendida'].map(h => (
+                        <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {sanidadQ.data.rows.map((r, i) => (
+                      <tr key={i} className="hover:bg-gray-50/60 transition-colors">
+                        <td className="px-4 py-2 font-mono text-xs font-semibold text-brand-700">{r.lote}</td>
+                        <td className="px-4 py-2 font-medium text-gray-900">{r.producto}</td>
+                        <td className="px-4 py-2 text-gray-600">{r.fechaFabricacion}</td>
+                        <td className="px-4 py-2 text-gray-600">{r.fechaCaducidad}</td>
+                        <td className="px-4 py-2 text-right text-gray-700">{fmtNum(r.cantidadProducida)}</td>
+                        <td className="px-4 py-2 text-gray-700">{r.vendidoA}</td>
+                        <td className="px-4 py-2 font-mono text-xs">{r.facturaNumero}</td>
+                        <td className="px-4 py-2 text-gray-600">{r.fechaVenta}</td>
+                        <td className="px-4 py-2 text-right font-semibold text-gray-900">{fmtNum(r.cantidadVendida)}</td>
+                      </tr>
+                    ))}
+                    {sanidadQ.data.rows.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-gray-400 text-sm">
+                          Sin registros de trazabilidad en el período seleccionado
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
 }
-
-// ── Sub-components ───────────────────────────────────────────────────────────
 
 type KpiColor = 'brand' | 'green' | 'red' | 'amber' | 'gray'
 

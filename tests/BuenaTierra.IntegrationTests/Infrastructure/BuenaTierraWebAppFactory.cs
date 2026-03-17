@@ -2,6 +2,7 @@ using BuenaTierra.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Testcontainers.PostgreSql;
@@ -40,6 +41,13 @@ public sealed class BuenaTierraWebAppFactory : WebApplicationFactory<Program>, I
     {
         builder.UseEnvironment("Testing");
 
+        // NOTE: Do NOT override Jwt:Secret here via ConfigureAppConfiguration.
+        // With minimal hosting, Program.cs reads builder.Configuration["Jwt:Secret"]
+        // at build time BEFORE ConfigureAppConfiguration overrides are applied.
+        // AuthService reads IConfiguration at request time AFTER overrides.
+        // This mismatch causes signing key ≠ validation key → 401.
+        // Solution: let both use the same secret from appsettings.json.
+
         builder.ConfigureServices(services =>
         {
             // Reemplazar la cadena de conexión con la del Testcontainer
@@ -49,28 +57,19 @@ public sealed class BuenaTierraWebAppFactory : WebApplicationFactory<Program>, I
                 services.Remove(descriptor);
 
             services.AddDbContext<AppDbContext>(opts =>
-                opts.UseNpgsql(_db.GetConnectionString())
+                opts.UseNpgsql(_db.GetConnectionString() + ";Include Error Detail=true")
+                    .EnableDetailedErrors()
+                    .EnableSensitiveDataLogging()
                     .LogTo(_ => { }, LogLevel.None));  // silenciar SQL en tests
 
-            // Aplicar migraciones al iniciar
+            // Crear schema desde el modelo EF (no hay migraciones, se usa code-first)
             var sp = services.BuildServiceProvider();
             using var scope = sp.CreateScope();
             var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            ctx.Database.Migrate();
+            ctx.Database.EnsureCreated();
 
             // Seed mínimo: empresa + user admin para poder hacer login en tests
             SeedTestData(ctx);
-        });
-
-        builder.ConfigureAppConfiguration((ctx, config) =>
-        {
-            // JWT en tests — clave suficientemente larga (≥32 chars)
-            config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Jwt:Secret"]   = "IntegrationTestSecretKey_BuenaTierra_2025_Min32chars!",
-                ["Jwt:Issuer"]   = "BuenaTierraAPI",
-                ["Jwt:Audience"] = "BuenaTierraClients",
-            });
         });
     }
 
@@ -83,7 +82,7 @@ public sealed class BuenaTierraWebAppFactory : WebApplicationFactory<Program>, I
         var empresa = new BuenaTierra.Domain.Entities.Empresa
         {
             Nombre      = "BuenaTierra Test S.L.",
-            Cif         = "B12345678",
+            Nif         = "B12345678",
             Direccion   = "Calle Test 1",
             Activa      = true,
         };
@@ -116,12 +115,26 @@ public sealed class BuenaTierraWebAppFactory : WebApplicationFactory<Program>, I
 
     // ── Helper: HttpClient ya autenticado ────────────────────────────────────
 
+    /// <summary>Returns the test empresa Id from the seed data.</summary>
+    public int GetEmpresaId()
+    {
+        using var scope = Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return ctx.Empresas.First().Id;
+    }
+
     public async Task<HttpClient> CreateAuthenticatedClientAsync(
         string email    = "admin@test.com",
         string password = "Test#1234")
     {
         var client = CreateClient();
-        var loginRes = await client.PostAsJsonAsync("/api/auth/login", new { email, password });
+
+        // Obtener EmpresaId del seed (primera empresa)
+        using var scope = Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var empresaId = ctx.Empresas.First().Id;
+
+        var loginRes = await client.PostAsJsonAsync("/api/auth/login", new { email, password, empresaId });
         loginRes.EnsureSuccessStatusCode();
 
         var body = await loginRes.Content.ReadFromJsonAsync<LoginResponse>();

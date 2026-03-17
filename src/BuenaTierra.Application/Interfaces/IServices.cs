@@ -103,6 +103,7 @@ public class FacturaDto
     public decimal BaseImponible { get; set; }
     public decimal IvaTotal { get; set; }
     public decimal Total { get; set; }
+    public DateOnly? FechaVencimiento { get; set; }
     public List<FacturaLineaDto> Lineas { get; set; } = new();
     public string? PdfUrl { get; set; }
 }

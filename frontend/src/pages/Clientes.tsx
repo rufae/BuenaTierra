@@ -7,7 +7,7 @@ import type {
   TipoCliente, FormaPago, TipoImpuesto, EstadoCliente, EstadoSincronizacion,
   TipoCondicionEspecial, TipoArticuloFamilia,
 } from '../types'
-import { Plus, Pencil, X, Loader2, Trash2, AlertCircle, Search, ChevronUp, ChevronDown, ChevronsUpDown, FilterX, History } from 'lucide-react'
+import { Plus, Pencil, X, Loader2, Trash2, AlertCircle, Search, ChevronUp, ChevronDown, ChevronsUpDown, FilterX, History, Download, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Swal from 'sweetalert2'
 import { DateInput } from '../components/DateInput'
@@ -331,6 +331,12 @@ export default function Clientes() {
     queryFn: async () => (await api.get<{ data: unknown[] }>(`/clientes/${historialCliente!.id}/pedidos`)).data.data as never,
   })
 
+  const { data: saldosPendientes = {} } = useQuery<Record<number, number>>({
+    queryKey: ['clientes-saldos', user?.empresaId],
+    queryFn: async () => (await api.get<{ data: Record<number, number> }>('/clientes/saldos-pendientes')).data.data,
+    refetchInterval: 60_000,
+  })
+
   // ── Filtros / paginación ──────────────────────────────────────────────────
   const [search, setSearch] = useState('')
   const [filterTipo, setFilterTipo] = useState<TipoCliente | ''>('')
@@ -493,9 +499,29 @@ export default function Clientes() {
           <h1 className="text-2xl font-bold text-gray-900">Clientes</h1>
           <p className="text-gray-500 text-sm mt-0.5">Empresas, autónomos, particulares y repartidores</p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-          <Plus className="w-4 h-4" />Nuevo cliente
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              try {
+                const res = await api.get('/clientes/exportar-excel', { responseType: 'blob' })
+                const url = window.URL.createObjectURL(new Blob([res.data]))
+                const link = document.createElement('a')
+                link.href = url
+                link.setAttribute('download', 'clientes.xlsx')
+                document.body.appendChild(link)
+                link.click()
+                link.remove()
+                window.URL.revokeObjectURL(url)
+              } catch { toast.error('Error al exportar') }
+            }}
+            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <Download className="w-4 h-4" />Exportar Excel
+          </button>
+          <button onClick={openNew} className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+            <Plus className="w-4 h-4" />Nuevo cliente
+          </button>
+        </div>
       </div>
 
       {/* Filter toolbar */}
@@ -573,14 +599,15 @@ export default function Clientes() {
                     Estado<SortIcon field="estadoCliente" />
                   </button>
                 </th>
+                <th className="px-5 py-3 text-right">Saldo pend.</th>
                 <th className="px-5 py-3 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
-                <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={8} className="px-5 py-8 text-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
               ) : !filtered.length ? (
-                <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-400">{hasFilters ? 'No hay clientes que coincidan con los filtros.' : 'Sin clientes. Crea el primero.'}</td></tr>
+                <tr><td colSpan={8} className="px-5 py-8 text-center text-gray-400">{hasFilters ? 'No hay clientes que coincidan con los filtros.' : 'Sin clientes. Crea el primero.'}</td></tr>
               ) : paginated.map((c) => (
                 <tr key={c.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-3 font-medium text-gray-900">{c.razonSocial || c.nombreComercial || c.nombre}</td>
@@ -592,6 +619,13 @@ export default function Clientes() {
                   <td className="px-5 py-3 text-gray-500">{c.telefono ?? '—'}</td>
                   <td className="px-5 py-3">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ESTADO_BADGE[c.estadoCliente]}`}>{c.estadoCliente}</span>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    {(saldosPendientes[c.id] ?? 0) > 0 ? (
+                      <span className="text-xs font-semibold text-red-600">{(saldosPendientes[c.id]).toFixed(2)} €</span>
+                    ) : (
+                      <span className="text-xs text-gray-400">0,00 €</span>
+                    )}
                   </td>
                   <td className="px-5 py-3 text-right flex justify-end gap-2">
                     <button onClick={() => setHistorialCliente(c)} className="text-gray-400 hover:text-brand-700 transition-colors" title="Ver historial">
@@ -858,6 +892,12 @@ export default function Clientes() {
                       <div className="flex flex-col gap-3 pt-1">
                         <CheckField label="Aplicar impuesto al cliente" checked={form.aplicarImpuesto} onChange={v => s('aplicarImpuesto', v)} />
                         <CheckField label="Aplicar recargo de equivalencia" checked={form.recargoEquivalencia} onChange={v => s('recargoEquivalencia', v)} />
+                        {form.recargoEquivalencia && (
+                          <div className="flex items-start gap-1.5 mt-1 px-1 py-1 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                            <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                            <span>El Recargo de Equivalencia se añadirá automáticamente a las facturas de este cliente según el % de IVA de cada producto (ej: IVA 21% → RE 5,2%, IVA 10% → RE 1,4%).</span>
+                          </div>
+                        )}
                         <CheckField label="No aplicar retenciones" checked={form.noAplicarRetenciones} onChange={v => s('noAplicarRetenciones', v)} />
                       </div>
                     </div>

@@ -93,6 +93,7 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.EmpresaId, x.Email }).IsUnique();
             e.Property(x => x.Rol).HasConversion(new EnumToStringConverter<RolUsuario>()).HasMaxLength(20);
             e.HasOne(x => x.Empresa).WithMany(x => x.Usuarios).HasForeignKey(x => x.EmpresaId);
+            e.HasOne(x => x.ClienteVinculado).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // ---- CLIENTE ----
