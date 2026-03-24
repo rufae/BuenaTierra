@@ -1,3 +1,8 @@
+# Electron build outputs
+frontend/dist-electron/
+frontend/dist/
+publish/
+
 # .NET
 *.swp
 *.*~
@@ -319,3 +324,7 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+*.mp3
+*.md
+*.csv

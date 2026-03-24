@@ -1,0 +1,50 @@
+appId: com.buenatierra.obrador
+productName: BuenaTierra
+copyright: BuenaTierra — Obrador artesanal
+
+# Directorio de salida del instalador
+directories:
+  output: dist-electron
+  buildResources: build-resources
+
+# Ficheros que van dentro del paquete Electron
+files:
+  - dist/**/*          # frontend React compilado (npm run build)
+  - electron/**/*      # main.cjs + preload.cjs
+  - package.json
+
+# La API publicada (dotnet publish) se incluye como recurso externo
+# accesible en producción desde process.resourcesPath/api/
+extraResources:
+  - from: ../publish/api/
+    to: api/
+    filter:
+      - "**/*"
+
+# ─── Windows ─────────────────────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # icon: public/app.ico   # descomenta cuando tengas un .ico
+  # Firma de código (opcional — necesitas un certificado EV)
+  # certificateFile: cert.pfx
+  # certificatePassword: ${CERT_PASSWORD}
+
+# ─── Instalador NSIS ─────────────────────────────────────────────────────────
+nsis:
+  oneClick: false
+  perMachine: false                  # instala por usuario (no requiere admin)
+  allowToChangeInstallationDirectory: true
+  # installerIcon: public/app.ico   # descomenta cuando tengas un .ico
+  # uninstallerIcon: public/app.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: BuenaTierra
+  runAfterFinish: true               # abre la app al terminar el instalador
+
+# ─── Auto-updater (para actualizaciones futuras) ─────────────────────────────
+publish:
+  provider: generic
+  url: ""   # rellenar cuando haya servidor de actualizaciones
