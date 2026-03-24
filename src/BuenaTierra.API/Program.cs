@@ -125,62 +125,104 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = Dat
 app.MapControllers();
 
 // ============================================================
-// SEED (solo en Development si no hay usuarios)
+// SEED — crea empresa y usuarios si no existen (todos los entornos)
 // ============================================================
-if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
     var ctx = scope.ServiceProvider.GetRequiredService<BuenaTierra.Infrastructure.Persistence.AppDbContext>();
+
+    // Crear empresa raíz si no existe
     var empresa = ctx.Empresas.FirstOrDefault();
-    if (empresa != null)
+    if (empresa == null)
     {
-        // Admin
-        if (!ctx.Usuarios.Any(u => u.Email == "admin@buenatierra.com"))
+        empresa = new BuenaTierra.Domain.Entities.Empresa
         {
-            ctx.Usuarios.Add(new BuenaTierra.Domain.Entities.Usuario
-            {
-                EmpresaId    = empresa.Id,
-                Nombre       = "Admin",
-                Apellidos    = "BuenaTierra",
-                Email        = "admin@buenatierra.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin#BuenaTierra2025"),
-                Rol          = BuenaTierra.Domain.Enums.RolUsuario.Admin,
-                Activo       = true
-            });
-            Log.Information("Usuario Admin creado: admin@buenatierra.com / Admin#BuenaTierra2025");
-        }
-        // Obrador
-        if (!ctx.Usuarios.Any(u => u.Email == "obrador@buenatierra.com"))
-        {
-            ctx.Usuarios.Add(new BuenaTierra.Domain.Entities.Usuario
-            {
-                EmpresaId    = empresa.Id,
-                Nombre       = "Usuario",
-                Apellidos    = "Obrador",
-                Email        = "obrador@buenatierra.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Obrador#BuenaTierra2025"),
-                Rol          = BuenaTierra.Domain.Enums.RolUsuario.Obrador,
-                Activo       = true
-            });
-            Log.Information("Usuario Obrador creado: obrador@buenatierra.com / Obrador#BuenaTierra2025");
-        }
-        // Repartidor
-        if (!ctx.Usuarios.Any(u => u.Email == "repartidor@buenatierra.com"))
-        {
-            ctx.Usuarios.Add(new BuenaTierra.Domain.Entities.Usuario
-            {
-                EmpresaId    = empresa.Id,
-                Nombre       = "Usuario",
-                Apellidos    = "Repartidor",
-                Email        = "repartidor@buenatierra.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Repartidor#BuenaTierra2025"),
-                Rol          = BuenaTierra.Domain.Enums.RolUsuario.Repartidor,
-                Activo       = true
-            });
-            Log.Information("Usuario Repartidor creado: repartidor@buenatierra.com / Repartidor#BuenaTierra2025");
-        }
+            Nombre      = "BuenaTierra",
+            Nif         = "00000000T",
+            RazonSocial = "BuenaTierra Obrador Artesanal S.L.",
+            EsObrador   = true,
+            Activa      = true
+        };
+        ctx.Empresas.Add(empresa);
         ctx.SaveChanges();
+        Log.Information("Empresa raíz creada: BuenaTierra");
     }
+
+    // Admin
+    if (!ctx.Usuarios.Any(u => u.Email == "admin@buenatierra.com"))
+    {
+        ctx.Usuarios.Add(new BuenaTierra.Domain.Entities.Usuario
+        {
+            EmpresaId    = empresa.Id,
+            Nombre       = "Admin",
+            Apellidos    = "BuenaTierra",
+            Email        = "admin@buenatierra.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin#BuenaTierra2025"),
+            Rol          = BuenaTierra.Domain.Enums.RolUsuario.Admin,
+            Activo       = true
+        });
+        Log.Information("Usuario Admin creado: admin@buenatierra.com");
+    }
+    // Obrador
+    if (!ctx.Usuarios.Any(u => u.Email == "obrador@buenatierra.com"))
+    {
+        ctx.Usuarios.Add(new BuenaTierra.Domain.Entities.Usuario
+        {
+            EmpresaId    = empresa.Id,
+            Nombre       = "Usuario",
+            Apellidos    = "Obrador",
+            Email        = "obrador@buenatierra.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Obrador#BuenaTierra2025"),
+            Rol          = BuenaTierra.Domain.Enums.RolUsuario.Obrador,
+            Activo       = true
+        });
+        Log.Information("Usuario Obrador creado: obrador@buenatierra.com");
+    }
+    // Repartidor
+    if (!ctx.Usuarios.Any(u => u.Email == "repartidor@buenatierra.com"))
+    {
+        ctx.Usuarios.Add(new BuenaTierra.Domain.Entities.Usuario
+        {
+            EmpresaId    = empresa.Id,
+            Nombre       = "Usuario",
+            Apellidos    = "Repartidor",
+            Email        = "repartidor@buenatierra.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Repartidor#BuenaTierra2025"),
+            Rol          = BuenaTierra.Domain.Enums.RolUsuario.Repartidor,
+            Activo       = true
+        });
+        Log.Information("Usuario Repartidor creado: repartidor@buenatierra.com");
+    }
+
+    // Serie de facturación por defecto
+    if (!ctx.SeriesFacturacion.Any(s => s.EmpresaId == empresa.Id && s.Codigo == "FAC"))
+    {
+        ctx.SeriesFacturacion.Add(new BuenaTierra.Domain.Entities.SerieFacturacion
+        {
+            EmpresaId    = empresa.Id,
+            Codigo       = "FAC",
+            Descripcion  = "Facturas",
+            Prefijo      = "F",
+            UltimoNumero = 0,
+            Formato      = "{PREFIJO}{ANIO}{NUMERO:6}",
+            Activa       = true
+        });
+    }
+    if (!ctx.SeriesFacturacion.Any(s => s.EmpresaId == empresa.Id && s.Codigo == "ALB"))
+    {
+        ctx.SeriesFacturacion.Add(new BuenaTierra.Domain.Entities.SerieFacturacion
+        {
+            EmpresaId    = empresa.Id,
+            Codigo       = "ALB",
+            Descripcion  = "Albaranes",
+            Prefijo      = "A",
+            UltimoNumero = 0,
+            Formato      = "{PREFIJO}{ANIO}{NUMERO:6}",
+            Activa       = true
+        });
+    }
+
+    ctx.SaveChanges();
 }
 
 Log.Information("BuenaTierra API iniciando en entorno {Environment}", app.Environment.EnvironmentName);

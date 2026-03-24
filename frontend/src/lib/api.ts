@@ -1,7 +1,12 @@
 import axios from 'axios'
 
+// En Electron (file:// protocol) no hay proxy Vite — apuntamos directamente al API local
+const BASE_URL = window.location.protocol === 'file:'
+  ? 'http://localhost:5001/api'
+  : '/api'
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -21,7 +26,8 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('bt_auth')
-      window.location.href = '/login'
+      // HashRouter en Electron: navegar por hash; BrowserRouter en web: ruta normal
+      window.location.hash = '#/login'
     }
     return Promise.reject(error)
   }

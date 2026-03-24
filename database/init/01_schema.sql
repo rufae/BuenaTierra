@@ -75,29 +75,49 @@ CREATE INDEX IF NOT EXISTS idx_usuarios_email ON usuarios(email);
 -- TABLA: clientes
 -- ============================================================
 CREATE TABLE IF NOT EXISTS clientes (
-    id                      SERIAL PRIMARY KEY,
-    empresa_id              INTEGER NOT NULL REFERENCES empresas(id),
-    repartidor_empresa_id   INTEGER REFERENCES empresas(id),
-    tipo                    TEXT NOT NULL CHECK (tipo IN ('Empresa','Autonomo','Particular','Repartidor')) DEFAULT 'Particular',
-    nombre                  VARCHAR(200) NOT NULL,
-    apellidos               VARCHAR(200),
-    razon_social            VARCHAR(200),
-    nif                     VARCHAR(20),
-    direccion               TEXT,
-    codigo_postal           VARCHAR(10),
-    ciudad                  VARCHAR(100),
-    provincia               VARCHAR(100),
-    telefono                VARCHAR(20),
-    telefono2               VARCHAR(20),
-    email                   VARCHAR(200),
-    condiciones_pago        VARCHAR(100),
-    dias_pago               INTEGER DEFAULT 0,
-    descuento_general       NUMERIC(5,2) DEFAULT 0,
-    tarifa_id               INTEGER,
-    notas                   TEXT,
-    activo                  BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                        SERIAL PRIMARY KEY,
+    empresa_id                INTEGER NOT NULL REFERENCES empresas(id),
+    repartidor_empresa_id     INTEGER REFERENCES empresas(id),
+    tipo                      TEXT NOT NULL CHECK (tipo IN ('Empresa','Autonomo','Particular','Repartidor')) DEFAULT 'Particular',
+    codigo_cliente_interno    VARCHAR(50),
+    nombre                    VARCHAR(200) NOT NULL,
+    apellidos                 VARCHAR(200),
+    razon_social              VARCHAR(300),
+    nombre_comercial          VARCHAR(300),
+    nombre_fiscal             VARCHAR(300),
+    nif                       VARCHAR(20),
+    alias_cliente             VARCHAR(100),
+    direccion                 VARCHAR(300),
+    codigo_postal             VARCHAR(10),
+    ciudad                    VARCHAR(150),
+    provincia                 VARCHAR(100),
+    pais                      VARCHAR(100),
+    telefono                  VARCHAR(30),
+    telefono2                 VARCHAR(30),
+    email                     VARCHAR(200),
+    persona_contacto          VARCHAR(200),
+    observaciones_contacto    VARCHAR(500),
+    ccc                       VARCHAR(30),
+    iban                      VARCHAR(34),
+    banco                     VARCHAR(150),
+    bic                       VARCHAR(11),
+    forma_pago                TEXT NOT NULL DEFAULT 'Contado',
+    dias_pago                 INTEGER NOT NULL DEFAULT 0,
+    tipo_impuesto             TEXT NOT NULL DEFAULT 'IVA',
+    aplicar_impuesto          BOOLEAN NOT NULL DEFAULT TRUE,
+    recargo_equivalencia      BOOLEAN NOT NULL DEFAULT FALSE,
+    no_aplicar_retenciones    BOOLEAN NOT NULL DEFAULT FALSE,
+    porcentaje_retencion      NUMERIC(5,2) NOT NULL DEFAULT 0,
+    descuento_general         NUMERIC(5,2) NOT NULL DEFAULT 0,
+    tarifa_id                 INTEGER,
+    estado_cliente            TEXT NOT NULL DEFAULT 'Activo',
+    activo                    BOOLEAN NOT NULL DEFAULT TRUE,
+    fecha_alta                DATE,
+    estado_sincronizacion     TEXT NOT NULL DEFAULT 'NoAplicable',
+    no_realizar_facturas      BOOLEAN NOT NULL DEFAULT FALSE,
+    notas                     VARCHAR(2000),
+    created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_clientes_empresa ON clientes(empresa_id);
 CREATE INDEX IF NOT EXISTS idx_clientes_repartidor ON clientes(repartidor_empresa_id);
@@ -112,6 +132,23 @@ DO $$ BEGIN
 END $$;
 
 -- ============================================================
+-- TABLA: cliente_condiciones_especiales
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cliente_condiciones_especiales (
+    id                  SERIAL PRIMARY KEY,
+    cliente_id          INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    articulo_familia    TEXT NOT NULL DEFAULT 'Articulo',
+    codigo              VARCHAR(100) NOT NULL,
+    descripcion         VARCHAR(300),
+    tipo                TEXT NOT NULL DEFAULT 'Precio',
+    precio              NUMERIC(10,2) NOT NULL DEFAULT 0,
+    descuento           NUMERIC(5,2) NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cce_cliente ON cliente_condiciones_especiales(cliente_id);
+
+-- ============================================================
 -- TABLA: categorias
 -- ============================================================
 CREATE TABLE IF NOT EXISTS categorias (
@@ -121,7 +158,8 @@ CREATE TABLE IF NOT EXISTS categorias (
     descripcion     TEXT,
     padre_id        INTEGER REFERENCES categorias(id),
     activa          BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_categorias_empresa ON categorias(empresa_id);
 
@@ -133,7 +171,9 @@ CREATE TABLE IF NOT EXISTS alergenos (
     codigo          VARCHAR(20) UNIQUE NOT NULL,
     nombre          VARCHAR(100) NOT NULL,
     descripcion     TEXT,
-    icono_url       VARCHAR(500)
+    icono_url       VARCHAR(500),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ============================================================
@@ -148,6 +188,7 @@ CREATE TABLE IF NOT EXISTS ingredientes (
     codigo_proveedor VARCHAR(50),
     activo          BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, nombre)
 );
 CREATE INDEX IF NOT EXISTS idx_ingredientes_empresa ON ingredientes(empresa_id);
@@ -213,6 +254,8 @@ CREATE TABLE IF NOT EXISTS producto_ingredientes (
     ingrediente_id  INTEGER NOT NULL REFERENCES ingredientes(id),
     cantidad_gr     NUMERIC(10,3),
     es_principal    BOOLEAN DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(producto_id, ingrediente_id)
 );
 
@@ -229,17 +272,19 @@ CREATE TABLE IF NOT EXISTS ingrediente_alergenos (
 -- TABLA: producciones
 -- ============================================================
 CREATE TABLE IF NOT EXISTS producciones (
-    id                  SERIAL PRIMARY KEY,
-    empresa_id          INTEGER NOT NULL REFERENCES empresas(id),
-    producto_id         INTEGER NOT NULL REFERENCES productos(id),
-    usuario_id          INTEGER NOT NULL REFERENCES usuarios(id),
-    fecha_produccion    DATE NOT NULL DEFAULT CURRENT_DATE,
-    cantidad_producida  NUMERIC(10,3) NOT NULL,
-    cantidad_merma      NUMERIC(10,3) DEFAULT 0,
-    estado              TEXT NOT NULL CHECK (estado IN ('Planificada','EnProceso','Finalizada','Cancelada')) DEFAULT 'Planificada',
-    notas               TEXT,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                      SERIAL PRIMARY KEY,
+    empresa_id              INTEGER NOT NULL REFERENCES empresas(id),
+    producto_id             INTEGER NOT NULL REFERENCES productos(id),
+    usuario_id              INTEGER NOT NULL REFERENCES usuarios(id),
+    fecha_produccion        DATE NOT NULL DEFAULT CURRENT_DATE,
+    cantidad_producida      NUMERIC(10,3) NOT NULL,
+    cantidad_merma          NUMERIC(10,3) DEFAULT 0,
+    estado                  TEXT NOT NULL CHECK (estado IN ('Planificada','EnProceso','Finalizada','Cancelada')) DEFAULT 'Planificada',
+    notas                   TEXT,
+    codigo_lote_sugerido    VARCHAR(50),
+    fecha_caducidad_sugerida DATE,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_producciones_empresa ON producciones(empresa_id);
 CREATE INDEX IF NOT EXISTS idx_producciones_fecha ON producciones(fecha_produccion);
@@ -261,6 +306,7 @@ CREATE TABLE IF NOT EXISTS lotes (
     bloqueado           BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_bloqueado    TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, codigo_lote)
 );
 CREATE INDEX IF NOT EXISTS idx_lotes_empresa ON lotes(empresa_id);
@@ -280,6 +326,7 @@ CREATE TABLE IF NOT EXISTS stock (
     cantidad_disponible NUMERIC(10,3) NOT NULL DEFAULT 0,
     cantidad_reservada  NUMERIC(10,3) NOT NULL DEFAULT 0,
     stock_minimo        NUMERIC(10,3) DEFAULT 0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, producto_id, lote_id),
     CONSTRAINT stock_disponible_positivo CHECK (cantidad_disponible >= 0),
@@ -298,7 +345,7 @@ CREATE TABLE IF NOT EXISTS movimientos_stock (
     empresa_id      INTEGER NOT NULL REFERENCES empresas(id),
     producto_id     INTEGER NOT NULL REFERENCES productos(id),
     lote_id         INTEGER NOT NULL REFERENCES lotes(id),
-    tipo            TEXT NOT NULL CHECK (tipo IN ('Entrada','Salida','Reserva','LiberarReserva','Ajuste','Merma')),
+    tipo            TEXT NOT NULL CHECK (tipo IN ('EntradaProduccion','Venta','AjustePositivo','AjusteNegativo','Devolucion','Caducidad')),
     cantidad        NUMERIC(10,3) NOT NULL,
     cantidad_antes  NUMERIC(10,3) NOT NULL,
     cantidad_despues NUMERIC(10,3) NOT NULL,
@@ -306,7 +353,8 @@ CREATE TABLE IF NOT EXISTS movimientos_stock (
     referencia_id   INTEGER,
     usuario_id      INTEGER REFERENCES usuarios(id),
     notas           TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_mov_stock_empresa ON movimientos_stock(empresa_id);
 CREATE INDEX IF NOT EXISTS idx_mov_stock_producto ON movimientos_stock(producto_id, lote_id);
@@ -324,6 +372,8 @@ CREATE TABLE IF NOT EXISTS series_facturacion (
     ultimo_numero   INTEGER NOT NULL DEFAULT 0,
     formato         VARCHAR(50) DEFAULT '{PREFIJO}{ANIO}{NUMERO:6}',
     activa          BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, codigo)
 );
 
@@ -342,6 +392,8 @@ CREATE TABLE IF NOT EXISTS pedidos (
     subtotal        NUMERIC(12,4) DEFAULT 0,
     descuento_total NUMERIC(12,4) DEFAULT 0,
     iva_total       NUMERIC(12,4) DEFAULT 0,
+    recargo_equivalencia_total NUMERIC(12,4) NOT NULL DEFAULT 0,
+    retencion_total NUMERIC(12,4) NOT NULL DEFAULT 0,
     total           NUMERIC(12,4) DEFAULT 0,
     notas           TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -363,8 +415,11 @@ CREATE TABLE IF NOT EXISTS pedidos_lineas (
     precio_unitario NUMERIC(10,4) NOT NULL,
     descuento       NUMERIC(5,2) DEFAULT 0,
     iva_porcentaje  NUMERIC(5,2) NOT NULL DEFAULT 10,
+    recargo_equivalencia_porcentaje NUMERIC(5,2) DEFAULT 0,
     subtotal        NUMERIC(12,4) GENERATED ALWAYS AS (ROUND(cantidad * precio_unitario * (1 - descuento/100), 4)) STORED,
-    orden           SMALLINT DEFAULT 0
+    orden           SMALLINT DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_pedidos_lineas_pedido ON pedidos_lineas(pedido_id);
 
@@ -412,7 +467,9 @@ CREATE TABLE IF NOT EXISTS albaranes_lineas (
     iva_porcentaje  NUMERIC(5,2) NOT NULL DEFAULT 10,
     recargo_equivalencia_porcentaje NUMERIC(5,2) DEFAULT 0,
     subtotal        NUMERIC(12,4) GENERATED ALWAYS AS (ROUND(cantidad * precio_unitario * (1 - descuento/100), 4)) STORED,
-    orden           SMALLINT DEFAULT 0
+    orden           SMALLINT DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_alb_lineas_albaran ON albaranes_lineas(albaran_id);
 CREATE INDEX IF NOT EXISTS idx_alb_lineas_lote ON albaranes_lineas(lote_id);
@@ -469,7 +526,9 @@ CREATE TABLE IF NOT EXISTS facturas_lineas (
     recargo_equivalencia_porcentaje NUMERIC(5,2) DEFAULT 0,
     subtotal        NUMERIC(12,4) GENERATED ALWAYS AS (ROUND(cantidad * precio_unitario * (1 - descuento/100), 4)) STORED,
     iva_importe     NUMERIC(12,4) GENERATED ALWAYS AS (ROUND(cantidad * precio_unitario * (1 - descuento/100) * iva_porcentaje / 100, 4)) STORED,
-    orden           SMALLINT DEFAULT 0
+    orden           SMALLINT DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_fact_lineas_factura ON facturas_lineas(factura_id);
 CREATE INDEX IF NOT EXISTS idx_fact_lineas_lote ON facturas_lineas(lote_id);
@@ -491,7 +550,9 @@ CREATE TABLE IF NOT EXISTS trazabilidad (
     tipo_operacion  VARCHAR(50) NOT NULL,
     fecha_operacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     usuario_id      INTEGER REFERENCES usuarios(id),
-    datos_adicionales JSONB DEFAULT '{}'
+    datos_adicionales JSONB DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_trazabilidad_lote ON trazabilidad(lote_id);
 CREATE INDEX IF NOT EXISTS idx_trazabilidad_producto ON trazabilidad(producto_id);
@@ -553,6 +614,7 @@ CREATE TABLE IF NOT EXISTS tipos_iva_re (
     descripcion                     VARCHAR(200),
     activo                          BOOLEAN NOT NULL DEFAULT TRUE,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, iva_porcentaje)
 );
 
@@ -590,7 +652,8 @@ CREATE TABLE IF NOT EXISTS etiquetas_importadas (
     formato             TEXT NOT NULL CHECK (formato IN ('Docx','Odt','Pdf','Png','Jpg')) DEFAULT 'Pdf',
     tamano_bytes        BIGINT NOT NULL DEFAULT 0,
     usuario_id          INTEGER REFERENCES usuarios(id),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_etiq_imp_empresa ON etiquetas_importadas(empresa_id);
 
@@ -607,7 +670,8 @@ CREATE TABLE IF NOT EXISTS trabajos_impresion_etiqueta (
     copias                  INTEGER NOT NULL DEFAULT 1,
     estado                  TEXT NOT NULL CHECK (estado IN ('Pendiente','Impreso','Error')) DEFAULT 'Pendiente',
     usuario_id              INTEGER NOT NULL REFERENCES usuarios(id),
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_trab_imp_empresa ON trabajos_impresion_etiqueta(empresa_id);
 CREATE INDEX IF NOT EXISTS idx_trab_imp_estado ON trabajos_impresion_etiqueta(estado);
@@ -834,7 +898,7 @@ BEGIN
     INSERT INTO movimientos_stock(empresa_id, producto_id, lote_id, tipo, cantidad,
                                    cantidad_antes, cantidad_despues, referencia_tipo,
                                    referencia_id, usuario_id)
-    VALUES (p_empresa_id, p_producto_id, p_lote_id, 'venta', p_cantidad,
+    VALUES (p_empresa_id, p_producto_id, p_lote_id, 'Venta', p_cantidad,
             v_cantidad_antes, v_cantidad_antes - p_cantidad, 'factura',
             p_factura_id, p_usuario_id);
 END;
@@ -897,7 +961,7 @@ BEGIN
     INSERT INTO movimientos_stock(empresa_id, producto_id, lote_id, tipo, cantidad,
                                    cantidad_antes, cantidad_despues, referencia_tipo,
                                    referencia_id, usuario_id)
-    VALUES (p_empresa_id, p_producto_id, v_lote_id, 'entrada_produccion', v_cantidad_neta,
+    VALUES (p_empresa_id, p_producto_id, v_lote_id, 'EntradaProduccion', v_cantidad_neta,
             0, v_cantidad_neta, 'produccion', p_produccion_id, p_usuario_id);
 
     RETURN v_lote_id;
@@ -979,5 +1043,27 @@ ON CONFLICT DO NOTHING;
 INSERT INTO empresas(nombre, nif, razon_social, es_obrador, activa) VALUES
 ('Obrador BuenaTierra', 'B12345678', 'BuenaTierra Pastelería S.L.', TRUE, TRUE)
 ON CONFLICT DO NOTHING;
+
+-- ============================================================
+-- PERMISOS: buenatierra_admin (usuario real de la aplicación)
+-- ============================================================
+DO $$ BEGIN
+    -- Solo ejecutar si el usuario existe
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'buenatierra_admin') THEN
+        EXECUTE 'GRANT USAGE ON SCHEMA public TO buenatierra_admin';
+        EXECUTE 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO buenatierra_admin';
+        EXECUTE 'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO buenatierra_admin';
+        EXECUTE 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO buenatierra_admin';
+        RAISE NOTICE 'Permisos concedidos a buenatierra_admin';
+    END IF;
+END $$;
+
+-- Permisos por defecto para objetos futuros
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'buenatierra_admin') THEN
+        EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO buenatierra_admin';
+        EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO buenatierra_admin';
+    END IF;
+END $$;
 
 \echo 'Base de datos BuenaTierra creada correctamente.'
