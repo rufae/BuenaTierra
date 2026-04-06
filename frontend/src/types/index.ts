@@ -197,7 +197,7 @@ export interface UpsertCondicionEspecialDto {
 }
 
 // ── Produccion / Lotes ────────────────────────────────────────────────────────
-export type EstadoProduccion = 'Planificada' | 'EnCurso' | 'Finalizada' | 'Cancelada'
+export type EstadoProduccion = 'Planificada' | 'EnProceso' | 'Finalizada' | 'Cancelada'
 
 export interface Produccion {
   id: number

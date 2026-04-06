@@ -1,0 +1,8 @@
+{
+  "provider": "openai",
+  "defaultModel": "llama-3.3-70b-versatile",
+  "temperature": 0.2,
+  "maxOutputTokens": 700,
+  "maxHistoryMessages": 8,
+  "maxToolPayloadChars": 12000
+}

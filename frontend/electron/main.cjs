@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, shell, dialog } = require('electron')
+const { app, BrowserWindow, shell, dialog, Menu } = require('electron')
 const { spawn }  = require('child_process')
 const path       = require('path')
 const http       = require('http')
@@ -114,6 +114,37 @@ function waitForApi (url, timeoutMs) {
 
 // ─── Crear ventana principal ──────────────────────────────────────────────────
 function createWindow () {
+  // Menú con atajos de teclado estándar de edición (Ctrl+C/V/X/A y selección de texto)
+  const menuTemplate = [
+    {
+      label: 'Editar',
+      submenu: [
+        { role: 'undo',       label: 'Deshacer',          accelerator: 'CmdOrCtrl+Z' },
+        { role: 'redo',       label: 'Rehacer',           accelerator: 'CmdOrCtrl+Shift+Z' },
+        { type: 'separator' },
+        { role: 'cut',        label: 'Cortar',            accelerator: 'CmdOrCtrl+X' },
+        { role: 'copy',       label: 'Copiar',            accelerator: 'CmdOrCtrl+C' },
+        { role: 'paste',      label: 'Pegar',             accelerator: 'CmdOrCtrl+V' },
+        { role: 'selectAll',  label: 'Seleccionar todo',  accelerator: 'CmdOrCtrl+A' },
+      ],
+    },
+    {
+      label: 'Ver',
+      submenu: [
+        { role: 'reload',          label: 'Recargar' },
+        { role: 'forceReload',     label: 'Forzar recarga' },
+        { role: 'toggleDevTools',  label: 'Herramientas de desarrollo', visible: isDev },
+        { type: 'separator' },
+        { role: 'resetZoom',       label: 'Zoom normal' },
+        { role: 'zoomIn',          label: 'Acercar' },
+        { role: 'zoomOut',         label: 'Alejar' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: 'Pantalla completa' },
+      ],
+    },
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate))
+
   mainWindow = new BrowserWindow({
     width:     1440,
     height:    900,
@@ -155,7 +186,7 @@ app.whenReady().then(async () => {
     if (!isDev) {
       dialog.showErrorBox(
         'BuenaTierra — Error de arranque',
-        `${err.message}\n\nPostgreSQL debe estar corriendo en el puerto 5432.\n\nLog de diagnóstico:\n${LOG_FILE}`
+        `${err.message}\n\nPostgreSQL debe estar corriendo en el puerto 5432 (instalación cliente) o 5433 (modo desarrollo local).\n\nLog de diagnóstico:\n${LOG_FILE}`
       )
       app.quit()
       return

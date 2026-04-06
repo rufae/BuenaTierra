@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
 import type {
-  Producto, CreateProductoDto, FichaAlergenoItem, Alergeno,
+  Producto, FichaAlergenoItem, Alergeno,
   Categoria, Ingrediente, ProductoIngredienteItem,
 } from '../types'
 import {

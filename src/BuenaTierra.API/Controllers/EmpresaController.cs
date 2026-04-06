@@ -3,6 +3,8 @@ using BuenaTierra.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace BuenaTierra.API.Controllers;
 
@@ -108,6 +110,48 @@ public class EmpresaController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════
+    // PUT /api/empresa/configuracion/ia — Guardar solo configuración IA (Admin/Obrador)
+    // ═══════════════════════════════════════════════════════
+
+    [HttpPut("configuracion/ia")]
+    [Authorize(Roles = "Admin,Obrador")]
+    public async Task<IActionResult> UpdateConfiguracionIa([FromBody] UpdateConfiguracionIaRequest req, CancellationToken ct)
+    {
+        var e = await _uow.Empresas.GetByIdAsync(EmpresaId, ct);
+        if (e is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
+
+        JsonObject root;
+        try
+        {
+            root = string.IsNullOrWhiteSpace(e.Configuracion)
+                ? new JsonObject()
+                : JsonNode.Parse(e.Configuracion)?.AsObject() ?? new JsonObject();
+        }
+        catch
+        {
+            root = new JsonObject();
+        }
+
+        root["buenatierrAI"] = new JsonObject
+        {
+            ["enabled"] = req.Enabled,
+            ["providerBaseUrl"] = req.ProviderBaseUrl?.Trim(),
+            ["model"] = req.Model?.Trim(),
+            ["apiKey"] = req.ApiKey ?? string.Empty,
+        };
+
+        e.Configuracion = root.ToJsonString(new JsonSerializerOptions
+        {
+            WriteIndented = false
+        });
+
+        await _uow.Empresas.UpdateAsync(e, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<string>.Ok("Configuración IA actualizada"));
+    }
+
+    // ═══════════════════════════════════════════════════════
     // POST /api/empresa/logo — Upload logo
     // ═══════════════════════════════════════════════════════
 
@@ -197,3 +241,10 @@ public record UpdateEmpresaRequest(
 );
 
 public record UpdateConfiguracionRequest(string? Configuracion);
+
+public record UpdateConfiguracionIaRequest(
+    bool Enabled,
+    string? ProviderBaseUrl,
+    string? Model,
+    string? ApiKey
+);

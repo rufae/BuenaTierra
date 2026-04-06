@@ -21,10 +21,18 @@ public class ProductosController : ControllerBase
     private int EmpresaId => int.Parse(User.FindFirstValue("empresa_id")!);
 
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<IEnumerable<Producto>>>> GetAll(
-        [FromQuery] bool soloActivos = true, CancellationToken ct = default)
+    public async Task<ActionResult> GetAll(
+        [FromQuery] bool soloActivos = true,
+        [FromQuery] int? page = null, [FromQuery] int? pageSize = null,
+        CancellationToken ct = default)
     {
-        var productos = await _uow.Productos.GetByEmpresaAsync(EmpresaId, soloActivos, ct);
+        var productos = (await _uow.Productos.GetByEmpresaAsync(EmpresaId, soloActivos, ct)).ToList();
+        var p = new PaginationParams(page, pageSize);
+        if (p.HasPagination)
+        {
+            var paged = productos.Skip((p.SafePage - 1) * p.SafePageSize).Take(p.SafePageSize);
+            return Ok(PagedResponse<Producto>.Ok(paged, productos.Count, p.SafePage, p.SafePageSize));
+        }
         return Ok(ApiResponse<IEnumerable<Producto>>.Ok(productos));
     }
 
@@ -139,6 +147,24 @@ public class ProductosController : ControllerBase
         var existente = await _uow.Productos.GetByIdAsync(id, ct)
             ?? throw new EntidadNotFoundException(nameof(Producto), id);
         if (existente.EmpresaId != EmpresaId) return Forbid();
+
+        // Guard: no permitir borrado si tiene lotes activos con stock
+        var tieneStock = await _uow.Stock.GetQueryable()
+            .AnyAsync(s => s.ProductoId == id && s.EmpresaId == EmpresaId && s.CantidadDisponible > 0, ct);
+        if (tieneStock)
+            return UnprocessableEntity(ApiResponse<string>.Fail(
+                "No se puede eliminar: el producto tiene stock activo en uno o más lotes. " +
+                "Agote o ajuste el stock antes de eliminarlo."));
+
+        // Guard: no permitir borrado si tiene facturas/albaranes asociados
+        var tieneFacturas = await _uow.Facturas.GetQueryable()
+            .SelectMany(f => f.Lineas)
+            .AnyAsync(l => l.ProductoId == id, ct);
+        if (tieneFacturas)
+            return UnprocessableEntity(ApiResponse<string>.Fail(
+                "No se puede eliminar: el producto aparece en facturas existentes. " +
+                "Desactívelo en su lugar."));
+
         await _uow.Productos.DeleteAsync(existente, ct);
         await _uow.SaveChangesAsync(ct);
         return Ok(ApiResponse<string>.Ok("Eliminado"));

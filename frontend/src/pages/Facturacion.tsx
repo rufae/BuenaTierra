@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
 import type { Cliente, Producto, SerieFacturacion, Factura } from '../types'
-import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, Ban, ArrowRight, AlertTriangle, FileSpreadsheet } from 'lucide-react'
+import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, Ban, ArrowRight, AlertTriangle, FileSpreadsheet, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 
@@ -134,6 +134,29 @@ export default function Facturacion() {
     enabled: viewingId !== null,
   })
 
+  // ── Search & Filter ────────────────────────────────────────────────────
+  const [searchTerm, setSearchTerm] = useState('')
+  const [estadoFilter, setEstadoFilter] = useState<string>('')
+
+  const filteredFacturas = useMemo(() => {
+    if (!facturas) return []
+    let result = [...facturas]
+    if (estadoFilter) {
+      result = result.filter(f => (f as unknown as { estado: string }).estado === estadoFilter)
+    }
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim()
+      result = result.filter(f => {
+        const ff = f as unknown as { numeroFactura?: string; clienteNombre?: string; cliente?: { nombre: string }; fechaFactura?: string }
+        const num = (ff.numeroFactura ?? '').toLowerCase()
+        const cli = (ff.cliente?.nombre ?? ff.clienteNombre ?? '').toLowerCase()
+        const fecha = fmtDate(ff.fechaFactura)?.toLowerCase() ?? ''
+        return num.includes(q) || cli.includes(q) || fecha.includes(q)
+      })
+    }
+    return result
+  }, [facturas, searchTerm, estadoFilter])
+
   const createMutation = useMutation({
     mutationFn: (dto: CrearFacturaDto) =>
       api.post<{ data: FacturaCreada }>('/facturas/crear', dto),
@@ -226,6 +249,8 @@ export default function Facturacion() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!clienteId) return toast.error('Selecciona un cliente')
+    const clienteSel = clientes?.find(c => c.id === clienteId)
+    if (clienteSel?.noRealizarFacturas) return toast.error('Este cliente tiene marcado "No realizar facturas"')
     if (!serieId) return toast.error('Selecciona una serie de facturación')
     if (!lineas.length) return toast.error('Añade al menos un producto')
 
@@ -268,6 +293,36 @@ export default function Facturacion() {
 
       {/* Facturas table */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        {/* Search & Filter Bar */}
+        <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Buscar por nº factura, cliente o fecha…"
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            />
+          </div>
+          <select
+            value={estadoFilter}
+            onChange={e => setEstadoFilter(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">Todos los estados</option>
+            <option value="Borrador">Borrador</option>
+            <option value="Emitida">Emitida</option>
+            <option value="Enviada">Enviada</option>
+            <option value="Cobrada">Cobrada</option>
+            <option value="Anulada">Anulada</option>
+          </select>
+          {(searchTerm || estadoFilter) && (
+            <button onClick={() => { setSearchTerm(''); setEstadoFilter('') }} className="text-xs text-gray-500 hover:text-gray-700">
+              Limpiar filtros
+            </button>
+          )}
+          <span className="text-xs text-gray-400">{filteredFacturas.length} de {(facturas ?? []).length}</span>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -283,9 +338,9 @@ export default function Facturacion() {
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
-              ) : !facturas?.length ? (
-                <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">No hay facturas todavía</td></tr>
-              ) : facturas.map((f) => (
+              ) : !filteredFacturas.length ? (
+                <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">{facturas?.length ? 'Sin resultados para el filtro actual' : 'No hay facturas todavía'}</td></tr>
+              ) : filteredFacturas.map((f) => (
                 <tr key={f.id} className={`hover:bg-gray-50 transition-colors ${isVencida(f) ? 'bg-red-50/60' : ''}`}>
                   <td className="px-5 py-3 font-mono text-xs font-semibold text-brand-700">{(f as unknown as { numeroFactura: string }).numeroFactura ?? '—'}</td>
                   <td className="px-5 py-3 font-medium text-gray-900">{(f as unknown as { cliente?: { nombre: string}; clienteNombre?: string }).cliente?.nombre ?? (f as unknown as { clienteNombre?: string }).clienteNombre ?? '—'}</td>

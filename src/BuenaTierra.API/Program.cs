@@ -1,9 +1,14 @@
 using BuenaTierra.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
+using System.Threading.RateLimiting;
+
+LoadDotEnvFromWorkspace();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,8 +37,12 @@ services.AddControllers()
             new System.Text.Json.Serialization.JsonStringEnumConverter());
         opts.JsonSerializerOptions.DefaultIgnoreCondition =
             System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+        // Evitar error 500 por referencias circulares en entidades EF Core
+        opts.JsonSerializerOptions.ReferenceHandler =
+            System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 services.AddEndpointsApiExplorer();
+services.AddHttpContextAccessor();
 
 // Infrastructure (EF Core, repositorios, servicios de negocio)
 services.AddInfrastructure(builder.Configuration);
@@ -43,9 +52,49 @@ services.AddSingleton<BuenaTierra.API.Services.BarcodeService>();
 services.AddSingleton<BuenaTierra.API.Services.OdtVariableService>();
 services.AddSingleton<BuenaTierra.API.Services.DocumentConversionService>();
 
+// BuenaTierrAI (orquestación IA segura por API)
+services.AddHttpClient("BuenaTierrAI", c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(45);
+});
+services.AddScoped<BuenaTierra.Application.Interfaces.IBuenaTierrAIService, BuenaTierra.API.Services.BuenaTierrAIService>();
+
 // Cache en memoria (reportes, listas de productos, etc.)
 services.AddMemoryCache();
 services.AddResponseCaching();
+
+// Rate Limiting — protección contra fuerza bruta y abuso
+services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Política para login: máximo 10 intentos por minuto por IP
+    options.AddFixedWindowLimiter("auth", o =>
+    {
+        o.PermitLimit = 10;
+        o.Window = TimeSpan.FromMinutes(1);
+        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        o.QueueLimit = 2;
+    });
+
+    // Política general: 200 req/min por IP
+    options.AddFixedWindowLimiter("general", o =>
+    {
+        o.PermitLimit = 200;
+        o.Window = TimeSpan.FromMinutes(1);
+        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        o.QueueLimit = 10;
+    });
+
+    // Política para reportes pesados: 30 req/min
+    options.AddFixedWindowLimiter("reportes", o =>
+    {
+        o.PermitLimit = 30;
+        o.Window = TimeSpan.FromMinutes(1);
+        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        o.QueueLimit = 5;
+    });
+});
 
 // JWT Authentication
 var jwtSecret = builder.Configuration["Jwt:Secret"]
@@ -75,10 +124,25 @@ services.AddAuthorization(options =>
 });
 
 // CORS
+// CORS — restrictivo en producción, permisivo en desarrollo/Electron
 services.AddCors(options =>
 {
     options.AddPolicy("AllowClients", policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+        if (allowedOrigins is { Length: > 0 })
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        }
+        else
+        {
+            // Fallback para Electron desktop (mismo equipo) y desarrollo
+            policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+        }
+    });
 });
 
 // Swagger con soporte JWT
@@ -116,13 +180,102 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<BuenaTierra.API.Middleware.ErrorHandlingMiddleware>();
 app.UseSerilogRequestLogging();
 app.UseCors("AllowClients");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
 // Health check
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+app.MapGet("/health", async (IServiceProvider sp) =>
+{
+    try
+    {
+        using var scope = sp.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<BuenaTierra.Infrastructure.Persistence.AppDbContext>();
+        await ctx.Database.ExecuteSqlRawAsync("SELECT 1");
+        return Results.Ok(new { status = "healthy", database = "connected", timestamp = DateTime.UtcNow });
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "Health check: base de datos no disponible");
+        return Results.Json(
+            new { status = "degraded", database = "disconnected", timestamp = DateTime.UtcNow },
+            statusCode: 503);
+    }
+});
 
 app.MapControllers();
+
+// ============================================================
+// AUTO-MIGRACIÓN — aplica upgrade scripts pendientes para .exe en cliente
+// ============================================================
+{
+    using var migScope = app.Services.CreateScope();
+    var migCtx = migScope.ServiceProvider.GetRequiredService<BuenaTierra.Infrastructure.Persistence.AppDbContext>();
+    try
+    {
+        // Asegurar que la tabla schema_version existe
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version     INTEGER NOT NULL PRIMARY KEY,
+                descripcion VARCHAR(500) NOT NULL,
+                applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        ");
+
+        // Obtener versión actual
+        var currentVersion = 0;
+        try
+        {
+            var conn = migCtx.Database.GetDbConnection();
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_version";
+            var result = await cmd.ExecuteScalarAsync();
+            currentVersion = Convert.ToInt32(result);
+        }
+        catch { /* tabla puede no existir aún en instalaciones muy antiguas */ }
+
+        Log.Information("Schema version actual: {Version}", currentVersion);
+
+        // Buscar scripts de upgrade en database/init/ o junto al ejecutable
+        var upgradeDir = FindUpgradeScriptsDirectory();
+        if (upgradeDir != null)
+        {
+            var scripts = Directory.GetFiles(upgradeDir, "*_upgrade_*.sql")
+                .OrderBy(f => f)
+                .ToArray();
+
+            foreach (var scriptPath in scripts)
+            {
+                var fileName = Path.GetFileName(scriptPath);
+                Log.Information("Evaluando script de migración: {Script}", fileName);
+
+                var sql = await File.ReadAllTextAsync(scriptPath);
+                // Los scripts son idempotentes, pero solo ejecutar si hay algo pendiente
+                if (currentVersion < 2) // v2 es la versión actual conocida
+                {
+                    Log.Information("Aplicando migración: {Script}", fileName);
+                    // Quitar comandos psql (\echo, \i) que no son SQL estándar
+                    var cleanSql = System.Text.RegularExpressions.Regex.Replace(sql, @"^\\.*$", "", System.Text.RegularExpressions.RegexOptions.Multiline);
+                    await migCtx.Database.ExecuteSqlRawAsync(cleanSql);
+                    Log.Information("Migración aplicada con éxito: {Script}", fileName);
+                }
+            }
+        }
+
+        // Registrar versión base si no hay ninguna (instalación nueva con 01_schema.sql)
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            INSERT INTO schema_version (version, descripcion) VALUES
+            (1, 'Esquema inicial — tablas, funciones, vistas, triggers, roles'),
+            (2, 'Consolidación: named CHECK constraints, estados normalizados, schema_version')
+            ON CONFLICT (version) DO NOTHING;
+        ");
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "Auto-migración: no se pudo verificar/aplicar. Continuando arranque normal.");
+    }
+}
 
 // ============================================================
 // SEED — crea empresa y usuarios si no existen (todos los entornos)
@@ -226,7 +379,63 @@ app.MapControllers();
 }
 
 Log.Information("BuenaTierra API iniciando en entorno {Environment}", app.Environment.EnvironmentName);
-app.Run();
+await app.RunAsync();
+
+static string? FindUpgradeScriptsDirectory()
+{
+    // 1. Junto al ejecutable (publish/api/database/init/)
+    var exeDir = AppContext.BaseDirectory;
+    var candidate = Path.Combine(exeDir, "database", "init");
+    if (Directory.Exists(candidate)) return candidate;
+
+    // 2. Workspace relativo (desarrollo)
+    var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+    while (dir != null)
+    {
+        candidate = Path.Combine(dir.FullName, "database", "init");
+        if (Directory.Exists(candidate)) return candidate;
+        dir = dir.Parent;
+    }
+
+    return null;
+}
+
+static void LoadDotEnvFromWorkspace()
+{
+    var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+
+    while (directory is not null)
+    {
+        var envPath = Path.Combine(directory.FullName, ".env");
+        if (File.Exists(envPath))
+        {
+            foreach (var rawLine in File.ReadAllLines(envPath))
+            {
+                var line = rawLine.Trim();
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith('#'))
+                    continue;
+
+                var separator = line.IndexOf('=');
+                if (separator <= 0)
+                    continue;
+
+                var key = line[..separator].Trim();
+                var value = line[(separator + 1)..].Trim().Trim('"');
+
+                if (string.IsNullOrWhiteSpace(key))
+                    continue;
+
+                var current = Environment.GetEnvironmentVariable(key);
+                if (string.IsNullOrWhiteSpace(current))
+                    Environment.SetEnvironmentVariable(key, value);
+            }
+
+            break;
+        }
+
+        directory = directory.Parent;
+    }
+}
 
 // Requerido para WebApplicationFactory<Program> en tests de integración
 public partial class Program { }

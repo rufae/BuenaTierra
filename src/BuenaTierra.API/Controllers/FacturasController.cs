@@ -1,5 +1,6 @@
 using BuenaTierra.Application.Common;
 using BuenaTierra.Application.Interfaces;
+using BuenaTierra.Domain.Entities;
 using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
@@ -52,7 +53,7 @@ public class FacturasController : ControllerBase
 
     /// <summary>GET /api/facturas — Listar facturas con filtros opcionales y paginación</summary>
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<IEnumerable<FacturaDto>>>> GetAll(
+    public async Task<ActionResult> GetAll(
         [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta,
         [FromQuery] int? clienteId, [FromQuery] string? estado,
         [FromQuery] int? page, [FromQuery] int? pageSize,
@@ -64,12 +65,12 @@ public class FacturasController : ControllerBase
         if (clienteId.HasValue) all = all.Where(f => f.Cliente.Id == clienteId.Value).ToList();
         if (!string.IsNullOrEmpty(estado)) all = all.Where(f => f.Estado.Equals(estado, StringComparison.OrdinalIgnoreCase)).ToList();
 
-        // Pagination (optional — if not provided, return all)
-        if (page.HasValue && pageSize.HasValue && pageSize.Value > 0)
+        // Pagination (optional — if not provided, return all for backwards compatibility)
+        var p = new PaginationParams(page, pageSize);
+        if (p.HasPagination)
         {
-            var total = all.Count;
-            var paged = all.Skip((page.Value - 1) * pageSize.Value).Take(pageSize.Value);
-            return Ok(PagedResponse<FacturaDto>.Ok(paged, total, page.Value, pageSize.Value));
+            var paged = all.Skip((p.SafePage - 1) * p.SafePageSize).Take(p.SafePageSize);
+            return Ok(PagedResponse<FacturaDto>.Ok(paged, all.Count, p.SafePage, p.SafePageSize));
         }
 
         return Ok(ApiResponse<IEnumerable<FacturaDto>>.Ok(all));
@@ -172,16 +173,80 @@ public class FacturasController : ControllerBase
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<string>>> Anular(int id, CancellationToken ct)
     {
-        var factura = await _uow.Facturas.GetByIdAsync(id, ct);
+        var factura = await _uow.Facturas.GetConLineasAsync(id, ct);
         if (factura == null || factura.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Factura no encontrada"));
         if (factura.Estado == EstadoFactura.Anulada)
             return BadRequest(ApiResponse<string>.Fail("La factura ya está anulada"));
 
-        factura.Estado = EstadoFactura.Anulada;
-        await _uow.Facturas.UpdateAsync(factura, ct);
-        await _uow.SaveChangesAsync(ct);
-        return Ok(ApiResponse<string>.Ok("OK", "Factura anulada"));
+        await _uow.BeginTransactionAsync(ct);
+        try
+        {
+            foreach (var linea in factura.Lineas.Where(l => l.LoteId.HasValue))
+            {
+                var loteId = linea.LoteId!.Value;
+                var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, linea.ProductoId, loteId, ct);
+
+                if (stock == null)
+                {
+                    stock = await _uow.Stock.AddAsync(new Stock
+                    {
+                        EmpresaId = EmpresaId,
+                        ProductoId = linea.ProductoId,
+                        LoteId = loteId,
+                        CantidadDisponible = 0,
+                        CantidadReservada = 0,
+                        StockMinimo = 0,
+                        UpdatedAt = DateTime.UtcNow
+                    }, ct);
+                }
+
+                var cantidadAntes = stock.CantidadDisponible;
+                stock.CantidadDisponible += linea.Cantidad;
+                stock.UpdatedAt = DateTime.UtcNow;
+                await _uow.Stock.UpdateAsync(stock, ct);
+
+                await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                {
+                    EmpresaId = EmpresaId,
+                    ProductoId = linea.ProductoId,
+                    LoteId = loteId,
+                    Tipo = TipoMovimientoStock.Devolucion,
+                    Cantidad = linea.Cantidad,
+                    CantidadAntes = cantidadAntes,
+                    CantidadDespues = stock.CantidadDisponible,
+                    ReferenciaTipo = "anulacion_factura",
+                    ReferenciaId = factura.Id,
+                    UsuarioId = UsuarioId,
+                    Notas = $"Devolución por anulación de factura {factura.NumeroFactura}"
+                }, ct);
+
+                await _uow.Trazabilidades.AddAsync(new Trazabilidad
+                {
+                    EmpresaId = EmpresaId,
+                    LoteId = loteId,
+                    ProductoId = linea.ProductoId,
+                    ClienteId = factura.ClienteId,
+                    FacturaId = factura.Id,
+                    Cantidad = linea.Cantidad,
+                    TipoOperacion = "anulacion_factura",
+                    FechaOperacion = DateTime.UtcNow,
+                    UsuarioId = UsuarioId,
+                    DatosAdicionales = $"{{\"numero_factura\":\"{factura.NumeroFactura}\",\"motivo\":\"anulacion\"}}"
+                }, ct);
+            }
+
+            factura.Estado = EstadoFactura.Anulada;
+            await _uow.Facturas.UpdateAsync(factura, ct);
+            await _uow.SaveChangesAsync(ct);
+            await _uow.CommitTransactionAsync(ct);
+            return Ok(ApiResponse<string>.Ok("OK", "Factura anulada y stock restituido"));
+        }
+        catch
+        {
+            await _uow.RollbackTransactionAsync(ct);
+            throw;
+        }
     }
 
     // ═══════════════════════════════════════════════════════
@@ -236,13 +301,16 @@ public class FacturasController : ControllerBase
         ws.Cells[1, 1].Value = "Nº Factura";
         ws.Cells[1, 2].Value = "Fecha";
         ws.Cells[1, 3].Value = "Cliente";
-        ws.Cells[1, 4].Value = "Estado";
-        ws.Cells[1, 5].Value = "Base imponible";
-        ws.Cells[1, 6].Value = "IVA";
-        ws.Cells[1, 7].Value = "Total";
-        ws.Cells[1, 8].Value = "Simplificada";
+        ws.Cells[1, 4].Value = "NIF Cliente";
+        ws.Cells[1, 5].Value = "Estado";
+        ws.Cells[1, 6].Value = "Base imponible";
+        ws.Cells[1, 7].Value = "IVA";
+        ws.Cells[1, 8].Value = "RE";
+        ws.Cells[1, 9].Value = "Retención";
+        ws.Cells[1, 10].Value = "Total";
+        ws.Cells[1, 11].Value = "Simplificada";
 
-        using (var headerRange = ws.Cells[1, 1, 1, 8])
+        using (var headerRange = ws.Cells[1, 1, 1, 11])
         {
             headerRange.Style.Font.Bold = true;
             headerRange.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
@@ -256,15 +324,18 @@ public class FacturasController : ControllerBase
             ws.Cells[row, 1].Value = f.NumeroFactura;
             ws.Cells[row, 2].Value = f.FechaFactura.ToString("dd/MM/yyyy");
             ws.Cells[row, 3].Value = f.Cliente?.Nombre ?? "—";
-            ws.Cells[row, 4].Value = f.Estado;
-            ws.Cells[row, 5].Value = (double)f.BaseImponible;
-            ws.Cells[row, 6].Value = (double)f.IvaTotal;
-            ws.Cells[row, 7].Value = (double)f.Total;
-            ws.Cells[row, 8].Value = f.EsSimplificada ? "Sí" : "No";
+            ws.Cells[row, 4].Value = f.Cliente?.Nif ?? "—";
+            ws.Cells[row, 5].Value = f.Estado;
+            ws.Cells[row, 6].Value = (double)f.BaseImponible;
+            ws.Cells[row, 7].Value = (double)f.IvaTotal;
+            ws.Cells[row, 8].Value = (double)f.RecargoEquivalenciaTotal;
+            ws.Cells[row, 9].Value = (double)f.RetencionTotal;
+            ws.Cells[row, 10].Value = (double)f.Total;
+            ws.Cells[row, 11].Value = f.EsSimplificada ? "Sí" : "No";
             row++;
         }
 
-        ws.Cells[2, 5, row - 1, 7].Style.Numberformat.Format = "#,##0.00 €";
+        ws.Cells[2, 6, row - 1, 10].Style.Numberformat.Format = "#,##0.00 €";
         ws.Cells.AutoFitColumns();
 
         var bytes = package.GetAsByteArray();

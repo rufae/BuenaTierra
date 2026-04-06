@@ -6,13 +6,17 @@ namespace BuenaTierra.Domain.Exceptions;
 public class StockInsuficienteException : DomainException
 {
     public int ProductoId { get; }
+    public string? ProductoNombre { get; }
     public decimal CantidadSolicitada { get; }
     public decimal CantidadDisponible { get; }
 
-    public StockInsuficienteException(int productoId, decimal solicitada, decimal disponible)
-        : base($"Stock insuficiente para producto {productoId}. Solicitado: {solicitada}, Disponible: {disponible}")
+    public StockInsuficienteException(int productoId, decimal solicitada, decimal disponible, string? productoNombre = null)
+        : base(string.IsNullOrWhiteSpace(productoNombre)
+            ? $"Stock insuficiente para producto {productoId}. Solicitado: {solicitada}, Disponible: {disponible}"
+            : $"Stock insuficiente para '{productoNombre}'. Solicitado: {solicitada}, Disponible: {disponible}")
     {
         ProductoId = productoId;
+        ProductoNombre = productoNombre;
         CantidadSolicitada = solicitada;
         CantidadDisponible = disponible;
     }

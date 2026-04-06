@@ -7,7 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AutoMapper" Version="16.0.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
     <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
@@ -23,6 +22,12 @@
   <ItemGroup>
     <ProjectReference Include="..\BuenaTierra.Application\BuenaTierra.Application.csproj" />
     <ProjectReference Include="..\BuenaTierra.Infrastructure\BuenaTierra.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="BuenaTierrAI\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

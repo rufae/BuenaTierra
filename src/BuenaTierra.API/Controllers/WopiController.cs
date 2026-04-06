@@ -254,7 +254,7 @@ public class WopiController : ControllerBase
         var token = CreateAccessToken(fileId, empresaId, userId, userName, permission);
 
         // Build WOPI src URL (how Collabora reaches our WOPI endpoints)
-        var wopiHost = _config["Collabora:WopiHost"] ?? "http://host.docker.internal:5064";
+        var wopiHost = _config["Collabora:WopiHost"] ?? "http://host.docker.internal:5001";
         var wopiSrc = $"{wopiHost}/wopi/files/{fileId}";
 
         // The form POST goes directly to Collabora (cross-origin to iframe is allowed).

@@ -36,9 +36,11 @@ public class PedidosController : ControllerBase
     private int EmpresaId => int.Parse(User.FindFirstValue("empresa_id")!);
     private int UsuarioId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    /// <summary>GET /api/pedidos — Listar pedidos de la empresa</summary>
+    /// <summary>GET /api/pedidos — Listar pedidos de la empresa (con paginación opcional)</summary>
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<IEnumerable<PedidoResumen>>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult> GetAll(
+        [FromQuery] int? page = null, [FromQuery] int? pageSize = null,
+        CancellationToken ct = default)
     {
         var pedidos = await _uow.Pedidos.GetByEmpresaAsync(EmpresaId, ct);
         var resultado = pedidos.Select(p => new PedidoResumen(
@@ -49,7 +51,14 @@ public class PedidosController : ControllerBase
             p.Cliente?.NombreCompleto ?? "",
             p.Total,
             p.Cliente?.NoRealizarFacturas ?? false
-        ));
+        )).ToList();
+
+        var pg = new PaginationParams(page, pageSize);
+        if (pg.HasPagination)
+        {
+            var paged = resultado.Skip((pg.SafePage - 1) * pg.SafePageSize).Take(pg.SafePageSize);
+            return Ok(PagedResponse<PedidoResumen>.Ok(paged, resultado.Count, pg.SafePage, pg.SafePageSize));
+        }
         return Ok(ApiResponse<IEnumerable<PedidoResumen>>.Ok(resultado));
     }
 
@@ -92,6 +101,14 @@ public class PedidosController : ControllerBase
         decimal ivaTotal = 0m;
         decimal recargoTotal = 0m;
 
+        bool aplicaRE = cliente.TipoImpuesto == TipoImpuesto.RecargoEquivalencia
+                     || cliente.RecargoEquivalencia;
+
+        var tablaRE = aplicaRE
+            ? (await _uow.TiposIvaRe.FindAsync(t => t.EmpresaId == EmpresaId && t.Activo, ct))
+                .ToDictionary(t => t.IvaPorcentaje, t => t.RecargoEquivalenciaPorcentaje)
+            : new Dictionary<decimal, decimal>();
+
         foreach (var item in request.Items)
         {
             var producto = await _uow.Productos.GetByIdAsync(item.ProductoId, ct)
@@ -103,38 +120,29 @@ public class PedidosController : ControllerBase
                 return BadRequest(ApiResponse<PedidoCreado>.Fail(
                     $"Stock insuficiente para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}"));
 
-            // ── Precio: condición especial > precio manual > precio producto ──
-            var condicion = cliente.CondicionesEspeciales.FirstOrDefault(c =>
-                c.ArticuloFamilia == TipoArticuloFamilia.Articulo &&
-                !string.IsNullOrEmpty(c.Codigo) &&
-                c.Codigo == (producto.Codigo ?? producto.Referencia ?? ""));
+            var condicion = ResolveCondicionEspecial(cliente, producto);
 
+            // Precedencia comercial unificada: línea > condición especial > base producto.
             decimal precio = item.PrecioUnitario
                 ?? (condicion?.Tipo is TipoCondicionEspecial.Precio or TipoCondicionEspecial.PrecioEspecial
                     ? condicion.Precio
                     : producto.PrecioVenta);
 
-            // ── Descuento: condición especial > línea > descuento general ─────
-            decimal descuento = item.Descuento > 0 ? item.Descuento
-                : condicion?.Tipo == TipoCondicionEspecial.Descuento ? condicion.Descuento
-                : cliente.DescuentoGeneral;
+            // Precedencia comercial unificada: línea > condición especial > descuento cliente > descuento producto.
+            decimal descuento = item.Descuento > 0
+                ? item.Descuento
+                : condicion?.Tipo == TipoCondicionEspecial.Descuento
+                    ? condicion.Descuento
+                    : cliente.DescuentoGeneral > 0
+                        ? cliente.DescuentoGeneral
+                        : (producto.DescuentoPorDefecto ?? 0m);
 
-            // ── IVA % según TipoImpuesto del cliente ──────────────────────────
-            decimal ivaPorc = cliente.TipoImpuesto switch
-            {
-                TipoImpuesto.Exento => 0m,
-                TipoImpuesto.IGIC   => 7m,
-                _ => cliente.AplicarImpuesto ? producto.IvaPorcentaje : 0m
-            };
-
-            // ── Recargo de equivalencia ───────────────────────────────────────
-            bool aplicaRE = cliente.TipoImpuesto == TipoImpuesto.RecargoEquivalencia
-                         || cliente.RecargoEquivalencia;
-            decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje) : 0m;
+            decimal ivaPorc = GetIvaPorcentaje(cliente, producto);
+            decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m;
 
             decimal linSubtotal = Math.Round(item.Cantidad * precio * (1 - descuento / 100), 2, MidpointRounding.AwayFromZero);
-            decimal linIva      = Math.Round(linSubtotal * ivaPorc / 100, 2, MidpointRounding.AwayFromZero);
-            decimal linRe       = Math.Round(linSubtotal * rePorc / 100, 2, MidpointRounding.AwayFromZero);
+            decimal linIva = Math.Round(linSubtotal * ivaPorc / 100, 2, MidpointRounding.AwayFromZero);
+            decimal linRe = Math.Round(linSubtotal * rePorc / 100, 2, MidpointRounding.AwayFromZero);
 
             pedido.Lineas.Add(new PedidoLinea
             {
@@ -148,9 +156,9 @@ public class PedidosController : ControllerBase
                 Orden = orden++
             });
 
-            subtotal      += linSubtotal;
-            ivaTotal      += linIva;
-            recargoTotal  += linRe;
+            subtotal += linSubtotal;
+            ivaTotal += linIva;
+            recargoTotal += linRe;
         }
 
         // ── Retención (sobre la base, si aplica) ─────────────────────────────
@@ -172,9 +180,73 @@ public class PedidosController : ControllerBase
             $"Pedido {pedido.NumeroPedido} creado correctamente"));
     }
 
-    /// <summary>Tasas legales de recargo de equivalencia según tipo de IVA (España).</summary>
-    private static decimal GetRecargoEquivalenciaPorcentaje(decimal ivaPorcentaje) =>
-        ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+    private static decimal GetIvaPorcentaje(Cliente cliente, Producto producto)
+        => cliente.TipoImpuesto switch
+        {
+            TipoImpuesto.Exento => 0m,
+            TipoImpuesto.IGIC => 7m,
+            _ => cliente.AplicarImpuesto ? producto.IvaPorcentaje : 0m
+        };
+
+    private static decimal GetRecargoEquivalenciaPorcentaje(
+        decimal ivaPorcentaje, Dictionary<decimal, decimal> tablaRE)
+    {
+        if (tablaRE.TryGetValue(ivaPorcentaje, out var reDesdeDB))
+            return reDesdeDB;
+
+        if (tablaRE.Count > 0)
+            return 0m;
+
+        return ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+    }
+
+    private static ClienteCondicionEspecial? ResolveCondicionEspecial(Cliente cliente, Producto producto)
+    {
+        if (cliente.CondicionesEspeciales == null || cliente.CondicionesEspeciales.Count == 0)
+            return null;
+
+        string[] clavesProducto =
+        [
+            producto.Codigo?.Trim().ToUpperInvariant() ?? string.Empty,
+            producto.Referencia?.Trim().ToUpperInvariant() ?? string.Empty,
+            producto.Id.ToString()
+        ];
+
+        string categoriaId = producto.CategoriaId?.ToString() ?? string.Empty;
+
+        bool EsGlobal(string? codigo)
+            => string.IsNullOrWhiteSpace(codigo)
+            || codigo.Trim() == "*"
+            || codigo.Trim().Equals("TODOS", StringComparison.OrdinalIgnoreCase)
+            || codigo.Trim().Equals("ALL", StringComparison.OrdinalIgnoreCase);
+
+        bool MatchCodigoProducto(string? codigo)
+        {
+            if (EsGlobal(codigo)) return true;
+            var key = codigo!.Trim().ToUpperInvariant();
+            return clavesProducto.Any(c => !string.IsNullOrEmpty(c) && c == key);
+        }
+
+        bool MatchFamilia(string? codigo)
+        {
+            if (EsGlobal(codigo)) return true;
+            var key = codigo!.Trim();
+            return !string.IsNullOrEmpty(categoriaId)
+                && string.Equals(categoriaId, key, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var exactaArticulo = cliente.CondicionesEspeciales
+            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Articulo)
+            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchCodigoProducto(c.Codigo));
+        if (exactaArticulo != null) return exactaArticulo;
+
+        var exactaFamilia = cliente.CondicionesEspeciales
+            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Familia)
+            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchFamilia(c.Codigo));
+        if (exactaFamilia != null) return exactaFamilia;
+
+        return cliente.CondicionesEspeciales.FirstOrDefault(c => EsGlobal(c.Codigo));
+    }
 
     /// <summary>
     /// POST /api/pedidos/{id}/confirmar — Confirmar pedido (estado → Confirmado)
@@ -334,7 +406,8 @@ public class PedidosController : ControllerBase
                         Cantidad = lote.Cantidad,
                         PrecioUnitario = linea.PrecioUnitario,
                         Descuento = linea.Descuento,
-                        IvaPorcentaje = producto.IvaPorcentaje,
+                        IvaPorcentaje = linea.IvaPorcentaje,
+                        RecargoEquivalenciaPorcentaje = linea.RecargoEquivalenciaPorcentaje,
                         Orden = orden++
                     });
                 }
@@ -342,7 +415,9 @@ public class PedidosController : ControllerBase
 
             albaran.Subtotal = albaran.Lineas.Sum(l => l.Subtotal);
             albaran.IvaTotal = albaran.Lineas.Sum(l => l.IvaImporte);
-            albaran.Total = albaran.Subtotal + albaran.IvaTotal;
+            albaran.RecargoEquivalenciaTotal = Math.Round(albaran.Lineas.Sum(l => l.RecargoEquivalenciaImporte), 2);
+            albaran.RetencionTotal = pedido.RetencionTotal;
+            albaran.Total = albaran.Subtotal + albaran.IvaTotal + albaran.RecargoEquivalenciaTotal - albaran.RetencionTotal;
 
             await _uow.Albaranes.AddAsync(albaran, ct);
 

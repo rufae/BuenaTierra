@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, Producto, SerieFacturacion } from '../types'
-import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin } from 'lucide-react'
+import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 import { DateInput } from '../components/DateInput'
@@ -59,6 +59,29 @@ export default function Pedidos() {
     queryKey: ['series'],
     queryFn: async () => (await api.get<{ data: SerieFacturacion[] }>('/series')).data.data,
   })
+
+  // ── Search & Filter ────────────────────────────────────────────────────
+  const [searchTerm, setSearchTerm] = useState('')
+  const [estadoFilter, setEstadoFilter] = useState<string>('')
+
+  const filteredPedidos = useMemo(() => {
+    if (!pedidos) return []
+    let result = [...pedidos]
+    if (estadoFilter) {
+      result = result.filter(p => p.estado === estadoFilter)
+    }
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim()
+      result = result.filter(p => {
+        const num = (p.numeroPedido ?? '').toLowerCase()
+        const cli = (p.clienteNombre ?? '').toLowerCase()
+        const fecha = fmtDate(p.fecha)?.toLowerCase() ?? ''
+        const fechaEnt = fmtDate(p.fechaEntrega)?.toLowerCase() ?? ''
+        return num.includes(q) || cli.includes(q) || fecha.includes(q) || fechaEnt.includes(q)
+      })
+    }
+    return result
+  }, [pedidos, searchTerm, estadoFilter])
 
   const crearMutation = useMutation({
     mutationFn: (dto: CreatePedidoDto) => api.post('/pedidos/crear', dto),
@@ -176,6 +199,38 @@ export default function Pedidos() {
 
       {/* Lista */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        {/* Search & Filter Bar */}
+        <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Buscar por nº pedido, cliente o fecha…"
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            />
+          </div>
+          <select
+            value={estadoFilter}
+            onChange={e => setEstadoFilter(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">Todos los estados</option>
+            <option value="Pendiente">Pendiente</option>
+            <option value="Confirmado">Confirmado</option>
+            <option value="EnPreparacion">En preparación</option>
+            <option value="Preparado">Preparado</option>
+            <option value="EnReparto">En reparto</option>
+            <option value="Entregado">Entregado</option>
+            <option value="Cancelado">Cancelado</option>
+          </select>
+          {(searchTerm || estadoFilter) && (
+            <button onClick={() => { setSearchTerm(''); setEstadoFilter('') }} className="text-xs text-gray-500 hover:text-gray-700">
+              Limpiar filtros
+            </button>
+          )}
+          <span className="text-xs text-gray-400">{filteredPedidos.length} de {(pedidos ?? []).length}</span>
+        </div>
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -187,9 +242,9 @@ export default function Pedidos() {
           <tbody className="divide-y divide-gray-100">
             {isLoading
               ? <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Cargando pedidos…</td></tr>
-              : (pedidos ?? []).length === 0
-              ? <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No hay pedidos. Crea el primero.</td></tr>
-              : (pedidos ?? []).map(p => (
+              : filteredPedidos.length === 0
+              ? <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">{(pedidos ?? []).length ? 'Sin resultados para el filtro actual' : 'No hay pedidos. Crea el primero.'}</td></tr>
+              : filteredPedidos.map(p => (
                 <React.Fragment key={p.id}>
                   <tr className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{p.numeroPedido}</td>

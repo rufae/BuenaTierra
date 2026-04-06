@@ -3,6 +3,7 @@ using BuenaTierra.Domain.Interfaces;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
@@ -11,6 +12,7 @@ namespace BuenaTierra.API.Controllers;
 [ApiController]
 [Route("api/reportes")]
 [Authorize]
+[EnableRateLimiting("reportes")]
 public class ReportesController : ControllerBase
 {
     private readonly IUnitOfWork _uow;

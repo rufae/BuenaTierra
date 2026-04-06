@@ -2,7 +2,7 @@ import { useState, FormEvent, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
-import type { Produto } from '../types'
+import type { Producto } from '../types'
 import {
   Plus, CheckCircle, XCircle, Loader2, X, Factory, Hash,
   Search, RefreshCw, Filter, FileDown, FileText,
@@ -116,10 +116,10 @@ export default function ProduccionPage() {
     refetchInterval: 30_000,
   })
 
-  const { data: productos } = useQuery<Produto[]>({
+  const { data: productos } = useQuery<Producto[]>({
     queryKey: ['productos', user?.empresaId],
     queryFn: async () => {
-      const res = await api.get<{ data: Produto[] }>('/productos')
+      const res = await api.get<{ data: Producto[] }>('/productos')
       return res.data.data
     },
   })
@@ -467,9 +467,9 @@ export default function ProduccionPage() {
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Cantidad producida *</label>
-                <input type="number" min="1" step="1"
+                <input type="number" min="0.001" step="0.001"
                   value={form.cantidadProducida || ''}
-                  onChange={e => setForm({ ...form, cantidadProducida: parseInt(e.target.value) || 0 })}
+                  onChange={e => setForm({ ...form, cantidadProducida: e.target.value ? parseFloat(e.target.value) : 0 })}
                   required placeholder="0"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 <p className="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 mt-1.5">

@@ -253,12 +253,26 @@ def import_file(
             print(f"ERROR leyendo Excel {csv_path.name}: {e}")
             return 0, 1
     else:
-        with csv_path.open(encoding="utf-8-sig", newline="") as f:
-            reader = csv.DictReader(f)
-            if reader.fieldnames is None:
-                print("    SKIP: archivo vacío o sin cabeceras")
-                return 0, 0
-            rows = list(reader)
+        # Intentar UTF-8 primero, con fallback para CSVs legacy de Excel (cp1252/latin1)
+        loaded = False
+        for enc in ("utf-8-sig", "cp1252", "latin-1"):
+            try:
+                with csv_path.open(encoding=enc, newline="") as f:
+                    reader = csv.DictReader(f)
+                    if reader.fieldnames is None:
+                        print("    SKIP: archivo vacío o sin cabeceras")
+                        return 0, 0
+                    rows = list(reader)
+                    loaded = True
+                if enc != "utf-8-sig":
+                    print(f"    WARN: '{csv_path.name}' leído con encoding fallback: {enc}")
+                break
+            except UnicodeDecodeError:
+                continue
+
+        if not loaded:
+            print(f"ERROR: no se pudo decodificar '{csv_path.name}'. Guarda el CSV en UTF-8.")
+            return 0, 1
 
     for idx, row in enumerate(rows, start=2):
         # normalizar row keys/values to str

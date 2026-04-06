@@ -132,10 +132,18 @@ public class ClientesController : ControllerBase
     // ── CLIENTES ─────────────────────────────────────────────────────────────
 
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<IEnumerable<Cliente>>>> GetAll(
-        [FromQuery] bool soloActivos = true, CancellationToken ct = default)
+    public async Task<ActionResult> GetAll(
+        [FromQuery] bool soloActivos = true,
+        [FromQuery] int? page = null, [FromQuery] int? pageSize = null,
+        CancellationToken ct = default)
     {
-        var clientes = await _uow.Clientes.GetByEmpresaAsync(EmpresaId, soloActivos, ct);
+        var clientes = (await _uow.Clientes.GetByEmpresaAsync(EmpresaId, soloActivos, ct)).ToList();
+        var p = new PaginationParams(page, pageSize);
+        if (p.HasPagination)
+        {
+            var paged = clientes.Skip((p.SafePage - 1) * p.SafePageSize).Take(p.SafePageSize);
+            return Ok(PagedResponse<Cliente>.Ok(paged, clientes.Count, p.SafePage, p.SafePageSize));
+        }
         return Ok(ApiResponse<IEnumerable<Cliente>>.Ok(clientes));
     }
 

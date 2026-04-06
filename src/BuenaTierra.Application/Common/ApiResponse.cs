@@ -50,3 +50,17 @@ public class PaginationMeta
     public int PageSize { get; set; }
     public int TotalPages { get; set; }
 }
+
+/// <summary>
+/// Parámetros de paginación reutilizables para endpoints GET que devuelven listas.
+/// Si page es null se devuelven todos los registros (compatibilidad retroactiva).
+/// </summary>
+public record PaginationParams(int? Page = null, int? PageSize = null)
+{
+    public const int MaxPageSize = 500;
+    public const int DefaultPageSize = 50;
+
+    public bool HasPagination => Page.HasValue;
+    public int SafePage => Math.Max(1, Page ?? 1);
+    public int SafePageSize => Math.Clamp(PageSize ?? DefaultPageSize, 1, MaxPageSize);
+}

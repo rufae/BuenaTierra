@@ -4,6 +4,10 @@ import { useAuth } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
 import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer,
+} from 'recharts'
+import {
   Package,
   AlertTriangle,
   TrendingUp,
@@ -73,6 +77,24 @@ export default function Dashboard() {
       return res.data.data
     },
     refetchInterval: 60_000,
+  })
+
+  // Ventas trend for charts (last 7 days)
+  const hace7 = new Date(); hace7.setDate(hace7.getDate() - 6)
+  const { data: ventasTrend } = useQuery<{ puntos: Array<{ fechaLabel: string; importe: number; count: number }> }>({
+    queryKey: ['dashboard-ventas-trend', user?.empresaId],
+    queryFn: async () => {
+      const desde = hace7.toISOString().split('T')[0]
+      const hasta = new Date().toISOString().split('T')[0]
+      const res = await api.get(`/reportes/ventas?desde=${desde}&hasta=${hasta}`)
+      return res.data
+    },
+    refetchInterval: 120_000,
+  })
+
+  const chartData = ventasTrend?.puntos ?? Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - 6 + i)
+    return { fechaLabel: d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }), importe: 0, count: 0 }
   })
 
   const isRepartidor = user?.rol === 'Repartidor'
@@ -184,6 +206,29 @@ export default function Dashboard() {
                   icon={<TrendingUp className="w-5 h-5 text-red-600" />}
                   color="bg-red-50" alert={(stats?.facturasPendientesCobroCount ?? 0) > 0} onClick={() => navigate('/facturacion')} />
               </div>
+              {/* Sales trend chart */}
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                <h2 className="font-semibold text-gray-900 text-sm mb-3">Ventas últimos 7 días</h2>
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={chartData} margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradDash" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                    <XAxis dataKey="fechaLabel" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}€`} />
+                    <Tooltip
+                      formatter={(v: number | undefined) => [`${(v ?? 0).toFixed(2)} €`, 'Importe']}
+                      labelFormatter={l => `Día: ${l}`}
+                      contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                    />
+                    <Area type="monotone" dataKey="importe" stroke="#7c3aed" strokeWidth={2} fill="url(#gradDash)" name="Importe" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <RecentPanel
                   title="Últimas facturas"
@@ -228,6 +273,46 @@ export default function Dashboard() {
                 <StatCard title="Clientes activos" value={stats?.totalClientes ?? 0}
                   sub="Base de clientes" icon={<Users className="w-5 h-5 text-purple-600" />}
                   color="bg-purple-50" onClick={() => navigate('/clientes')} />
+              </div>
+              {/* Ventas trend chart */}
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                <h2 className="font-semibold text-gray-900 text-sm mb-3">Evolución de ventas (7 días)</h2>
+                <ResponsiveContainer width="100%" height={250}>
+                  <AreaChart data={chartData} margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradVentas2" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                    <XAxis dataKey="fechaLabel" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}€`} />
+                    <Tooltip
+                      formatter={(v: number | undefined) => [`${(v ?? 0).toFixed(2)} €`, 'Importe']}
+                      labelFormatter={l => `Día: ${l}`}
+                      contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                    />
+                    <Area type="monotone" dataKey="importe" stroke="#7c3aed" strokeWidth={2} fill="url(#gradVentas2)" name="Importe" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              {/* Facturas por dia bar chart */}
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                <h2 className="font-semibold text-gray-900 text-sm mb-3">Facturas por día</h2>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={chartData} margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                    <XAxis dataKey="fechaLabel" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      formatter={(v: number | undefined) => [(v ?? 0), 'Facturas']}
+                      labelFormatter={l => `Día: ${l}`}
+                      contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                    />
+                    <Bar dataKey="count" fill="#7c3aed" opacity={0.7} radius={[3, 3, 0, 0]} name="Facturas" />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
               <RecentPanel
                 title="Últimas facturas"

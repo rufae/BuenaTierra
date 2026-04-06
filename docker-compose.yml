@@ -14,7 +14,7 @@ services:
       - ./database/backups:/backups
       - ./database/backup.sh:/backups/backup.sh:ro
     ports:
-      - "127.0.0.1:5433:5432"
+      - "5434:5432"
     networks:
       - buenatierra_net
     healthcheck:
@@ -86,7 +86,7 @@ services:
     restart: unless-stopped
     environment:
       # Allow connections from our dev/prod hosts
-      aliasgroup1: "http://localhost:5064,http://host.docker.internal:5064,http://buenatierra_api:8080"
+      aliasgroup1: "http://localhost:5001,http://host.docker.internal:5001,http://buenatierra_api:8080"
       # CRITICAL: Use extra_params with --o: prefix to override coolwsd.xml settings.
       # Plain env vars like "ssl.enable=false" are IGNORED by Collabora.
       extra_params: >-

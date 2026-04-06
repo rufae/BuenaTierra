@@ -21,6 +21,7 @@ import Usuarios from './pages/Usuarios'
 import Ajustes from './pages/Ajustes'
 import SeriesFacturacion from './pages/SeriesFacturacion'
 import Etiquetas from './pages/Etiquetas'
+import BuenaTierrAI from './pages/BuenaTierrAI'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import ShortcutsModal from './components/ShortcutsModal'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -85,6 +86,7 @@ function AppRoutes() {
         <Route path="ajustes" element={<RoleGuard allowed={['Admin', 'Obrador', 'Repartidor']}><ErrorBoundary><Ajustes /></ErrorBoundary></RoleGuard>} />
         <Route path="series" element={<RoleGuard allowed={['Admin']}><ErrorBoundary><SeriesFacturacion /></ErrorBoundary></RoleGuard>} />
         <Route path="etiquetas" element={<RoleGuard allowed={['Admin', 'Obrador']}><ErrorBoundary><Etiquetas /></ErrorBoundary></RoleGuard>} />
+        <Route path="buenatierr-ai" element={<RoleGuard allowed={['Admin', 'Obrador', 'Repartidor']}><ErrorBoundary><BuenaTierrAI /></ErrorBoundary></RoleGuard>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
