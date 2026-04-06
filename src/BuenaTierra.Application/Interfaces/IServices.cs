@@ -102,6 +102,8 @@ public class FacturaDto
     public ClienteResumen Cliente { get; set; } = new();
     public decimal BaseImponible { get; set; }
     public decimal IvaTotal { get; set; }
+    public decimal RecargoEquivalenciaTotal { get; set; }
+    public decimal RetencionTotal { get; set; }
     public decimal Total { get; set; }
     public DateOnly? FechaVencimiento { get; set; }
     public List<FacturaLineaDto> Lineas { get; set; } = new();
@@ -165,3 +167,60 @@ public interface ISerieFacturacionService
 }
 
 public record SerieDto(int Id, string Codigo, string? Descripcion, string? Prefijo, int UltimoNumero, bool Activa);
+
+// ============================================================
+// BuenaTierrAI
+// ============================================================
+
+public interface IBuenaTierrAIService
+{
+    Task<BuenaTierrAIChatResponse> ChatAsync(BuenaTierrAIChatRequest request, CancellationToken ct = default);
+    Task<BuenaTierrAIStatusResponse> GetStatusAsync(CancellationToken ct = default);
+}
+
+public class BuenaTierrAIChatRequest
+{
+    public string Message { get; set; } = string.Empty;
+    public List<BuenaTierrAIMessage> History { get; set; } = new();
+    public string? ToolContextJson { get; set; }
+}
+
+public class BuenaTierrAIMessage
+{
+    public string Role { get; set; } = "user";
+    public string Content { get; set; } = string.Empty;
+}
+
+public class BuenaTierrAIChatResponse
+{
+    public string Answer { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
+    public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+    public List<string> Warnings { get; set; } = new();
+}
+
+public class BuenaTierrAIStatusResponse
+{
+    public bool Enabled { get; set; }
+    public bool ApiKeyConfigured { get; set; }
+    public bool ApiKeyRequired { get; set; }
+    public string Model { get; set; } = string.Empty;
+    public string ProviderBaseUrl { get; set; } = string.Empty;
+    public bool ConfigurationValid { get; set; }
+    public List<string> Warnings { get; set; } = new();
+}
+
+public class BuenaTierrAIContextResponse
+{
+    public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+    public string Source { get; set; } = "api-aggregated";
+    public object Productos { get; set; } = Array.Empty<object>();
+    public object Categorias { get; set; } = Array.Empty<object>();
+    public object IngredientesConAlergenos { get; set; } = Array.Empty<object>();
+    public object Clientes { get; set; } = Array.Empty<object>();
+    public object Stock { get; set; } = Array.Empty<object>();
+    public object Pedidos { get; set; } = Array.Empty<object>();
+    public object Facturas { get; set; } = Array.Empty<object>();
+    public object Producciones { get; set; } = Array.Empty<object>();
+    public List<string> Warnings { get; set; } = new();
+}

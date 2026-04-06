@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import {
   User, Lock, Loader2, Eye, EyeOff, Phone, Mail, Shield, Building2,
   CheckCircle2, KeyRound, Settings, Percent, Printer, Package, Server,
-  Upload, Trash2, Plus, Pencil, Save,
+  Upload, Trash2, Plus, Pencil, Save, Bot,
 } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../store/authStore'
@@ -42,9 +42,15 @@ interface ConfiguracionEmpresa {
   smtpFromEmail?: string
   smtpUseSsl?: boolean
   impresoras?: { nombre: string; tipo: string; ip?: string }[]
+  buenatierrAI?: {
+    enabled?: boolean
+    providerBaseUrl?: string
+    model?: string
+    apiKey?: string
+  }
 }
 
-type Tab = 'perfil' | 'password' | 'empresa' | 'series' | 'iva' | 'stock' | 'smtp'
+type Tab = 'perfil' | 'password' | 'empresa' | 'series' | 'iva' | 'stock' | 'smtp' | 'ia'
 
 const ROL_CONFIG: Record<string, { label: string; color: string }> = {
   Admin:              { label: 'Administrador', color: 'bg-purple-100 text-purple-700 border-purple-200' },
@@ -110,6 +116,7 @@ export default function Ajustes() {
   const { user, updateUser } = useAuth()
   const qc = useQueryClient()
   const isAdmin = user?.rol === 'Admin'
+  const canConfigureIa = user?.rol === 'Admin' || user?.rol === 'Obrador'
   const [tab, setTab] = useState<Tab>('perfil')
 
   const initials = [user?.nombre, user?.apellidos]
@@ -129,7 +136,7 @@ export default function Ajustes() {
 
   const { data: empresa } = useQuery<EmpresaData>({
     queryKey: ['empresa'],
-    enabled: isAdmin,
+    enabled: canConfigureIa,
     queryFn: async () => (await api.get('/empresa')).data.data,
   })
 
@@ -321,9 +328,47 @@ export default function Ajustes() {
     onError: () => toast.error('Error al guardar configuración'),
   })
 
+  const iaConfigMutation = useMutation({
+    mutationFn: (cfg: ConfiguracionEmpresa['buenatierrAI']) => api.put('/empresa/configuracion/ia', {
+      enabled: cfg?.enabled ?? true,
+      providerBaseUrl: cfg?.providerBaseUrl ?? '',
+      model: cfg?.model ?? '',
+      apiKey: cfg?.apiKey ?? '',
+    }),
+    onSuccess: () => {
+      toast.success('Configuración IA actualizada')
+      qc.invalidateQueries({ queryKey: ['empresa'] })
+      qc.invalidateQueries({ queryKey: ['buenatierr-ai-status'] })
+    },
+    onError: () => toast.error('Error al guardar configuración IA'),
+  })
+
   function handleConfigSave(e: FormEvent) {
     e.preventDefault()
     configMutation.mutate(config)
+  }
+
+  function handleIaConfigSave(e: FormEvent) {
+    e.preventDefault()
+    iaConfigMutation.mutate(config.buenatierrAI)
+  }
+
+  function applyAiPreset(preset: 'groq' | 'openai' | 'ollama' | 'custom') {
+    const next = { ...(config.buenatierrAI ?? {}) }
+    if (preset === 'groq') {
+      next.providerBaseUrl = 'https://api.groq.com/openai/v1'
+      next.model = next.model || 'llama-3.3-70b-versatile'
+    }
+    if (preset === 'openai') {
+      next.providerBaseUrl = 'https://api.openai.com/v1'
+      next.model = next.model || 'gpt-4o-mini'
+    }
+    if (preset === 'ollama') {
+      next.providerBaseUrl = 'http://localhost:11434/v1'
+      next.model = next.model || 'llama3.2'
+      next.apiKey = ''
+    }
+    setConfig(c => ({ ...c, buenatierrAI: next }))
   }
 
   // ═══════════════════════════════════════════════════════
@@ -341,9 +386,15 @@ export default function Ajustes() {
     { id: 'iva'     as Tab, icon: <Percent className="w-4 h-4" />,   label: 'IVA / RE' },
     { id: 'stock'   as Tab, icon: <Package className="w-4 h-4" />,   label: 'Stock' },
     { id: 'smtp'    as Tab, icon: <Server className="w-4 h-4" />,    label: 'SMTP' },
+    { id: 'ia'      as Tab, icon: <Bot className="w-4 h-4" />,       label: 'BuenaTierrAI' },
   ]
+  const iaTabOnly = [{ id: 'ia' as Tab, icon: <Bot className="w-4 h-4" />, label: 'BuenaTierrAI' }]
 
-  const allTabs = isAdmin ? [...userTabs, ...adminTabs] : userTabs
+  const allTabs = isAdmin
+    ? [...userTabs, ...adminTabs]
+    : canConfigureIa
+      ? [...userTabs, ...iaTabOnly]
+      : userTabs
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -725,6 +776,89 @@ export default function Ajustes() {
             </div>
 
             <div className="flex justify-end pt-2"><SaveBtn loading={configMutation.isPending} /></div>
+          </form>
+        )}
+
+        {/* ── IA ── */}
+        {tab === 'ia' && canConfigureIa && (
+          <form onSubmit={handleIaConfigSave} className="p-6 space-y-5">
+            <SectionTitle><Bot className="w-4 h-4 text-brand-500" /> Configuración BuenaTierrAI</SectionTitle>
+            <p className="text-xs text-gray-500 -mt-2">
+              Estos valores se guardan en la configuración de empresa y tienen prioridad sobre el `.env`.
+              Para Ollama local no se requiere API key.
+            </p>
+
+            <div className="flex items-end gap-3 flex-wrap">
+              <button type="button" onClick={() => applyAiPreset('groq')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50">Preset Groq</button>
+              <button type="button" onClick={() => applyAiPreset('openai')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50">Preset OpenAI</button>
+              <button type="button" onClick={() => applyAiPreset('ollama')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50">Preset Ollama local</button>
+              <button type="button" onClick={() => applyAiPreset('custom')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50">Mantener actual</button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                id="ia-enabled"
+                type="checkbox"
+                checked={config.buenatierrAI?.enabled ?? true}
+                onChange={e => setConfig(c => ({
+                  ...c,
+                  buenatierrAI: {
+                    ...(c.buenatierrAI ?? {}),
+                    enabled: e.target.checked,
+                  }
+                }))}
+                className="rounded border-gray-300 text-brand-500 focus:ring-brand-400"
+              />
+              <label htmlFor="ia-enabled" className="text-sm text-gray-700">BuenaTierrAI habilitada</label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field
+                label="Provider Base URL"
+                value={config.buenatierrAI?.providerBaseUrl ?? ''}
+                onChange={v => setConfig(c => ({
+                  ...c,
+                  buenatierrAI: {
+                    ...(c.buenatierrAI ?? {}),
+                    providerBaseUrl: v,
+                  }
+                }))}
+                placeholder="https://api.groq.com/openai/v1 o http://localhost:11434/v1"
+              />
+              <Field
+                label="Modelo"
+                value={config.buenatierrAI?.model ?? ''}
+                onChange={v => setConfig(c => ({
+                  ...c,
+                  buenatierrAI: {
+                    ...(c.buenatierrAI ?? {}),
+                    model: v,
+                  }
+                }))}
+                placeholder="llama-3.3-70b-versatile / gpt-4o-mini / llama3.2"
+              />
+            </div>
+
+            <Field
+              label="API Key (vacía si Ollama local)"
+              value={config.buenatierrAI?.apiKey ?? ''}
+              onChange={v => setConfig(c => ({
+                ...c,
+                buenatierrAI: {
+                  ...(c.buenatierrAI ?? {}),
+                  apiKey: v,
+                }
+              }))}
+              type="password"
+              placeholder="gsk_... o sk-..."
+            />
+
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              Recomendación: en instalaciones de cliente usa proveedor remoto (Groq/OpenAI) con API key propia,
+              o proveedor local (Ollama) si el equipo tiene suficiente potencia y el modelo instalado.
+            </div>
+
+            <div className="flex justify-end pt-2"><SaveBtn loading={iaConfigMutation.isPending} /></div>
           </form>
         )}
       </div>

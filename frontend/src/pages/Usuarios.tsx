@@ -59,9 +59,8 @@ export default function Usuarios() {
   })
 
   return (
-    <div className="flex flex-col flex-1 overflow-y-auto bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shrink-0">
+    <div className="p-6 space-y-5">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Shield className="w-5 h-5 text-purple-600" /> Gestión de usuarios
@@ -76,7 +75,7 @@ export default function Usuarios() {
         </button>
       </div>
 
-      <div className="p-6">
+      <div>
         {isLoading ? (
           <div className="flex justify-center py-14 text-gray-400 gap-2">
             <Loader2 className="w-5 h-5 animate-spin" /> Cargando usuarios…

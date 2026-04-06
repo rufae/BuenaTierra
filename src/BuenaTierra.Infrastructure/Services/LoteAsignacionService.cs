@@ -74,9 +74,10 @@ public class LoteAsignacionService : ILoteAsignacionService
         if (restante > 0)
         {
             decimal disponibleTotal = cantidad - restante;
+            var productoNombre = lotesLista.FirstOrDefault()?.Producto?.Nombre;
             _logger.LogWarning("Stock insuficiente para producto {ProductoId}: solicitado={Solicitado}, disponible={Disponible}",
                 productoId, cantidad, disponibleTotal);
-            throw new StockInsuficienteException(productoId, cantidad, disponibleTotal);
+            throw new StockInsuficienteException(productoId, cantidad, disponibleTotal, productoNombre);
         }
 
         _logger.LogInformation("Asignación FIFO completada: {NumLotes} lotes para {Cantidad} unidades",

@@ -3,8 +3,6 @@ include:
 
 services:
   db:
-    ports:
-      - "5433:5432"
     environment:
       POSTGRES_PASSWORD: devpassword123
 
@@ -16,7 +14,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=buenatierra;Username=buenatierra_admin;Password=devpassword123;Pooling=true;"
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=buenatierra;Username=buenatierra_admin;Password=BuenaTierra2025!Seguro#Dev;Pooling=true;"
       Jwt__Secret: dev_jwt_secret_not_for_production_use_only_local_64chars_abcdef
       Jwt__ExpiresInMinutes: 480
     ports:

@@ -63,16 +63,16 @@ export default function Ingredientes() {
   const [tab, setTab] = useState<Tab>('ingredientes')
 
   return (
-    <div className="flex flex-col flex-1 overflow-y-auto bg-cream-100">
-      {/* Header */}
-      <div className="bg-cream-50 border-b border-cream-200 px-6 py-4 shrink-0">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Ingredientes y Alérgenos</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Catálogo de ingredientes · Declaración de alérgenos (CE 1169/2011) · Fichas por producto
-          </p>
-        </div>
-        <div className="flex gap-1 mt-4 mb-[-1px]">
+    <div className="p-6 space-y-5">
+      <div>
+        <h1 className="text-xl font-bold text-gray-900">Ingredientes y Alérgenos</h1>
+        <p className="text-sm text-gray-500 mt-0.5">
+          Catálogo de ingredientes · Declaración de alérgenos (CE 1169/2011) · Fichas por producto
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white px-2 pt-2">
+        <div className="flex gap-1 border-b border-gray-100 px-1">
           {([
             { id: 'ingredientes', label: 'Ingredientes' },
             { id: 'fichas', label: 'Fichas de alérgenos por producto' },
@@ -92,14 +92,13 @@ export default function Ingredientes() {
             </button>
           ))}
         </div>
-      </div>
 
-      {/* Body */}
-      <div className="flex-1 p-6">
+        <div className="p-4 md:p-6">
         {tab === 'ingredientes' && <TabIngredientes />}
         {tab === 'fichas' && <TabFichas />}
         {tab === 'control' && <TabControlMaterias />}
         {tab === 'stock' && <TabStockMP />}
+        </div>
       </div>
     </div>
   )
@@ -1433,7 +1432,11 @@ function TabStockMP() {
                     : <ChevronRight className="w-4 h-4 text-gray-400" />}
                   <Package className="w-4 h-4 text-brand-500" />
                   <span className="font-semibold text-sm text-gray-900">{producto}</span>
-                  {tieneAlerta && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" title="Tiene lotes próximos a caducar o caducados" />}
+                  {tieneAlerta && (
+                    <span title="Tiene lotes próximos a caducar o caducados">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-4 text-xs text-gray-500 shrink-0">
                   <span><b className="text-gray-800">{lotes.length}</b> lote{lotes.length !== 1 ? 's' : ''}</span>

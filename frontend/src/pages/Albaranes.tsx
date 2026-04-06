@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { AlbaranResumen, AlbaranDetalle, CreateAlbaranDto, Cliente, Producto, SerieFacturacion } from '../types'
-import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp, Download, Package } from 'lucide-react'
+import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp, Download, Package, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 
@@ -71,6 +71,28 @@ export default function Albaranes() {
     queryKey: ['series'],
     queryFn: async () => (await api.get<{ data: SerieFacturacion[] }>('/series')).data.data,
   })
+
+  // ── Search & Filter ────────────────────────────────────────────────────
+  const [searchTerm, setSearchTerm] = useState('')
+  const [estadoFilter, setEstadoFilter] = useState<string>('')
+
+  const filteredAlbaranes = useMemo(() => {
+    if (!albaranes) return []
+    let result = [...albaranes]
+    if (estadoFilter) {
+      result = result.filter(a => a.estado === estadoFilter)
+    }
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim()
+      result = result.filter(a => {
+        const num = (a.numeroAlbaran ?? '').toLowerCase()
+        const cli = (a.clienteNombre ?? '').toLowerCase()
+        const fecha = fmtDate(a.fecha)?.toLowerCase() ?? ''
+        return num.includes(q) || cli.includes(q) || fecha.includes(q)
+      })
+    }
+    return result
+  }, [albaranes, searchTerm, estadoFilter])
 
   const crearMutation = useMutation({
     mutationFn: (dto: CreateAlbaranDto) => api.post('/albaranes/crear', dto),
@@ -177,6 +199,36 @@ export default function Albaranes() {
 
       {/* Lista */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        {/* Search & Filter Bar */}
+        <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Buscar por nº albarán, cliente o fecha…"
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            />
+          </div>
+          <select
+            value={estadoFilter}
+            onChange={e => setEstadoFilter(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">Todos los estados</option>
+            <option value="Pendiente">Pendiente</option>
+            <option value="EnReparto">En reparto</option>
+            <option value="Entregado">Entregado</option>
+            <option value="Facturado">Facturado</option>
+            <option value="Cancelado">Cancelado</option>
+          </select>
+          {(searchTerm || estadoFilter) && (
+            <button onClick={() => { setSearchTerm(''); setEstadoFilter('') }} className="text-xs text-gray-500 hover:text-gray-700">
+              Limpiar filtros
+            </button>
+          )}
+          <span className="text-xs text-gray-400">{filteredAlbaranes.length} de {(albaranes ?? []).length}</span>
+        </div>
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -188,9 +240,9 @@ export default function Albaranes() {
           <tbody className="divide-y divide-gray-100">
             {isLoading
               ? <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Cargando albaranes…</td></tr>
-              : (albaranes ?? []).length === 0
-              ? <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No hay albaranes. Crea el primero.</td></tr>
-              : (albaranes ?? []).map(a => (
+              : filteredAlbaranes.length === 0
+              ? <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">{(albaranes ?? []).length ? 'Sin resultados para el filtro actual' : 'No hay albaranes. Crea el primero.'}</td></tr>
+              : filteredAlbaranes.map(a => (
                 <>
                   <tr key={a.id} className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{a.numeroAlbaran}</td>

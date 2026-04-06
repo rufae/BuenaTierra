@@ -275,11 +275,9 @@ public class ProduccionService : IProduccionService
     }
 
     /// <summary>
-    /// Registra el consumo teórico de ingredientes basado en la receta del producto.
-    /// En el modelo actual, los ingredientes son entidades independientes sin stock propio.
-    /// Esta función calcula y registra (log) el consumo para futura auditoría/trazabilidad.
-    /// TODO: Cuando ingredientes tengan ProductoEquivalenteId (materia prima como producto),
-    ///       implementar consumo real de stock por FIFO.
+    /// Consume stock real de materias primas según receta del producto.
+    /// La extracción se realiza por FIFO sobre control_materias_primas (FechaEntrada ascendente).
+    /// Si no hay disponibilidad suficiente para un ingrediente, la finalización falla.
     /// </summary>
     private async Task ConsumirIngredientesAsync(
         int empresaId, int productoId, decimal cantidadProducida,
@@ -293,19 +291,67 @@ public class ProduccionService : IProduccionService
         if (!receta.Any()) return;
 
         _logger.LogInformation(
-            "Registro de consumo de ingredientes: producto={ProductoId}, cantidad={Cantidad}, ingredientes={Count}",
+            "Consumo real de ingredientes: producto={ProductoId}, cantidad={Cantidad}, ingredientes={Count}",
             productoId, cantidadProducida, receta.Count);
 
         foreach (var ingredienteReceta in receta)
         {
-            decimal cantidadConsumir = (ingredienteReceta.CantidadGr ?? 0) * cantidadProducida;
+            decimal cantidadConsumir = Math.Round((ingredienteReceta.CantidadGr ?? 0m) * cantidadProducida, 3);
             if (cantidadConsumir <= 0) continue;
 
-            _logger.LogInformation(
-                "  Consumo teórico: ingrediente={Nombre} (id={IngredienteId}), cantidad={Cantidad}g",
-                ingredienteReceta.Ingrediente?.Nombre ?? "?",
-                ingredienteReceta.IngredienteId,
-                cantidadConsumir);
+            var lotesMateriaPrima = await _uow.ControlMatPrimas.GetQueryable()
+                .Where(c => c.EmpresaId == empresaId
+                    && c.IngredienteId == ingredienteReceta.IngredienteId
+                    && c.MercanciaAceptada
+                    && !c.FechaFinExistencia.HasValue
+                    && c.Unidades > 0)
+                .OrderBy(c => c.FechaEntrada)
+                .ThenBy(c => c.Id)
+                .ToListAsync(ct);
+
+            decimal disponible = lotesMateriaPrima.Sum(x => x.Unidades);
+            if (disponible < cantidadConsumir)
+            {
+                var nombreIngrediente = ingredienteReceta.Ingrediente?.Nombre ?? $"ID {ingredienteReceta.IngredienteId}";
+                throw new DomainException(
+                    $"Stock insuficiente de materia prima para finalizar producción. Ingrediente: {nombreIngrediente}. " +
+                    $"Requerido: {cantidadConsumir:N3}. Disponible: {disponible:N3}.");
+            }
+
+            decimal restante = cantidadConsumir;
+            foreach (var mp in lotesMateriaPrima)
+            {
+                if (restante <= 0) break;
+
+                decimal antes = mp.Unidades;
+                decimal usar = Math.Min(antes, restante);
+                if (usar <= 0) continue;
+
+                mp.Unidades = Math.Round(antes - usar, 3);
+                if (mp.Unidades <= 0)
+                {
+                    mp.Unidades = 0;
+                    mp.FechaFinExistencia ??= DateOnly.FromDateTime(DateTime.UtcNow);
+                }
+
+                string registroConsumo =
+                    $"Consumo producción #{produccionId}: -{usar:N3} (antes {antes:N3}, después {mp.Unidades:N3})";
+                mp.Observaciones = string.IsNullOrWhiteSpace(mp.Observaciones)
+                    ? registroConsumo
+                    : $"{mp.Observaciones} | {registroConsumo}";
+                mp.UpdatedAt = DateTime.UtcNow;
+
+                await _uow.ControlMatPrimas.UpdateAsync(mp, ct);
+                restante = Math.Round(restante - usar, 3);
+
+                _logger.LogInformation(
+                    "  Consumo real: ingrediente={IngredienteId}, controlMp={ControlMpId}, usado={Usado}, antes={Antes}, despues={Despues}",
+                    ingredienteReceta.IngredienteId,
+                    mp.Id,
+                    usar,
+                    antes,
+                    mp.Unidades);
+            }
         }
     }
 

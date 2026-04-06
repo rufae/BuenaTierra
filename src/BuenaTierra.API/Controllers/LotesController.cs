@@ -25,26 +25,43 @@ public class LotesController : ControllerBase
 
     private int EmpresaId => int.Parse(User.FindFirstValue("empresa_id")!);
 
-    /// <summary>GET /api/lotes — Todos los lotes de la empresa</summary>
+    /// <summary>GET /api/lotes — Todos los lotes de la empresa (con paginación opcional)</summary>
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<IEnumerable<object>>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult> GetAll(
+        [FromQuery] int? page = null, [FromQuery] int? pageSize = null,
+        CancellationToken ct = default)
     {
-        var items = await _uow.Lotes.GetQueryable()
+        var query = _uow.Lotes.GetQueryable()
             .Where(l => l.EmpresaId == EmpresaId)
-            .OrderByDescending(l => l.FechaFabricacion)
+            .OrderByDescending(l => l.FechaFabricacion);
+
+        var p = new PaginationParams(page, pageSize);
+        if (p.HasPagination)
+        {
+            var total = await query.CountAsync(ct);
+            var items = await query
+                .Skip((p.SafePage - 1) * p.SafePageSize).Take(p.SafePageSize)
+                .Select(l => new
+                {
+                    l.Id, l.ProductoId,
+                    ProductoNombre = l.Producto.Nombre,
+                    l.CodigoLote, l.FechaFabricacion, l.FechaCaducidad,
+                    l.CantidadInicial, l.Bloqueado,
+                })
+                .ToListAsync(ct);
+            return Ok(PagedResponse<object>.Ok(items.Cast<object>(), total, p.SafePage, p.SafePageSize));
+        }
+
+        var all = await query
             .Select(l => new
             {
-                l.Id,
-                l.ProductoId,
+                l.Id, l.ProductoId,
                 ProductoNombre = l.Producto.Nombre,
-                l.CodigoLote,
-                l.FechaFabricacion,
-                l.FechaCaducidad,
-                l.CantidadInicial,
-                l.Bloqueado,
+                l.CodigoLote, l.FechaFabricacion, l.FechaCaducidad,
+                l.CantidadInicial, l.Bloqueado,
             })
             .ToListAsync(ct);
-        return Ok(ApiResponse<IEnumerable<object>>.Ok(items.Cast<object>()));
+        return Ok(ApiResponse<IEnumerable<object>>.Ok(all.Cast<object>()));
     }
 
     /// <summary>GET /api/lotes/producto/{productoId} — Todos los lotes de un producto</summary>

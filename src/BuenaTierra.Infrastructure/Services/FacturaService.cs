@@ -30,6 +30,8 @@ namespace BuenaTierra.Infrastructure.Services;
 /// </summary>
 public class FacturaService : IFacturaService
 {
+    private const string DiscountOriginToken = "|DTO_ORIGEN:";
+
     private readonly IUnitOfWork _uow;
     private readonly ILoteAsignacionService _loteService;
     private readonly ISerieFacturacionService _serieService;
@@ -52,9 +54,14 @@ public class FacturaService : IFacturaService
         _logger.LogInformation("Creando factura: empresa={EmpresaId}, cliente={ClienteId}, items={Items}",
             request.EmpresaId, request.ClienteId, request.Items.Count);
 
-        // Validar cliente
-        var cliente = await _uow.Clientes.GetByIdAsync(request.ClienteId, ct)
+        // Validar cliente y cargar sus condiciones especiales comerciales
+        var cliente = await _uow.Clientes.GetQueryable()
+            .Include(c => c.CondicionesEspeciales)
+            .FirstOrDefaultAsync(c => c.Id == request.ClienteId && c.EmpresaId == request.EmpresaId, ct)
             ?? throw new EntidadNotFoundException(nameof(Cliente), request.ClienteId);
+
+        if (cliente.NoRealizarFacturas)
+            throw new InvalidOperationException("Este cliente tiene marcado 'No realizar facturas'. No se puede crear una factura.");
 
         // Para cada item, obtener info del producto y asignar lotes FIFO
         var lineasConLotes = new List<(LineaFacturaRequest Item, Producto Producto, List<LoteAsignado> Lotes)>();
@@ -127,22 +134,31 @@ public class FacturaService : IFacturaService
             // Crear líneas de factura — una línea por LOTE asignado
             foreach (var (item, producto, lotes) in lineasConLotes)
             {
-                decimal precioUnitario = item.PrecioUnitario ?? producto.PrecioVenta;
-                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje, tablaRE) : 0m;
-                // Aplicar descuento de la línea; fallback al descuento general del cliente
-                decimal descuentoEfectivo = item.Descuento > 0 ? item.Descuento : cliente.DescuentoGeneral;
+                var condicion = ResolveCondicionEspecial(cliente, producto);
+
+                decimal precioUnitario = item.PrecioUnitario
+                    ?? (condicion?.Tipo is TipoCondicionEspecial.Precio or TipoCondicionEspecial.PrecioEspecial
+                        ? condicion.Precio
+                        : producto.PrecioVenta);
+
+                decimal ivaPorc = GetIvaPorcentaje(cliente, producto);
+                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m;
+
+                // Precedencia comercial: línea > condición especial > descuento cliente > descuento producto.
+                var (descuentoEfectivo, origenDescuento) = ResolveDescuento(item, cliente, producto, condicion);
 
                 foreach (var lote in lotes)
                 {
+                    var descripcionLinea = $"{producto.Nombre}" + (lote.LoteId > 0 ? $" (Lote: {lote.CodigoLote})" : "");
                     factura.Lineas.Add(new FacturaLinea
                     {
                         ProductoId  = item.ProductoId,
                         LoteId      = lote.LoteId > 0 ? lote.LoteId : null,
-                        Descripcion = $"{producto.Nombre}" + (lote.LoteId > 0 ? $" (Lote: {lote.CodigoLote})" : ""),
+                        Descripcion = $"{descripcionLinea} {BuildDiscountOriginToken(origenDescuento)}".Trim(),
                         Cantidad    = lote.Cantidad,
                         PrecioUnitario = precioUnitario,
                         Descuento   = descuentoEfectivo,
-                        IvaPorcentaje = producto.IvaPorcentaje,
+                        IvaPorcentaje = ivaPorc,
                         RecargoEquivalenciaPorcentaje = rePorc,
                         Orden       = orden++
                     });
@@ -224,18 +240,148 @@ public class FacturaService : IFacturaService
         }
     }
 
+    private static decimal GetIvaPorcentaje(Cliente cliente, Producto producto)
+        => cliente.TipoImpuesto switch
+        {
+            TipoImpuesto.Exento => 0m,
+            TipoImpuesto.IGIC => 7m,
+            _ => cliente.AplicarImpuesto ? producto.IvaPorcentaje : 0m
+        };
+
     /// <summary>
     /// Obtiene el porcentaje de RE desde la tabla tipos_iva_re de la empresa.
-    /// Si no hay match en BD, aplica las tasas legales por defecto (España).
+    /// Si la empresa tiene configuración explícita, no aplica fallback hardcodeado.
+    /// Solo usa tasas legales por defecto cuando no existe ninguna tabla configurada.
     /// </summary>
     private static decimal GetRecargoEquivalenciaPorcentaje(
         decimal ivaPorcentaje, Dictionary<decimal, decimal> tablaRE)
     {
         if (tablaRE.TryGetValue(ivaPorcentaje, out var reDesdeDB))
             return reDesdeDB;
-        // Fallback hardcoded (tasas legales España vigentes)
+
+        if (tablaRE.Count > 0)
+            return 0m;
+
+        // Fallback legal por defecto solo si la empresa no ha configurado tipos_iva_re.
         return ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
     }
+
+    private static ClienteCondicionEspecial? ResolveCondicionEspecial(Cliente cliente, Producto producto)
+    {
+        if (cliente.CondicionesEspeciales == null || cliente.CondicionesEspeciales.Count == 0)
+            return null;
+
+        string[] clavesProducto =
+        [
+            producto.Codigo?.Trim().ToUpperInvariant() ?? string.Empty,
+            producto.Referencia?.Trim().ToUpperInvariant() ?? string.Empty,
+            producto.Id.ToString()
+        ];
+
+        string categoriaId = producto.CategoriaId?.ToString() ?? string.Empty;
+
+        bool EsGlobal(string? codigo)
+            => string.IsNullOrWhiteSpace(codigo)
+            || codigo.Trim() == "*"
+            || codigo.Trim().Equals("TODOS", StringComparison.OrdinalIgnoreCase)
+            || codigo.Trim().Equals("ALL", StringComparison.OrdinalIgnoreCase);
+
+        bool MatchCodigoProducto(string? codigo)
+        {
+            if (EsGlobal(codigo)) return true;
+            var key = codigo!.Trim().ToUpperInvariant();
+            return clavesProducto.Any(c => !string.IsNullOrEmpty(c) && c == key);
+        }
+
+        bool MatchFamilia(string? codigo)
+        {
+            if (EsGlobal(codigo)) return true;
+            var key = codigo!.Trim();
+            return !string.IsNullOrEmpty(categoriaId)
+                && string.Equals(categoriaId, key, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // 1) Artículo específico
+        var exactaArticulo = cliente.CondicionesEspeciales
+            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Articulo)
+            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchCodigoProducto(c.Codigo));
+        if (exactaArticulo != null) return exactaArticulo;
+
+        // 2) Familia específica
+        var exactaFamilia = cliente.CondicionesEspeciales
+            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Familia)
+            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchFamilia(c.Codigo));
+        if (exactaFamilia != null) return exactaFamilia;
+
+        // 3) Regla global
+        return cliente.CondicionesEspeciales.FirstOrDefault(c => EsGlobal(c.Codigo));
+    }
+
+    private static (decimal Descuento, string Origen) ResolveDescuento(
+        LineaFacturaRequest item,
+        Cliente cliente,
+        Producto producto,
+        ClienteCondicionEspecial? condicion)
+    {
+        if (item.Descuento > 0)
+            return (item.Descuento, "linea_manual");
+
+        if (condicion?.Tipo == TipoCondicionEspecial.Descuento && condicion.Descuento > 0)
+            return (condicion.Descuento, "condicion_especial");
+
+        if (cliente.DescuentoGeneral > 0)
+            return (cliente.DescuentoGeneral, "cliente_general");
+
+        var dtoProducto = producto.DescuentoPorDefecto ?? 0m;
+        if (dtoProducto > 0)
+            return (dtoProducto, "producto_defecto");
+
+        return (0m, "sin_descuento");
+    }
+
+    private static string BuildDiscountOriginToken(string origin)
+        => $"{DiscountOriginToken}{origin}";
+
+    private static string GetDiscountOriginText(FacturaLinea linea, Cliente? cliente, Producto? producto)
+    {
+        var fromDescription = GetDiscountOriginFromDescription(linea.Descripcion);
+        if (fromDescription is not null)
+            return fromDescription;
+
+        if (linea.Descuento <= 0)
+            return "Sin descuento";
+
+        if (cliente?.DescuentoGeneral > 0 && NearlyEqual(linea.Descuento, cliente.DescuentoGeneral))
+            return "Cliente (general)";
+
+        if ((producto?.DescuentoPorDefecto ?? 0m) > 0
+            && NearlyEqual(linea.Descuento, producto!.DescuentoPorDefecto!.Value))
+            return "Producto (defecto)";
+
+        return "No registrado";
+    }
+
+    private static string? GetDiscountOriginFromDescription(string? descripcion)
+    {
+        if (string.IsNullOrWhiteSpace(descripcion)) return null;
+
+        int idx = descripcion.LastIndexOf(DiscountOriginToken, StringComparison.Ordinal);
+        if (idx < 0) return null;
+
+        var token = descripcion[(idx + DiscountOriginToken.Length)..].Trim();
+        return token switch
+        {
+            "linea_manual" => "Línea manual",
+            "condicion_especial" => "Condición especial",
+            "cliente_general" => "Cliente (general)",
+            "producto_defecto" => "Producto (defecto)",
+            "sin_descuento" => "Sin descuento",
+            _ => "No registrado"
+        };
+    }
+
+    private static bool NearlyEqual(decimal a, decimal b)
+        => Math.Abs(a - b) <= 0.001m;
 
     public async Task<FacturaDto> GetFacturaAsync(int id, int empresaId, CancellationToken ct = default)    {
         var factura = await _uow.Facturas.GetConLineasAsync(id, ct)
@@ -352,6 +498,7 @@ public class FacturaService : IFacturaService
                             cols.ConstantColumn(45);  // Cantidad
                             cols.ConstantColumn(55);  // Precio
                             cols.ConstantColumn(35);  // Dto%
+                            cols.ConstantColumn(80);  // Origen dto
                             cols.ConstantColumn(35);  // IVA%
                             cols.ConstantColumn(60);  // Total
                         });
@@ -369,6 +516,7 @@ public class FacturaService : IFacturaService
                             header.Cell().Element(HeaderCell).Text("Cant.").Bold().FontColor(Colors.White).FontSize(8);
                             header.Cell().Element(HeaderCell).Text("Precio").Bold().FontColor(Colors.White).FontSize(8);
                             header.Cell().Element(HeaderCell).Text("Dto%").Bold().FontColor(Colors.White).FontSize(8);
+                            header.Cell().Element(HeaderCell).Text("Origen Dto").Bold().FontColor(Colors.White).FontSize(8);
                             header.Cell().Element(HeaderCell).Text("IVA%").Bold().FontColor(Colors.White).FontSize(8);
                             header.Cell().Element(HeaderCell).Text("Total").Bold().FontColor(Colors.White).FontSize(8);
                         });
@@ -392,6 +540,7 @@ public class FacturaService : IFacturaService
                             table.Cell().Element(BodyCellRight).Text($"{linea.Cantidad:N2}").FontSize(8);
                             table.Cell().Element(BodyCellRight).Text($"{linea.PrecioUnitario:N4} €").FontSize(8);
                             table.Cell().Element(BodyCellRight).Text($"{linea.Descuento:N1}%").FontSize(8);
+                            table.Cell().Element(BodyCell).Text(GetDiscountOriginText(linea, factura.Cliente, linea.Producto)).FontSize(8);
                             table.Cell().Element(BodyCellRight).Text($"{linea.IvaPorcentaje:N0}%").FontSize(8);
                             table.Cell().Element(BodyCellRight).Text($"{subtotal:N2} €").FontSize(8).Bold();
                         }
@@ -519,10 +668,16 @@ public class FacturaService : IFacturaService
         wsFactura.Cells["A17"].Value = "IVA Total:";
         wsFactura.Cells["B17"].Value = factura.IvaTotal;
         wsFactura.Cells["B17"].Style.Numberformat.Format = "#,##0.00 €";
-        wsFactura.Cells["A18"].Value = "TOTAL FACTURA:";
-        wsFactura.Cells["B18"].Value = factura.Total;
+        wsFactura.Cells["A18"].Value = "Recargo Equivalencia:";
+        wsFactura.Cells["B18"].Value = factura.RecargoEquivalenciaTotal;
         wsFactura.Cells["B18"].Style.Numberformat.Format = "#,##0.00 €";
-        wsFactura.Cells["A18:B18"].Style.Font.Bold = true;
+        wsFactura.Cells["A19"].Value = "Retención (-):";
+        wsFactura.Cells["B19"].Value = factura.RetencionTotal;
+        wsFactura.Cells["B19"].Style.Numberformat.Format = "#,##0.00 €";
+        wsFactura.Cells["A20"].Value = "TOTAL FACTURA:";
+        wsFactura.Cells["B20"].Value = factura.Total;
+        wsFactura.Cells["B20"].Style.Numberformat.Format = "#,##0.00 €";
+        wsFactura.Cells["A20:B20"].Style.Font.Bold = true;
 
         wsFactura.Column(1).Width = 20;
         wsFactura.Column(2).Width = 35;
@@ -541,7 +696,7 @@ public class FacturaService : IFacturaService
         string[] headers = new[]
         {
             "Nº Línea", "Producto", "Codigo Lote", "Fecha Fabricación", "Fecha Caducidad",
-            "Cantidad", "Precio Unitario", "Descuento %", "IVA %", "Subtotal s/IVA", "IVA Importe", "Total Línea",
+            "Cantidad", "Precio Unitario", "Descuento %", "Origen Descuento", "IVA %", "RE %", "Subtotal s/IVA", "IVA Importe", "RE Importe", "Total Línea",
             "Empresa Vendedora", "NIF Vendedor", "Cliente", "NIF Cliente", "Nº Factura", "Fecha Factura"
         };
 
@@ -563,6 +718,7 @@ public class FacturaService : IFacturaService
         {
             decimal subtotal = Math.Round(linea.Cantidad * linea.PrecioUnitario * (1 - linea.Descuento / 100), 4);
             decimal ivaImporte = Math.Round(subtotal * linea.IvaPorcentaje / 100, 4);
+            decimal reImporte = Math.Round(subtotal * linea.RecargoEquivalenciaPorcentaje / 100, 4);
 
             wsLineas.Cells[row, 1].Value = lineaNum++;
             wsLineas.Cells[row, 2].Value = linea.Producto?.Nombre ?? linea.Descripcion;
@@ -576,23 +732,28 @@ public class FacturaService : IFacturaService
             wsLineas.Cells[row, 6].Style.Numberformat.Format = "#,##0.00";
             wsLineas.Cells[row, 7].Value = linea.PrecioUnitario;
             wsLineas.Cells[row, 7].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 8].Value = linea.Descuento;
+            wsLineas.Cells[row, 8].Value = linea.Descuento / 100;
             wsLineas.Cells[row, 8].Style.Numberformat.Format = "0.00%";
-            wsLineas.Cells[row, 9].Value = linea.IvaPorcentaje / 100;
-            wsLineas.Cells[row, 9].Style.Numberformat.Format = "0%";
-            wsLineas.Cells[row, 10].Value = subtotal;
-            wsLineas.Cells[row, 10].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 11].Value = ivaImporte;
-            wsLineas.Cells[row, 11].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 12].Value = subtotal + ivaImporte;
+            wsLineas.Cells[row, 9].Value = GetDiscountOriginText(linea, factura.Cliente, linea.Producto);
+            wsLineas.Cells[row, 10].Value = linea.IvaPorcentaje / 100;
+            wsLineas.Cells[row, 10].Style.Numberformat.Format = "0.00%";
+            wsLineas.Cells[row, 11].Value = linea.RecargoEquivalenciaPorcentaje / 100;
+            wsLineas.Cells[row, 11].Style.Numberformat.Format = "0.00%";
+            wsLineas.Cells[row, 12].Value = subtotal;
             wsLineas.Cells[row, 12].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 13].Value = empresa?.RazonSocial ?? empresa?.Nombre;
-            wsLineas.Cells[row, 14].Value = empresa?.Nif;
-            wsLineas.Cells[row, 15].Value = factura.Cliente?.NombreCompleto;
-            wsLineas.Cells[row, 16].Value = factura.Cliente?.Nif;
-            wsLineas.Cells[row, 17].Value = factura.NumeroFactura;
-            wsLineas.Cells[row, 18].Value = factura.FechaFactura.ToDateTime(TimeOnly.MinValue);
-            wsLineas.Cells[row, 18].Style.Numberformat.Format = "dd/mm/yyyy";
+            wsLineas.Cells[row, 13].Value = ivaImporte;
+            wsLineas.Cells[row, 13].Style.Numberformat.Format = "#,##0.0000 €";
+            wsLineas.Cells[row, 14].Value = reImporte;
+            wsLineas.Cells[row, 14].Style.Numberformat.Format = "#,##0.0000 €";
+            wsLineas.Cells[row, 15].Value = subtotal + ivaImporte + reImporte;
+            wsLineas.Cells[row, 15].Style.Numberformat.Format = "#,##0.0000 €";
+            wsLineas.Cells[row, 16].Value = empresa?.RazonSocial ?? empresa?.Nombre;
+            wsLineas.Cells[row, 17].Value = empresa?.Nif;
+            wsLineas.Cells[row, 18].Value = factura.Cliente?.NombreCompleto;
+            wsLineas.Cells[row, 19].Value = factura.Cliente?.Nif;
+            wsLineas.Cells[row, 20].Value = factura.NumeroFactura;
+            wsLineas.Cells[row, 21].Value = factura.FechaFactura.ToDateTime(TimeOnly.MinValue);
+            wsLineas.Cells[row, 21].Style.Numberformat.Format = "dd/mm/yyyy";
 
             // Alternar color fila
             if (row % 2 == 0)
@@ -718,13 +879,15 @@ public class FacturaService : IFacturaService
         Cliente = new ClienteResumen(f.Cliente?.Id ?? 0, f.Cliente?.NombreCompleto ?? "", f.Cliente?.Nif),
         BaseImponible = f.BaseImponible,
         IvaTotal = f.IvaTotal,
+        RecargoEquivalenciaTotal = f.RecargoEquivalenciaTotal,
+        RetencionTotal = f.RetencionTotal,
         Total = f.Total,
         FechaVencimiento = f.FechaVencimiento,
         PdfUrl = f.PdfUrl,
         Lineas = f.Lineas.OrderBy(l => l.Orden).Select(l => new FacturaLineaDto
         {
             ProductoId = l.ProductoId,
-            ProductoNombre = l.Producto?.Nombre ?? l.Descripcion ?? "",
+            ProductoNombre = l.Producto?.Nombre ?? StripDiscountOriginToken(l.Descripcion) ?? "",
             CodigoLote = l.Lote?.CodigoLote,
             FechaFabricacion = l.Lote?.FechaFabricacion,
             FechaCaducidad = l.Lote?.FechaCaducidad,
@@ -736,4 +899,11 @@ public class FacturaService : IFacturaService
             IvaImporte = Math.Round(l.Cantidad * l.PrecioUnitario * (1 - l.Descuento / 100) * l.IvaPorcentaje / 100, 4)
         }).ToList()
     };
+
+    private static string? StripDiscountOriginToken(string? descripcion)
+    {
+        if (string.IsNullOrWhiteSpace(descripcion)) return descripcion;
+        int idx = descripcion.LastIndexOf(DiscountOriginToken, StringComparison.Ordinal);
+        return idx >= 0 ? descripcion[..idx].Trim() : descripcion;
+    }
 }

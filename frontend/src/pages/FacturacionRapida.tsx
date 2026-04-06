@@ -379,16 +379,29 @@ export default function FacturacionRapida() {
           )}
 
           {/* Generate button */}
-          <button
-            onClick={() => crearFactura.mutate()}
-            disabled={cart.length === 0 || !clienteId || !serieId || crearFactura.isPending}
-            className="w-full flex items-center justify-center gap-2 px-4 py-4 bg-brand-600 text-white rounded-xl text-base font-bold disabled:opacity-50 hover:bg-brand-700 transition-all disabled:cursor-not-allowed shadow-sm"
-          >
-            {crearFactura.isPending
-              ? <><Loader2 className="w-5 h-5 animate-spin" /> Generando…</>
-              : <><Zap className="w-5 h-5" /> Generar factura · {total.toFixed(2)} €</>
-            }
-          </button>
+          {(() => {
+            const clienteSel = clientes?.find(c => String(c.id) === clienteId)
+            const bloqueado = clienteSel?.noRealizarFacturas
+            return (
+              <>
+                {bloqueado && clienteId && (
+                  <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    Este cliente tiene marcado &quot;No realizar facturas&quot;.
+                  </div>
+                )}
+                <button
+                  onClick={() => crearFactura.mutate()}
+                  disabled={cart.length === 0 || !clienteId || !serieId || crearFactura.isPending || !!bloqueado}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-4 bg-brand-600 text-white rounded-xl text-base font-bold disabled:opacity-50 hover:bg-brand-700 transition-all disabled:cursor-not-allowed shadow-sm"
+                >
+                  {crearFactura.isPending
+                    ? <><Loader2 className="w-5 h-5 animate-spin" /> Generando…</>
+                    : <><Zap className="w-5 h-5" /> Generar factura · {total.toFixed(2)} €</>
+                  }
+                </button>
+              </>
+            )
+          })()}
         </div>
       </div>
     </div>

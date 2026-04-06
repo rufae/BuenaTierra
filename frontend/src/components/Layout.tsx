@@ -2,11 +2,12 @@ import React, { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/authStore'
 import { useQuery } from '@tanstack/react-query'
+import { getApiOrigin } from '../lib/api'
 import {
   LayoutDashboard, Package, Users, Factory,
   FileText, LogOut, Layers, Truck, ClipboardList,
   Activity, Zap, BarChart2, Leaf, Shield, Menu, X,
-  Wifi, WifiOff, UserCog, BookOpen, Tag,
+  Wifi, WifiOff, UserCog, BookOpen, Tag, Bot,
 } from 'lucide-react'
 
 // ── Badge de estado del servidor ──────────────────────────────────────────────
@@ -14,7 +15,7 @@ function ServerStatusBadge() {
   const { data, isError, isFetching } = useQuery({
     queryKey: ['health'],
     queryFn:  async () => {
-      const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:5064'
+      const BASE = getApiOrigin()
       const res  = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(4_000) })
       if (!res.ok) throw new Error('offline')
       return res.json() as Promise<{ status: string }>
@@ -69,6 +70,7 @@ const NAV_OBRADOR: NavItem[] = [
   { to: '/ingredientes',icon: <Leaf className="w-[18px] h-[18px]" />,            label: 'Ingredientes' },
   { to: '/trazabilidad',icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad', separator: true },
   { to: '/reportes',    icon: <BarChart2 className="w-[18px] h-[18px]" />,       label: 'Informes',    separator: true },
+  { to: '/buenatierr-ai', icon: <Bot className="w-[18px] h-[18px]" />,            label: 'BuenaTierrAI' },
   { to: '/etiquetas',   icon: <Tag className="w-[18px] h-[18px]" />,             label: 'Etiquetas' },
   { to: '/ajustes',     icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',     separator: true },
 ]
@@ -78,6 +80,7 @@ const NAV_REPARTIDOR: NavItem[] = [
   { to: '/facturacion-rapida', icon: <Zap className="w-[18px] h-[18px]" />,             label: 'Facturación rápida' },
   { to: '/clientes',           icon: <Users className="w-[18px] h-[18px]" />,           label: 'Mis clientes', separator: true },
   { to: '/trazabilidad',       icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad' },
+  { to: '/buenatierr-ai',      icon: <Bot className="w-[18px] h-[18px]" />,             label: 'BuenaTierrAI' },
   { to: '/ajustes',            icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',       separator: true },
 ]
 

@@ -1,6 +1,7 @@
 -- ============================================================
 -- BuenaTierra - Inicialización de Base de Datos PostgreSQL 15
 -- Ejecutado automáticamente por Docker en primer arranque
+-- Versión de esquema: 2  (2026-03-28)
 -- ============================================================
 
 \echo 'Iniciando creación de base de datos BuenaTierra...'
@@ -924,7 +925,7 @@ DECLARE
 BEGIN
     SELECT * INTO v_produccion FROM producciones WHERE id = p_produccion_id;
 
-    IF NOT FOUND OR v_produccion.estado != 'finalizada' THEN
+    IF NOT FOUND OR v_produccion.estado != 'Finalizada' THEN
         RAISE EXCEPTION 'Producción % no encontrada o no finalizada', p_produccion_id;
     END IF;
 
@@ -1066,4 +1067,66 @@ DO $$ BEGIN
     END IF;
 END $$;
 
-\echo 'Base de datos BuenaTierra creada correctamente.'
+-- ============================================================
+-- TABLA: schema_version
+-- Control de versión del esquema para migraciones incrementales
+-- ============================================================
+CREATE TABLE IF NOT EXISTS schema_version (
+    version     INTEGER NOT NULL PRIMARY KEY,
+    descripcion VARCHAR(500) NOT NULL,
+    applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Registrar versión actual del esquema
+INSERT INTO schema_version (version, descripcion) VALUES
+(1, 'Esquema inicial — tablas, funciones, vistas, triggers, roles'),
+(2, 'Consolidación: named CHECK constraints, estados normalizados')
+ON CONFLICT (version) DO NOTHING;
+
+-- ============================================================
+-- NAMED CHECK CONSTRAINTS (idempotente)
+-- Facilita migraciones futuras: se puede DROP por nombre
+-- ============================================================
+DO $$ BEGIN
+    -- producciones.estado
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_producciones_estado') THEN
+        BEGIN
+            ALTER TABLE producciones DROP CONSTRAINT IF EXISTS producciones_estado_check;
+        EXCEPTION WHEN undefined_object THEN NULL;
+        END;
+        ALTER TABLE producciones ADD CONSTRAINT ck_producciones_estado
+            CHECK (estado IN ('Planificada','EnProceso','Finalizada','Cancelada'));
+    END IF;
+
+    -- facturas.estado
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_facturas_estado') THEN
+        BEGIN
+            ALTER TABLE facturas DROP CONSTRAINT IF EXISTS facturas_estado_check;
+        EXCEPTION WHEN undefined_object THEN NULL;
+        END;
+        ALTER TABLE facturas ADD CONSTRAINT ck_facturas_estado
+            CHECK (estado IN ('Borrador','Emitida','Enviada','Cobrada','Anulada'));
+    END IF;
+
+    -- albaranes.estado
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_albaranes_estado') THEN
+        BEGIN
+            ALTER TABLE albaranes DROP CONSTRAINT IF EXISTS albaranes_estado_check;
+        EXCEPTION WHEN undefined_object THEN NULL;
+        END;
+        ALTER TABLE albaranes ADD CONSTRAINT ck_albaranes_estado
+            CHECK (estado IN ('Pendiente','EnReparto','Entregado','Facturado','Cancelado'));
+    END IF;
+
+    -- pedidos.estado
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_pedidos_estado') THEN
+        BEGIN
+            ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS pedidos_estado_check;
+        EXCEPTION WHEN undefined_object THEN NULL;
+        END;
+        ALTER TABLE pedidos ADD CONSTRAINT ck_pedidos_estado
+            CHECK (estado IN ('Pendiente','Confirmado','EnPreparacion','Preparado','EnReparto','Entregado','Cancelado'));
+    END IF;
+END $$;
+
+\echo 'Base de datos BuenaTierra creada correctamente (schema v2).'

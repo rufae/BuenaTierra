@@ -1,0 +1,66 @@
+{
+  "version": "1.0",
+  "source": "api-only",
+  "tools": [
+    {
+      "id": "productos.listado",
+      "method": "GET",
+      "path": "/api/productos",
+      "description": "Catálogo de productos con precios, categorías e ingredientes"
+    },
+    {
+      "id": "ingredientes.alergenos",
+      "method": "GET",
+      "path": "/api/ingredientes",
+      "description": "Ingredientes con sus alérgenos y proveedores"
+    },
+    {
+      "id": "categorias.listado",
+      "method": "GET",
+      "path": "/api/productos/categorias",
+      "description": "Categorías de productos activas"
+    },
+    {
+      "id": "clientes.listado",
+      "method": "GET",
+      "path": "/api/clientes",
+      "description": "Listado de clientes con datos comerciales y condiciones"
+    },
+    {
+      "id": "stock.resumen",
+      "method": "GET",
+      "path": "/api/stock/todos",
+      "description": "Stock por producto y lote con fechas de caducidad"
+    },
+    {
+      "id": "facturas.listado",
+      "method": "GET",
+      "path": "/api/facturas",
+      "description": "Listado de facturas con filtros"
+    },
+    {
+      "id": "albaranes.listado",
+      "method": "GET",
+      "path": "/api/albaranes",
+      "description": "Listado de albaranes con filtros"
+    },
+    {
+      "id": "pedidos.listado",
+      "method": "GET",
+      "path": "/api/pedidos",
+      "description": "Listado de pedidos operativos"
+    },
+    {
+      "id": "produccion.listado",
+      "method": "GET",
+      "path": "/api/produccion",
+      "description": "Producciones con estado y cantidades"
+    },
+    {
+      "id": "trazabilidad.informe",
+      "method": "GET",
+      "path": "/api/facturas/trazabilidad/excel",
+      "description": "Exportación de trazabilidad alimentaria"
+    }
+  ]
+}

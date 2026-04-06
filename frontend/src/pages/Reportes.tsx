@@ -1120,9 +1120,23 @@ function KpiCard({
 }
 
 function EmptyChart() {
+  const emptyData = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - 6 + i)
+    return { label: d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }), value: 0 }
+  })
   return (
-    <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
-      Sin datos en el período seleccionado
+    <div className="relative">
+      <ResponsiveContainer width="100%" height={160}>
+        <AreaChart data={emptyData} margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#d1d5db' }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: '#d1d5db' }} tickLine={false} axisLine={false} />
+          <Area type="monotone" dataKey="value" stroke="#d1d5db" strokeWidth={1.5} strokeDasharray="4 4" fill="transparent" />
+        </AreaChart>
+      </ResponsiveContainer>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-sm text-gray-400 bg-white/80 px-3 py-1 rounded-lg">Sin datos en el período seleccionado</span>
+      </div>
     </div>
   )
 }

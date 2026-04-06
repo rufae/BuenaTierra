@@ -5,7 +5,7 @@ import api from '../lib/api'
 import type {
   Cliente, ClienteCondicionEspecial, UpsertCondicionEspecialDto,
   TipoCliente, FormaPago, TipoImpuesto, EstadoCliente, EstadoSincronizacion,
-  TipoCondicionEspecial, TipoArticuloFamilia,
+  TipoCondicionEspecial, TipoArticuloFamilia, Producto, Categoria,
 } from '../types'
 import { Plus, Pencil, X, Loader2, Trash2, AlertCircle, Search, ChevronUp, ChevronDown, ChevronsUpDown, FilterX, History, Download, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -67,7 +67,6 @@ const TIPOS_IMPUESTO: TipoImpuesto[] = ['IVA', 'RecargoEquivalencia', 'Exento', 
 const ESTADOS_CLIENTE: EstadoCliente[] = ['Activo', 'Inactivo', 'Suspendido', 'Bloqueado']
 const ESTADOS_SYNC: EstadoSincronizacion[] = ['Sincronizado', 'Pendiente', 'Error', 'NoAplicable']
 const TIPO_CONDICION: TipoCondicionEspecial[] = ['Precio', 'Descuento', 'PrecioEspecial']
-const TIPO_ARTICULO_FAM: TipoArticuloFamilia[] = ['Articulo', 'Familia']
 
 const TIPO_BADGE: Record<TipoCliente, string> = {
   Empresa: 'bg-blue-50 text-blue-700',
@@ -190,8 +189,22 @@ function Input({ label, value, onChange, required, type = 'text', className = ''
   )
 }
 
-function Select<T extends string>({ label, value, onChange, options, className = '' }: {
-  label: string; value: T; onChange: (v: T) => void; options: T[]; className?: string
+const LABEL_MAP: Record<string, string> = {
+  RecargoEquivalencia: 'Recargo de Equivalencia',
+  NoAplicable: 'No Aplicable',
+  Transfer30: 'Transferencia 30 días',
+  Transfer60: 'Transferencia 60 días',
+  Transfer90: 'Transferencia 90 días',
+  Domiciliacion: 'Domiciliación',
+  Autonomo: 'Autónomo',
+}
+
+function formatLabel(val: string): string {
+  return LABEL_MAP[val] ?? val
+}
+
+function Select<T extends string>({ label, value, onChange, options, className = '', disabled = false }: {
+  label: string; value: T; onChange: (v: T) => void; options: T[]; className?: string; disabled?: boolean
 }) {
   return (
     <div className={className}>
@@ -199,9 +212,10 @@ function Select<T extends string>({ label, value, onChange, options, className =
       <select
         value={value}
         onChange={e => onChange(e.target.value as T)}
-        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        disabled={disabled}
+        className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 ${disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
       >
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
+        {options.map(o => <option key={o} value={o}>{formatLabel(o)}</option>)}
       </select>
     </div>
   )
@@ -306,6 +320,18 @@ export default function Clientes() {
     queryFn: async () => (await api.get<{ data: ClienteCondicionEspecial[] }>(`/clientes/${editing!.id}/condiciones`)).data.data,
   })
 
+  const { data: productosLista = [] } = useQuery({
+    queryKey: ['productos-para-condiciones'],
+    enabled: !!editing?.id && tab === 'condiciones',
+    queryFn: async () => (await api.get<{ data: Producto[] }>('/productos?soloActivos=true')).data.data,
+  })
+
+  const { data: categoriasLista = [] } = useQuery({
+    queryKey: ['categorias-para-condiciones'],
+    enabled: !!editing?.id && tab === 'condiciones',
+    queryFn: async () => (await api.get<{ data: Categoria[] }>('/productos/categorias')).data.data,
+  })
+
   const { data: histFacturas = [] } = useQuery<{
     id: number; numeroFactura: string; fechaFactura: string;
     fechaVencimiento: string | null; estado: string; total: number; esSimplificada: boolean
@@ -359,8 +385,8 @@ export default function Clientes() {
     if (filterTipo) list = list.filter(c => c.tipo === filterTipo)
     if (filterEstado) list = list.filter(c => c.estadoCliente === filterEstado)
     list = [...list].sort((a, b) => {
-      const av = ((a as Record<string, unknown>)[sortField] ?? '') as string
-      const bv = ((b as Record<string, unknown>)[sortField] ?? '') as string
+      const av = String(a[sortField] ?? '')
+      const bv = String(b[sortField] ?? '')
       return sortDir === 'asc' ? av.localeCompare(bv, 'es') : bv.localeCompare(av, 'es')
     })
     return list
@@ -864,33 +890,43 @@ export default function Clientes() {
                           <label className="block text-xs font-medium text-gray-700 mb-1">Días de pago</label>
                           <input
                             type="number" min="0" step="1"
-                            value={form.diasPago}
-                            onChange={e => s('diasPago', parseInt(e.target.value) || 0)}
+                            value={form.diasPago === 0 ? '' : String(form.diasPago)}
+                            onChange={e => s('diasPago', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                           />
                         </div>
                         <Select label="Tipo de impuesto" value={form.tipoImpuesto} onChange={v => s('tipoImpuesto', v)} options={TIPOS_IMPUESTO} />
                         <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Descuento general (%)</label>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Descuento general (%)
+                            <span className="ml-1 text-gray-400 font-normal" title="Descuento que se aplicará automáticamente en todas las líneas de facturas, albaranes y pedidos de este cliente">ℹ️</span>
+                          </label>
                           <input
                             type="number" min="0" max="100" step="0.01"
-                            value={form.descuentoGeneral}
-                            onChange={e => s('descuentoGeneral', parseFloat(e.target.value) || 0)}
+                            value={form.descuentoGeneral === 0 ? '' : String(form.descuentoGeneral)}
+                            onChange={e => s('descuentoGeneral', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                           />
+                          {form.descuentoGeneral > 0 && (
+                            <p className="text-xs text-brand-600 mt-1">Se aplicará {form.descuentoGeneral}% de descuento en facturas, albaranes y pedidos.</p>
+                          )}
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1">% Retención</label>
                           <input
                             type="number" min="0" max="100" step="0.01"
-                            value={form.porcentajeRetencion}
-                            onChange={e => s('porcentajeRetencion', parseFloat(e.target.value) || 0)}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                            value={form.porcentajeRetencion === 0 ? '' : String(form.porcentajeRetencion)}
+                            onChange={e => s('porcentajeRetencion', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                            disabled={form.noAplicarRetenciones}
+                            className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 ${form.noAplicarRetenciones ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
                           />
                         </div>
                       </div>
                       <div className="flex flex-col gap-3 pt-1">
-                        <CheckField label="Aplicar impuesto al cliente" checked={form.aplicarImpuesto} onChange={v => s('aplicarImpuesto', v)} />
+                        <div>
+                          <CheckField label="Aplicar impuesto al cliente" checked={form.aplicarImpuesto} onChange={v => s('aplicarImpuesto', v)} />
+                          <p className="text-xs text-gray-400 ml-6 mt-0.5">Si está desactivado, las facturas de este cliente se emitirán sin impuestos (ej: cliente exento de IVA).</p>
+                        </div>
                         <CheckField label="Aplicar recargo de equivalencia" checked={form.recargoEquivalencia} onChange={v => s('recargoEquivalencia', v)} />
                         {form.recargoEquivalencia && (
                           <div className="flex items-start gap-1.5 mt-1 px-1 py-1 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
@@ -898,7 +934,10 @@ export default function Clientes() {
                             <span>El Recargo de Equivalencia se añadirá automáticamente a las facturas de este cliente según el % de IVA de cada producto (ej: IVA 21% → RE 5,2%, IVA 10% → RE 1,4%).</span>
                           </div>
                         )}
-                        <CheckField label="No aplicar retenciones" checked={form.noAplicarRetenciones} onChange={v => s('noAplicarRetenciones', v)} />
+                        <CheckField label="No aplicar retenciones" checked={form.noAplicarRetenciones} onChange={v => {
+                          s('noAplicarRetenciones', v)
+                          if (v) s('porcentajeRetencion', 0)
+                        }} />
                       </div>
                     </div>
                   )}
@@ -925,8 +964,15 @@ export default function Clientes() {
                         <Select label="Estado sincronización" value={form.estadoSincronizacion} onChange={v => s('estadoSincronizacion', v)} options={ESTADOS_SYNC} />
                       </div>
                       <div className="flex flex-col gap-3">
-                        <CheckField label="Activo" checked={form.activo} onChange={v => s('activo', v)} />
-                        <CheckField label="No realizar facturas a este cliente" checked={form.noRealizarFacturas} onChange={v => s('noRealizarFacturas', v)} />
+                        <div>
+                          <CheckField label="No realizar facturas a este cliente" checked={form.noRealizarFacturas} onChange={v => s('noRealizarFacturas', v)} />
+                          {form.noRealizarFacturas && (
+                            <div className="flex items-start gap-1.5 mt-1 ml-6 px-2 py-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                              <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                              <span>No se podrán crear facturas para este cliente. Los albaranes y pedidos sí se permiten.</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">Notas</label>
@@ -955,7 +1001,8 @@ export default function Clientes() {
             {tab === 'condiciones' && (
               /* ── CONDICIONES ESPECIALES TAB ── */
               <div className="px-6 py-5 space-y-4">
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">Descuentos o precios especiales que se aplicarán automáticamente en facturas, albaranes y pedidos.</p>
                   <button
                     onClick={() => { setCondicionForm({ ...EMPTY_CONDICION }); setEditingCondicion(null); setShowCondicionForm(true) }}
                     className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
@@ -967,31 +1014,103 @@ export default function Clientes() {
                 {showCondicionForm && (
                   <form onSubmit={handleCondicionSubmit} className="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-200">
                     <div className="grid grid-cols-3 gap-3">
-                      <Select label="Art./Familia" value={condicionForm.articuloFamilia} onChange={v => setCondicionForm(p => ({ ...p, articuloFamilia: v }))} options={TIPO_ARTICULO_FAM} />
-                      <Input label="Código *" value={condicionForm.codigo} onChange={v => setCondicionForm(p => ({ ...p, codigo: v }))} required />
-                      <Input label="Descripción" value={condicionForm.descripcion ?? ''} onChange={v => setCondicionForm(p => ({ ...p, descripcion: v }))} />
-                      <Select label="Tipo" value={condicionForm.tipo} onChange={v => setCondicionForm(p => ({ ...p, tipo: v }))} options={TIPO_CONDICION} />
+                      {/* Tipo condición */}
+                      <Select label="Tipo de condición" value={condicionForm.tipo} onChange={v => {
+                        setCondicionForm(p => ({
+                          ...p, tipo: v,
+                          precio: v === 'Descuento' ? 0 : p.precio,
+                          descuento: v === 'Precio' || v === 'PrecioEspecial' ? 0 : p.descuento,
+                        }))
+                      }} options={TIPO_CONDICION} />
+
+                      {/* Alcance: Artículo individual o Todos */}
                       <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Precio</label>
-                        <input type="number" step="0.01" min="0" value={condicionForm.precio}
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Aplicar a</label>
+                        <select
+                          value={condicionForm.codigo === '*' ? 'Todos' : condicionForm.articuloFamilia}
                           onChange={e => {
-                            const v = parseFloat(e.target.value) || 0
-                            setCondicionForm(p => ({ ...p, precio: parseFloat(v.toFixed(2)) }))
+                            const val = e.target.value
+                            if (val === 'Todos') {
+                              setCondicionForm(p => ({ ...p, articuloFamilia: 'Articulo', codigo: '*', descripcion: 'Todos los productos' }))
+                            } else {
+                              setCondicionForm(p => ({ ...p, articuloFamilia: val as TipoArticuloFamilia, codigo: '', descripcion: '' }))
+                            }
                           }}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        >
+                          <option value="Todos">Todos los productos</option>
+                          <option value="Articulo">Producto específico</option>
+                          <option value="Familia">Categoría / Familia</option>
+                        </select>
                       </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Descuento (%)</label>
-                        <input type="number" step="0.01" min="0" max="100" value={condicionForm.descuento}
-                          onChange={e => setCondicionForm(p => ({ ...p, descuento: parseFloat(e.target.value) || 0 }))}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                      </div>
+
+                      {/* Selector de producto / categoría */}
+                      {condicionForm.codigo !== '*' && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            {condicionForm.articuloFamilia === 'Articulo' ? 'Producto' : 'Categoría'} *
+                          </label>
+                          <select
+                            value={condicionForm.codigo}
+                            onChange={e => {
+                              const code = e.target.value
+                              if (condicionForm.articuloFamilia === 'Articulo') {
+                                const prod = productosLista.find(p => String(p.id) === code)
+                                setCondicionForm(p => ({ ...p, codigo: code, descripcion: prod?.nombre ?? '' }))
+                              } else {
+                                const cat = categoriasLista.find(c => String(c.id) === code)
+                                setCondicionForm(p => ({ ...p, codigo: code, descripcion: cat?.nombre ?? '' }))
+                              }
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 max-h-60"
+                          >
+                            <option value="">— Seleccionar —</option>
+                            {condicionForm.articuloFamilia === 'Articulo'
+                              ? productosLista.map(p => (
+                                <option key={p.id} value={String(p.id)}>
+                                  {p.nombre}{p.codigo ? ` (${p.codigo})` : ''} — {p.precioVenta.toFixed(2)} €
+                                </option>
+                              ))
+                              : categoriasLista.map(c => (
+                                <option key={c.id} value={String(c.id)}>{c.nombre}</option>
+                              ))
+                            }
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Precio especial (solo si tipo = Precio o PrecioEspecial) */}
+                      {(condicionForm.tipo === 'Precio' || condicionForm.tipo === 'PrecioEspecial') && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Precio especial (€)</label>
+                          <input type="number" step="0.01" min="0" value={condicionForm.precio === 0 ? '' : String(condicionForm.precio)}
+                            onChange={e => {
+                              const v = e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0)
+                              setCondicionForm(p => ({ ...p, precio: parseFloat(v.toFixed(2)) }))
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          {condicionForm.codigo !== '*' && condicionForm.articuloFamilia === 'Articulo' && condicionForm.codigo && (() => {
+                            const prod = productosLista.find(p => String(p.id) === condicionForm.codigo)
+                            return prod ? <p className="text-xs text-gray-400 mt-1">Precio normal: {prod.precioVenta.toFixed(2)} €</p> : null
+                          })()}
+                        </div>
+                      )}
+
+                      {/* Descuento (solo si tipo = Descuento) */}
+                      {condicionForm.tipo === 'Descuento' && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Descuento (%)</label>
+                          <input type="number" step="0.01" min="0" max="100" value={condicionForm.descuento === 0 ? '' : String(condicionForm.descuento)}
+                            onChange={e => setCondicionForm(p => ({ ...p, descuento: e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0) }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                        </div>
+                      )}
                     </div>
                     <div className="flex justify-end gap-2">
                       <button type="button" onClick={() => setShowCondicionForm(false)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 border border-gray-200 rounded-lg">
                         Cancelar
                       </button>
-                      <button type="submit" className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">
+                      <button type="submit" disabled={!condicionForm.codigo} className="bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">
                         {editingCondicion ? 'Guardar' : 'Añadir'}
                       </button>
                     </div>
@@ -1001,9 +1120,8 @@ export default function Clientes() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
-                      <th className="px-3 py-2 text-left">Art/Fam</th>
-                      <th className="px-3 py-2 text-left">Código</th>
-                      <th className="px-3 py-2 text-left">Descripción</th>
+                      <th className="px-3 py-2 text-left">Aplica a</th>
+                      <th className="px-3 py-2 text-left">Producto / Categoría</th>
                       <th className="px-3 py-2 text-left">Tipo</th>
                       <th className="px-3 py-2 text-right">Precio</th>
                       <th className="px-3 py-2 text-right">Dto%</th>
@@ -1012,15 +1130,26 @@ export default function Clientes() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {!condiciones.length ? (
-                      <tr><td colSpan={7} className="px-3 py-4 text-center text-gray-400 text-xs">Sin condiciones especiales</td></tr>
+                      <tr><td colSpan={6} className="px-3 py-4 text-center text-gray-400 text-xs">Sin condiciones especiales</td></tr>
                     ) : condiciones.map(c => (
                       <tr key={c.id} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 text-gray-600">{c.articuloFamilia}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{c.codigo}</td>
-                        <td className="px-3 py-2 text-gray-500">{c.descripcion ?? '—'}</td>
-                        <td className="px-3 py-2">{c.tipo}</td>
-                        <td className="px-3 py-2 text-right">{c.precio.toFixed(2)} €</td>
-                        <td className="px-3 py-2 text-right">{c.descuento.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-gray-600">
+                          {c.codigo === '*' ? (
+                            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">Todos</span>
+                          ) : (
+                            <span className="text-xs">{c.articuloFamilia === 'Articulo' ? 'Producto' : 'Categoría'}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 font-medium">{c.codigo === '*' ? 'Todos los productos' : c.descripcion || c.codigo}</td>
+                        <td className="px-3 py-2">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            c.tipo === 'Descuento' ? 'bg-green-50 text-green-700' :
+                            c.tipo === 'PrecioEspecial' ? 'bg-purple-50 text-purple-700' :
+                            'bg-blue-50 text-blue-700'
+                          }`}>{c.tipo === 'PrecioEspecial' ? 'Precio Especial' : c.tipo}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right">{c.precio > 0 ? `${c.precio.toFixed(2)} €` : '—'}</td>
+                        <td className="px-3 py-2 text-right">{c.descuento > 0 ? `${c.descuento.toFixed(2)}%` : '—'}</td>
                         <td className="px-3 py-2 text-right flex justify-end gap-1">
                           <button onClick={() => {
                             setCondicionForm({ articuloFamilia: c.articuloFamilia, codigo: c.codigo, descripcion: c.descripcion ?? '', tipo: c.tipo, precio: c.precio, descuento: c.descuento })

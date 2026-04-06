@@ -6,6 +6,9 @@ using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using OfficeOpenXml;
+using OfficeOpenXml.Style;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -38,10 +41,12 @@ public class AlbaranesController : ControllerBase
     private int EmpresaId => int.Parse(User.FindFirstValue("empresa_id")!);
     private int UsuarioId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    /// <summary>GET /api/albaranes — Listar albaranes con filtros opcionales de fecha</summary>
+    /// <summary>GET /api/albaranes — Listar albaranes con filtros opcionales de fecha (paginación opcional)</summary>
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<IEnumerable<AlbaranResumen>>>> GetAll(
-        [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta, CancellationToken ct)
+    public async Task<ActionResult> GetAll(
+        [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta,
+        [FromQuery] int? page = null, [FromQuery] int? pageSize = null,
+        CancellationToken ct = default)
     {
         var albaranes = await _uow.Albaranes.GetByEmpresaAsync(EmpresaId, desde, hasta, ct);
         var resultado = albaranes.Select(a => new AlbaranResumen(
@@ -53,7 +58,14 @@ public class AlbaranesController : ControllerBase
             a.Total,
             a.PedidoId,
             a.Cliente?.NoRealizarFacturas ?? false
-        ));
+        )).ToList();
+
+        var pg = new PaginationParams(page, pageSize);
+        if (pg.HasPagination)
+        {
+            var paged = resultado.Skip((pg.SafePage - 1) * pg.SafePageSize).Take(pg.SafePageSize);
+            return Ok(PagedResponse<AlbaranResumen>.Ok(paged, resultado.Count, pg.SafePage, pg.SafePageSize));
+        }
         return Ok(ApiResponse<IEnumerable<AlbaranResumen>>.Ok(resultado));
     }
 
@@ -80,8 +92,10 @@ public class AlbaranesController : ControllerBase
         request.EmpresaId = EmpresaId;
         request.UsuarioId = UsuarioId;
 
-        // Validar cliente
-        var cliente = await _uow.Clientes.GetByIdAsync(request.ClienteId, ct)
+        // Validar cliente y cargar condiciones especiales comerciales
+        var cliente = await _uow.Clientes.GetQueryable()
+            .Include(c => c.CondicionesEspeciales)
+            .FirstOrDefaultAsync(c => c.Id == request.ClienteId && c.EmpresaId == EmpresaId, ct)
             ?? throw new EntidadNotFoundException(nameof(Cliente), request.ClienteId);
 
         // Por cada item, asignar lotes FIFO
@@ -139,10 +153,24 @@ public class AlbaranesController : ControllerBase
             short orden = 0;
             foreach (var (item, producto, lotes) in lineasConLotes)
             {
-                decimal precio = item.PrecioUnitario ?? producto.PrecioVenta;
-                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(producto.IvaPorcentaje, tablaRE) : 0m;
-                // Aplicar descuento de línea; fallback al descuento general del cliente
-                decimal descuentoEfectivo = item.Descuento > 0 ? item.Descuento : cliente.DescuentoGeneral;
+                var condicion = ResolveCondicionEspecial(cliente, producto);
+
+                decimal precio = item.PrecioUnitario
+                    ?? (condicion?.Tipo is TipoCondicionEspecial.Precio or TipoCondicionEspecial.PrecioEspecial
+                        ? condicion.Precio
+                        : producto.PrecioVenta);
+
+                decimal ivaPorc = GetIvaPorcentaje(cliente, producto);
+                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m;
+
+                // Precedencia comercial: línea > condición especial > descuento cliente > descuento producto.
+                decimal descuentoEfectivo = item.Descuento > 0
+                    ? item.Descuento
+                    : condicion?.Tipo == TipoCondicionEspecial.Descuento
+                        ? condicion.Descuento
+                        : cliente.DescuentoGeneral > 0
+                            ? cliente.DescuentoGeneral
+                            : (producto.DescuentoPorDefecto ?? 0m);
 
                 foreach (var lote in lotes)
                 {
@@ -154,7 +182,7 @@ public class AlbaranesController : ControllerBase
                         Cantidad     = lote.Cantidad,
                         PrecioUnitario = precio,
                         Descuento    = descuentoEfectivo,
-                        IvaPorcentaje = producto.IvaPorcentaje,
+                        IvaPorcentaje = ivaPorc,
                         RecargoEquivalenciaPorcentaje = rePorc,
                         Orden = orden++
                     });
@@ -379,35 +407,39 @@ public class AlbaranesController : ControllerBase
         await _uow.BeginTransactionAsync(ct);
         try
         {
-            // Devolver stock de cada línea con lote asignado
-            foreach (var linea in albaran.Lineas.Where(l => l.LoteId.HasValue))
+            // Solo se repone stock si hubo consumo real previo asociado al albarán (escenario legacy).
+            var ventasAsociadas = await _uow.MovimientosStock.GetQueryable()
+                .Where(m => m.EmpresaId == EmpresaId
+                    && m.ReferenciaId == albaran.Id
+                    && m.Tipo == TipoMovimientoStock.Venta
+                    && (m.ReferenciaTipo == "albaran" || m.ReferenciaTipo == "venta_albaran"))
+                .ToListAsync(ct);
+
+            foreach (var mov in ventasAsociadas)
             {
-                var stock = await _uow.Stock.GetByProductoLoteAsync(
-                    EmpresaId, linea.ProductoId, linea.LoteId!.Value, ct);
+                var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, mov.ProductoId, mov.LoteId, ct);
+                if (stock == null)
+                    continue;
 
-                if (stock != null)
+                decimal cantidadAntes = stock.CantidadDisponible;
+                stock.CantidadDisponible += mov.Cantidad;
+                stock.UpdatedAt = DateTime.UtcNow;
+                await _uow.Stock.UpdateAsync(stock, ct);
+
+                await _uow.MovimientosStock.AddAsync(new MovimientoStock
                 {
-                    decimal cantidadAntes = stock.CantidadDisponible;
-                    stock.CantidadDisponible += linea.Cantidad;
-                    stock.UpdatedAt = DateTime.UtcNow;
-                    await _uow.Stock.UpdateAsync(stock, ct);
-
-                    // Movimiento de stock (devolución)
-                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
-                    {
-                        EmpresaId = EmpresaId,
-                        ProductoId = linea.ProductoId,
-                        LoteId = linea.LoteId!.Value,
-                        Tipo = TipoMovimientoStock.Devolucion,
-                        Cantidad = linea.Cantidad,
-                        CantidadAntes = cantidadAntes,
-                        CantidadDespues = stock.CantidadDisponible,
-                        ReferenciaTipo = "cancelacion_albaran",
-                        ReferenciaId = albaran.Id,
-                        UsuarioId = UsuarioId,
-                        Notas = $"Devolución por cancelación de albarán {albaran.NumeroAlbaran}"
-                    }, ct);
-                }
+                    EmpresaId = EmpresaId,
+                    ProductoId = mov.ProductoId,
+                    LoteId = mov.LoteId,
+                    Tipo = TipoMovimientoStock.Devolucion,
+                    Cantidad = mov.Cantidad,
+                    CantidadAntes = cantidadAntes,
+                    CantidadDespues = stock.CantidadDisponible,
+                    ReferenciaTipo = "cancelacion_albaran",
+                    ReferenciaId = albaran.Id,
+                    UsuarioId = UsuarioId,
+                    Notas = $"Devolución por cancelación de albarán {albaran.NumeroAlbaran}"
+                }, ct);
             }
 
             albaran.Estado = EstadoAlbaran.Cancelado;
@@ -415,7 +447,10 @@ public class AlbaranesController : ControllerBase
             await _uow.SaveChangesAsync(ct);
             await _uow.CommitTransactionAsync(ct);
 
-            return Ok(ApiResponse<string>.Ok("OK", "Albarán cancelado y stock devuelto"));
+            var msg = ventasAsociadas.Count > 0
+                ? "Albarán cancelado y stock restituido"
+                : "Albarán cancelado (sin devolución de stock, no existía consumo previo)";
+            return Ok(ApiResponse<string>.Ok("OK", msg));
         }
         catch
         {
@@ -623,18 +658,234 @@ public class AlbaranesController : ControllerBase
         return File(bytes, "application/pdf", $"Albaran_{albaran.NumeroAlbaran}.pdf");
     }
 
+    /// <summary>GET /api/albaranes/{id}/excel — Descargar Excel de albarán con líneas y lotes</summary>
+    [HttpGet("{id:int}/excel")]
+    public async Task<IActionResult> GetExcel(int id, CancellationToken ct)
+    {
+        ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
+
+        var albaran = await _uow.Albaranes.GetConLineasAsync(id, ct);
+        if (albaran == null || albaran.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Albarán no encontrado"));
+
+        using var package = new ExcelPackage();
+        var ws = package.Workbook.Worksheets.Add("Albaran");
+
+        ws.Cells["A1"].Value = "ALBARÁN";
+        ws.Cells["A1"].Style.Font.Size = 16;
+        ws.Cells["A1"].Style.Font.Bold = true;
+
+        ws.Cells["A3"].Value = "Número";
+        ws.Cells["B3"].Value = albaran.NumeroAlbaran;
+        ws.Cells["A4"].Value = "Fecha";
+        ws.Cells["B4"].Value = albaran.FechaAlbaran.ToDateTime(TimeOnly.MinValue);
+        ws.Cells["B4"].Style.Numberformat.Format = "dd/mm/yyyy";
+        ws.Cells["A5"].Value = "Estado";
+        ws.Cells["B5"].Value = albaran.Estado.ToString();
+        ws.Cells["A6"].Value = "Pedido origen";
+        ws.Cells["B6"].Value = albaran.PedidoId?.ToString() ?? "";
+
+        ws.Cells["A7"].Value = "Cliente";
+        ws.Cells["B7"].Value = albaran.Cliente?.NombreCompleto;
+        ws.Cells["A8"].Value = "NIF Cliente";
+        ws.Cells["B8"].Value = albaran.Cliente?.Nif;
+
+        int headerRow = 10;
+        string[] headers =
+        [
+            "Producto", "Lote", "F. Fabricación", "F. Caducidad", "Cantidad",
+            "Precio Unitario", "Descuento %", "IVA %", "RE %", "Subtotal", "IVA Importe", "RE Importe", "Total Línea"
+        ];
+
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cells[headerRow, i + 1].Value = headers[i];
+            ws.Cells[headerRow, i + 1].Style.Font.Bold = true;
+            ws.Cells[headerRow, i + 1].Style.Fill.PatternType = ExcelFillStyle.Solid;
+            ws.Cells[headerRow, i + 1].Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(41, 128, 185));
+            ws.Cells[headerRow, i + 1].Style.Font.Color.SetColor(System.Drawing.Color.White);
+        }
+
+        int row = headerRow + 1;
+        foreach (var l in albaran.Lineas.OrderBy(x => x.Orden))
+        {
+            decimal subtotal = Math.Round(l.Cantidad * l.PrecioUnitario * (1 - l.Descuento / 100), 4);
+            decimal iva = Math.Round(subtotal * l.IvaPorcentaje / 100, 4);
+            decimal re = Math.Round(subtotal * l.RecargoEquivalenciaPorcentaje / 100, 4);
+
+            ws.Cells[row, 1].Value = l.Producto?.Nombre ?? l.Descripcion;
+            ws.Cells[row, 2].Value = l.Lote?.CodigoLote ?? "";
+            ws.Cells[row, 3].Value = l.Lote != null ? l.Lote.FechaFabricacion.ToDateTime(TimeOnly.MinValue) : (object)"";
+            ws.Cells[row, 4].Value = l.Lote?.FechaCaducidad.HasValue == true
+                ? l.Lote.FechaCaducidad.Value.ToDateTime(TimeOnly.MinValue)
+                : (object)"";
+            ws.Cells[row, 5].Value = l.Cantidad;
+            ws.Cells[row, 6].Value = l.PrecioUnitario;
+            ws.Cells[row, 7].Value = l.Descuento;
+            ws.Cells[row, 8].Value = l.IvaPorcentaje / 100;
+            ws.Cells[row, 9].Value = l.RecargoEquivalenciaPorcentaje / 100;
+            ws.Cells[row, 10].Value = subtotal;
+            ws.Cells[row, 11].Value = iva;
+            ws.Cells[row, 12].Value = re;
+            ws.Cells[row, 13].Value = subtotal + iva + re;
+
+            ws.Cells[row, 3].Style.Numberformat.Format = "dd/mm/yyyy";
+            ws.Cells[row, 4].Style.Numberformat.Format = "dd/mm/yyyy";
+            ws.Cells[row, 5].Style.Numberformat.Format = "#,##0.000";
+            ws.Cells[row, 6].Style.Numberformat.Format = "#,##0.0000 €";
+            ws.Cells[row, 7].Style.Numberformat.Format = "0.00";
+            ws.Cells[row, 8].Style.Numberformat.Format = "0.00%";
+            ws.Cells[row, 9].Style.Numberformat.Format = "0.00%";
+            ws.Cells[row, 10].Style.Numberformat.Format = "#,##0.0000 €";
+            ws.Cells[row, 11].Style.Numberformat.Format = "#,##0.0000 €";
+            ws.Cells[row, 12].Style.Numberformat.Format = "#,##0.0000 €";
+            ws.Cells[row, 13].Style.Numberformat.Format = "#,##0.0000 €";
+            row++;
+        }
+
+        ws.Cells[row + 1, 11].Value = "BASE";
+        ws.Cells[row + 1, 12].Value = albaran.Subtotal;
+        ws.Cells[row + 2, 11].Value = "IVA";
+        ws.Cells[row + 2, 12].Value = albaran.IvaTotal;
+        ws.Cells[row + 3, 11].Value = "RE";
+        ws.Cells[row + 3, 12].Value = albaran.RecargoEquivalenciaTotal;
+        ws.Cells[row + 4, 11].Value = "RETENCION (-)";
+        ws.Cells[row + 4, 12].Value = albaran.RetencionTotal;
+        ws.Cells[row + 5, 11].Value = "TOTAL";
+        ws.Cells[row + 5, 12].Value = albaran.Total;
+
+        ws.Cells[row + 1, 12, row + 5, 12].Style.Numberformat.Format = "#,##0.00 €";
+        ws.Cells.AutoFitColumns();
+
+        var bytes = package.GetAsByteArray();
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"albaran-{albaran.NumeroAlbaran ?? albaran.Id.ToString()}.xlsx");
+    }
+
+    /// <summary>GET /api/albaranes/exportar-excel — Exporta listado de albaranes</summary>
+    [HttpGet("exportar-excel")]
+    public async Task<IActionResult> ExportarListaExcel(
+        [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta, CancellationToken ct)
+    {
+        ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
+
+        var albaranes = (await _uow.Albaranes.GetByEmpresaAsync(EmpresaId, desde, hasta, ct)).ToList();
+
+        using var package = new ExcelPackage();
+        var ws = package.Workbook.Worksheets.Add("Albaranes");
+
+        string[] headers = { "Nº Albarán", "Fecha", "Cliente", "NIF", "Estado", "Base", "IVA", "RE", "Retención", "Total" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cells[1, i + 1].Value = headers[i];
+            ws.Cells[1, i + 1].Style.Font.Bold = true;
+            ws.Cells[1, i + 1].Style.Fill.PatternType = ExcelFillStyle.Solid;
+            ws.Cells[1, i + 1].Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(41, 128, 185));
+            ws.Cells[1, i + 1].Style.Font.Color.SetColor(System.Drawing.Color.White);
+        }
+
+        int row = 2;
+        foreach (var a in albaranes)
+        {
+            ws.Cells[row, 1].Value = a.NumeroAlbaran;
+            ws.Cells[row, 2].Value = a.FechaAlbaran.ToDateTime(TimeOnly.MinValue);
+            ws.Cells[row, 3].Value = a.Cliente?.NombreCompleto;
+            ws.Cells[row, 4].Value = a.Cliente?.Nif;
+            ws.Cells[row, 5].Value = a.Estado.ToString();
+            ws.Cells[row, 6].Value = a.Subtotal;
+            ws.Cells[row, 7].Value = a.IvaTotal;
+            ws.Cells[row, 8].Value = a.RecargoEquivalenciaTotal;
+            ws.Cells[row, 9].Value = a.RetencionTotal;
+            ws.Cells[row, 10].Value = a.Total;
+            row++;
+        }
+
+        ws.Cells[2, 2, Math.Max(2, row - 1), 2].Style.Numberformat.Format = "dd/mm/yyyy";
+        ws.Cells[2, 6, Math.Max(2, row - 1), 10].Style.Numberformat.Format = "#,##0.00 €";
+        ws.Cells.AutoFitColumns();
+
+        var bytes = package.GetAsByteArray();
+        var dStr = (desde ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(-1))).ToString("yyyyMMdd");
+        var hStr = (hasta ?? DateOnly.FromDateTime(DateTime.Today)).ToString("yyyyMMdd");
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"albaranes-{dStr}-{hStr}.xlsx");
+    }
+
     // ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+    private static decimal GetIvaPorcentaje(Cliente cliente, Producto producto)
+        => cliente.TipoImpuesto switch
+        {
+            TipoImpuesto.Exento => 0m,
+            TipoImpuesto.IGIC => 7m,
+            _ => cliente.AplicarImpuesto ? producto.IvaPorcentaje : 0m
+        };
 
     /// <summary>
     /// Obtiene el porcentaje de RE desde la tabla tipos_iva_re de la empresa.
-    /// Fallback a tasas legales por defecto (España) si no hay match.
+    /// Si la empresa tiene configuración explícita, no aplica fallback hardcodeado.
+    /// Solo usa tasas legales por defecto cuando no existe ninguna tabla configurada.
     /// </summary>
     private static decimal GetRecargoEquivalenciaPorcentaje(
         decimal ivaPorcentaje, Dictionary<decimal, decimal> tablaRE)
     {
         if (tablaRE.TryGetValue(ivaPorcentaje, out var reDesdeDB))
             return reDesdeDB;
+
+        if (tablaRE.Count > 0)
+            return 0m;
+
         return ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+    }
+
+    private static ClienteCondicionEspecial? ResolveCondicionEspecial(Cliente cliente, Producto producto)
+    {
+        if (cliente.CondicionesEspeciales == null || cliente.CondicionesEspeciales.Count == 0)
+            return null;
+
+        string[] clavesProducto =
+        [
+            producto.Codigo?.Trim().ToUpperInvariant() ?? string.Empty,
+            producto.Referencia?.Trim().ToUpperInvariant() ?? string.Empty,
+            producto.Id.ToString()
+        ];
+
+        string categoriaId = producto.CategoriaId?.ToString() ?? string.Empty;
+
+        bool EsGlobal(string? codigo)
+            => string.IsNullOrWhiteSpace(codigo)
+            || codigo.Trim() == "*"
+            || codigo.Trim().Equals("TODOS", StringComparison.OrdinalIgnoreCase)
+            || codigo.Trim().Equals("ALL", StringComparison.OrdinalIgnoreCase);
+
+        bool MatchCodigoProducto(string? codigo)
+        {
+            if (EsGlobal(codigo)) return true;
+            var key = codigo!.Trim().ToUpperInvariant();
+            return clavesProducto.Any(c => !string.IsNullOrEmpty(c) && c == key);
+        }
+
+        bool MatchFamilia(string? codigo)
+        {
+            if (EsGlobal(codigo)) return true;
+            var key = codigo!.Trim();
+            return !string.IsNullOrEmpty(categoriaId)
+                && string.Equals(categoriaId, key, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var exactaArticulo = cliente.CondicionesEspeciales
+            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Articulo)
+            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchCodigoProducto(c.Codigo));
+        if (exactaArticulo != null) return exactaArticulo;
+
+        var exactaFamilia = cliente.CondicionesEspeciales
+            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Familia)
+            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchFamilia(c.Codigo));
+        if (exactaFamilia != null) return exactaFamilia;
+
+        return cliente.CondicionesEspeciales.FirstOrDefault(c => EsGlobal(c.Codigo));
     }
 
     private static AlbaranDetalle MapToDetalle(Albaran a) => new(

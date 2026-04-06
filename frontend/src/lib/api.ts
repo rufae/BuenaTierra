@@ -1,9 +1,10 @@
 import axios from 'axios'
 
-// En Electron (file:// protocol) no hay proxy Vite — apuntamos directamente al API local
-const BASE_URL = window.location.protocol === 'file:'
-  ? 'http://localhost:5001/api'
-  : '/api'
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/$/, '')
+const apiOrigin = configuredApiUrl || (window.location.protocol === 'file:' ? 'http://localhost:5001' : '')
+const BASE_URL = apiOrigin ? `${apiOrigin}/api` : '/api'
+
+export const getApiOrigin = () => apiOrigin || 'http://localhost:5001'
 
 const api = axios.create({
   baseURL: BASE_URL,

@@ -3,6 +3,11 @@ frontend/dist-electron/
 frontend/dist/
 publish/
 
+# Artefactos temporales y logs de runtime
+temp/
+api_out.txt
+api_err.txt
+
 # .NET
 *.swp
 *.*~
@@ -168,6 +173,8 @@ appsettings.Production.json
 secrets.json
 *.pfx
 *.p12
+*.key
+src/BuenaTierra.API/config/*.key
 
 # Backups
 *.bak
