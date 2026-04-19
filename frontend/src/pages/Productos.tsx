@@ -8,7 +8,7 @@ import type {
 } from '../types'
 import {
   Plus, Pencil, X, Loader2, Check, Leaf,
-  Search, Trash2, Package, Tag, Info, Save,
+  Search, Trash2, Package, Tag, Info, Save, Download,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -24,6 +24,40 @@ const UNIDADES = ['ud', 'kg', 'g', 'l', 'ml', 'caja', 'bandeja', 'docena']
 
 const INP = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500'
 
+function normalizeVidaUtilUnidad(value: unknown): 'Dias' | 'Meses' {
+  const raw = String(value ?? '').trim().toLowerCase()
+  return raw.startsWith('mes') ? 'Meses' : 'Dias'
+}
+
+function toFormState(p: Producto): FormState {
+  return {
+    codigo: p.codigo ?? '',
+    codigoBarras: p.codigoBarras ?? '',
+    nombre: p.nombre,
+    descripcion: p.descripcion ?? '',
+    categoriaId: p.categoriaId ? String(p.categoriaId) : '',
+    ivaPorcentaje: p.ivaPorcentaje,
+    unidadMedida: p.unidadMedida,
+    pesoUnitarioGr: p.pesoUnitarioGr != null ? String(p.pesoUnitarioGr) : '',
+    vidaUtilDias: p.vidaUtilDias != null ? String(p.vidaUtilDias) : '',
+    vidaUtilUnidad: normalizeVidaUtilUnidad(p.vidaUtilUnidad),
+    precioVenta: String(p.precioVenta),
+    precioCoste: p.precioCoste != null ? String(p.precioCoste) : '',
+    descuentoPorDefecto: p.descuentoPorDefecto != null ? String(p.descuentoPorDefecto) : '',
+    proveedorHabitual: p.proveedorHabitual ?? '',
+    referencia: p.referencia ?? '',
+    fabricante: p.fabricante ?? '',
+    stockMinimo: p.stockMinimo != null ? String(p.stockMinimo) : '',
+    stockMaximo: p.stockMaximo != null ? String(p.stockMaximo) : '',
+    conservacion: (p as unknown as { conservacion?: string }).conservacion ?? '',
+    temperaturaMin: (p as unknown as { temperaturaMin?: number }).temperaturaMin != null ? String((p as unknown as { temperaturaMin: number }).temperaturaMin) : '',
+    temperaturaMax: (p as unknown as { temperaturaMax?: number }).temperaturaMax != null ? String((p as unknown as { temperaturaMax: number }).temperaturaMax) : '',
+    activo: p.activo,
+    requiereLote: p.requiereLote,
+    compartidoRepartidores: p.compartidoRepartidores,
+  }
+}
+
 function Field({ label, children, span2 = false }: { label: string; children: React.ReactNode; span2?: boolean }) {
   return (
     <div className={span2 ? 'col-span-2' : ''}>
@@ -38,7 +72,7 @@ type FTab = 'ficha' | 'ingredientes' | 'alergenos'
 interface FormState {
   codigo: string; codigoBarras: string; nombre: string; descripcion: string
   categoriaId: string; ivaPorcentaje: number; unidadMedida: string
-  pesoUnitarioGr: string; vidaUtilDias: string
+  pesoUnitarioGr: string; vidaUtilDias: string; vidaUtilUnidad: 'Dias' | 'Meses'
   precioVenta: string; precioCoste: string; descuentoPorDefecto: string
   proveedorHabitual: string; referencia: string; fabricante: string
   stockMinimo: string; stockMaximo: string
@@ -49,7 +83,7 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   codigo: '', codigoBarras: '', nombre: '', descripcion: '',
   categoriaId: '', ivaPorcentaje: 10, unidadMedida: 'ud',
-  pesoUnitarioGr: '', vidaUtilDias: '',
+  pesoUnitarioGr: '', vidaUtilDias: '', vidaUtilUnidad: 'Dias',
   precioVenta: '', precioCoste: '', descuentoPorDefecto: '',
   proveedorHabitual: '', referencia: '', fabricante: '',
   stockMinimo: '', stockMaximo: '',
@@ -185,37 +219,25 @@ export default function Productos() {
     setShowForm(true)
   }
 
-  function openEdit(p: Producto) {
+  async function openEdit(p: Producto) {
     setEditing(p)
-    setForm({
-      codigo: p.codigo ?? '',
-      codigoBarras: p.codigoBarras ?? '',
-      nombre: p.nombre,
-      descripcion: p.descripcion ?? '',
-      categoriaId: p.categoriaId ? String(p.categoriaId) : '',
-      ivaPorcentaje: p.ivaPorcentaje,
-      unidadMedida: p.unidadMedida,
-      pesoUnitarioGr: p.pesoUnitarioGr != null ? String(p.pesoUnitarioGr) : '',
-      vidaUtilDias: p.vidaUtilDias != null ? String(p.vidaUtilDias) : '',
-      precioVenta: String(p.precioVenta),
-      precioCoste: p.precioCoste != null ? String(p.precioCoste) : '',
-      descuentoPorDefecto: p.descuentoPorDefecto != null ? String(p.descuentoPorDefecto) : '',
-      proveedorHabitual: p.proveedorHabitual ?? '',
-      referencia: p.referencia ?? '',
-      fabricante: p.fabricante ?? '',
-      stockMinimo: p.stockMinimo != null ? String(p.stockMinimo) : '',
-      stockMaximo: p.stockMaximo != null ? String(p.stockMaximo) : '',
-      conservacion: (p as unknown as { conservacion?: string }).conservacion ?? '',
-      temperaturaMin: (p as unknown as { temperaturaMin?: number }).temperaturaMin != null ? String((p as unknown as { temperaturaMin: number }).temperaturaMin) : '',
-      temperaturaMax: (p as unknown as { temperaturaMax?: number }).temperaturaMax != null ? String((p as unknown as { temperaturaMax: number }).temperaturaMax) : '',
-      activo: p.activo,
-      requiereLote: p.requiereLote,
-      compartidoRepartidores: p.compartidoRepartidores,
-    })
+    setForm(toFormState(p))
     setFormIngredientes([])  // populated via query effect
     setFormErrors({})
     setFormTab('ficha')
     setShowForm(true)
+
+    // Rehidratar desde detalle para evitar datos incompletos del listado (e.g. vidaUtilUnidad).
+    try {
+      const res = await api.get(`/productos/${p.id}`)
+      const full = (res.data?.data ?? null) as Producto | null
+      if (full && full.id === p.id) {
+        setEditing(full)
+        setForm(toFormState(full))
+      }
+    } catch {
+      // Si falla el detalle, mantenemos los datos del listado para no bloquear edición.
+    }
   }
 
   function closeForm() {
@@ -242,6 +264,7 @@ export default function Productos() {
       unidadMedida: form.unidadMedida,
       pesoUnitarioGr: n(form.pesoUnitarioGr),
       vidaUtilDias: ni(form.vidaUtilDias),
+      vidaUtilUnidad: normalizeVidaUtilUnidad(form.vidaUtilUnidad),
       descuentoPorDefecto: n(form.descuentoPorDefecto),
       proveedorHabitual: form.proveedorHabitual || null,
       referencia: form.referencia || null,
@@ -369,10 +392,34 @@ export default function Productos() {
           <h1 className="text-2xl font-bold text-gray-900">Productos</h1>
           <p className="text-gray-500 text-sm mt-0.5">Catálogo de artículos del obrador</p>
         </div>
-        <button onClick={openNew}
-          className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-          <Plus className="w-4 h-4" /> Nuevo producto
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              try {
+                const params = new URLSearchParams()
+                params.set('soloActivos', String(filtroActivo === 'activos'))
+                if (filtroCategoria) params.set('categoriaId', String(filtroCategoria))
+                if (search.trim()) params.set('q', search.trim())
+                const res = await api.get(`/productos/exportar-excel?${params}`, { responseType: 'blob' })
+                const url = window.URL.createObjectURL(new Blob([res.data]))
+                const a = document.createElement('a')
+                a.href = url
+                a.setAttribute('download', 'productos.xlsx')
+                document.body.appendChild(a)
+                a.click()
+                a.remove()
+                window.URL.revokeObjectURL(url)
+              } catch { toast.error('Error al exportar') }
+            }}
+            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <Download className="w-4 h-4" />Exportar Excel
+          </button>
+          <button onClick={openNew}
+            className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+            <Plus className="w-4 h-4" /> Nuevo producto
+          </button>
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -640,10 +687,18 @@ export default function Productos() {
                       onChange={e => setF('pesoUnitarioGr', e.target.value)}
                       placeholder="0" className={INP} />
                   </Field>
-                  <Field label="Vida útil (días)">
-                    <input type="number" min="0" step="1" value={form.vidaUtilDias}
-                      onChange={e => setF('vidaUtilDias', e.target.value)}
-                      placeholder="0" className={INP} />
+                  <Field label="Vida útil">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="number" min="0" step="1" value={form.vidaUtilDias}
+                        onChange={e => setF('vidaUtilDias', e.target.value)}
+                        placeholder="0" className={INP} />
+                      <select value={form.vidaUtilUnidad}
+                        onChange={e => setF('vidaUtilUnidad', e.target.value as 'Dias' | 'Meses')}
+                        className={INP}>
+                        <option value="Dias">Días</option>
+                        <option value="Meses">Meses completos</option>
+                      </select>
+                    </div>
                   </Field>
 
                   {/* Sección: Precios */}

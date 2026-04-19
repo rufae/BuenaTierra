@@ -271,7 +271,45 @@ public class UsuariosController : ControllerBase
         await _uow.SaveChangesAsync(ct);
 
         return Ok(ApiResponse<string>.Ok("Contraseña actualizada correctamente"));
-    }}
+    }
+
+    /// <summary>GET /api/usuarios/me/configuracion — Devuelve la configuración personal del usuario (SMTP, IMAP)</summary>
+    [HttpGet("me/configuracion")]
+    public async Task<ActionResult<ApiResponse<object>>> GetConfiguracionMe(CancellationToken ct)
+    {
+        var u = await _uow.Usuarios.GetByIdAsync(UsuarioActualId, ct);
+        if (u is null) return NotFound(ApiResponse<object>.Fail("Usuario no encontrado"));
+
+        var cfg = new System.Collections.Generic.Dictionary<string, object?>();
+        if (!string.IsNullOrWhiteSpace(u.Configuracion))
+        {
+            try
+            {
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>>(u.Configuracion);
+                if (parsed != null)
+                    foreach (var kv in parsed)
+                        cfg[kv.Key] = kv.Value;
+            }
+            catch { /* return empty config */ }
+        }
+        return Ok(ApiResponse<object>.Ok(cfg));
+    }
+
+    /// <summary>PUT /api/usuarios/me/configuracion — Guarda la configuración personal del usuario (SMTP, IMAP)</summary>
+    [HttpPut("me/configuracion")]
+    public async Task<ActionResult<ApiResponse<string>>> PutConfiguracionMe(
+        [FromBody] System.Text.Json.JsonElement body, CancellationToken ct)
+    {
+        var u = await _uow.Usuarios.GetByIdAsync(UsuarioActualId, ct);
+        if (u is null) return NotFound(ApiResponse<string>.Fail("Usuario no encontrado"));
+
+        u.Configuracion = body.GetRawText();
+        await _uow.Usuarios.UpdateAsync(u, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<string>.Ok("Configuración guardada"));
+    }
+}
 
 // ── DTOs ──────────────────────────────────────────────────────────────────────
 

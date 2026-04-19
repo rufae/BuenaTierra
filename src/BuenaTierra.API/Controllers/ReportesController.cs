@@ -103,7 +103,7 @@ public class ReportesController : ControllerBase
                 s.CantidadDisponible,
                 s.CantidadReservada,
                 s.StockMinimo,
-                tieneAlerta = s.CantidadDisponible <= s.StockMinimo,
+                tieneAlerta = s.StockMinimo > 0 && s.CantidadDisponible < s.StockMinimo,
                 bloqueado = s.Lote.Bloqueado,
             })
             .ToListAsync(ct);

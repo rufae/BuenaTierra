@@ -43,6 +43,13 @@ public class PedidoLinea : BaseEntity
     public decimal IvaImporte => Math.Round(Subtotal * IvaPorcentaje / 100, 4);
     public decimal RecargoEquivalenciaImporte => Math.Round(Subtotal * RecargoEquivalenciaPorcentaje / 100, 4);
 
+    /// <summary>
+    /// JSON serializado con la asignación FIFO de lotes al confirmar el pedido.
+    /// Formato: [{"loteId":1,"codigoLote":"120426-5-001","cantidad":3.0}]
+    /// NULL mientras el pedido está en Pendiente.
+    /// </summary>
+    public string? ReservaLotesJson { get; set; }
+
     // Navegación
     public virtual Pedido Pedido { get; set; } = null!;
     public virtual Producto Producto { get; set; } = null!;

@@ -153,6 +153,7 @@ export default function Lotes() {
               type="number" min="1" step="1"
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-28 focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               value={fifoCantidad}
+              onFocus={e => e.currentTarget.select()}
               onChange={e => { setFifoCantidad(e.target.value); setFifoResult([]) }}
             />
           </div>

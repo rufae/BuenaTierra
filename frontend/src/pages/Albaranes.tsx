@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { Fragment, useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { AlbaranResumen, AlbaranDetalle, CreateAlbaranDto, Cliente, Producto, SerieFacturacion } from '../types'
@@ -243,8 +243,8 @@ export default function Albaranes() {
               : filteredAlbaranes.length === 0
               ? <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">{(albaranes ?? []).length ? 'Sin resultados para el filtro actual' : 'No hay albaranes. Crea el primero.'}</td></tr>
               : filteredAlbaranes.map(a => (
-                <>
-                  <tr key={a.id} className="hover:bg-gray-50/50">
+                <Fragment key={a.id}>
+                  <tr className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{a.numeroAlbaran}</td>
                     <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha)}</td>
                     <td className="px-4 py-3">
@@ -320,7 +320,7 @@ export default function Albaranes() {
                             </thead>
                             <tbody>
                               {(detalle.lineas ?? []).map((l, i) => (
-                                <tr key={i} className="border-t border-blue-100">
+                                <tr key={`${l.productoId}-${l.codigoLote ?? 'nolote'}-${i}`} className="border-t border-blue-100">
                                   <td className="py-1 pr-4 font-medium">{l.productoNombre}</td>
                                   <td className="py-1 pr-4 font-mono">{l.codigoLote ?? '—'}</td>
                                   <td className="py-1 pr-4">{fmtDate(l.fechaFabricacion)}</td>
@@ -341,7 +341,7 @@ export default function Albaranes() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
           </tbody>
         </table>
@@ -379,13 +379,13 @@ export default function Albaranes() {
                   </div>
                   <div className="space-y-2">
                     {items.map((item, i) => (
-                      <div key={i} className="flex gap-2 items-center">
+                      <div key={`${item.productoId || 'nuevo'}-${i}`} className="flex gap-2 items-center">
                         <select value={item.productoId} onChange={e => updateItem(i, 'productoId', +e.target.value)}
                           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                           <option value={0}>Seleccionar…</option>
                           {(productos ?? []).map(p => <option key={p.id} value={p.id}>{p.nombre} ({p.precioVenta.toFixed(2)} €)</option>)}
                         </select>
-                        <input type="number" min="0.01" step="0.01" value={item.cantidad} onChange={e => updateItem(i, 'cantidad', +e.target.value)}
+                        <input type="number" min="1" step="1" value={item.cantidad} onFocus={e => e.currentTarget.select()} onChange={e => updateItem(i, 'cantidad', parseInt(e.target.value || '0', 10))}
                           className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                           placeholder="Cant." />
                         {items.length > 1 && (
@@ -471,7 +471,7 @@ export default function Albaranes() {
                             </thead>
                             <tbody>
                               {lineas.map((l, i) => (
-                                <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                                <tr key={`${l.productoId}-${l.codigoLote ?? 'nolote'}-${i}`} className="border-t border-gray-100 hover:bg-gray-50">
                                   <td className="px-4 py-2 font-mono font-semibold text-gray-800">{l.codigoLote ?? '—'}</td>
                                   <td className="px-4 py-2 text-gray-600">{fmtDate(l.fechaFabricacion) ?? '—'}</td>
                                   <td className="px-4 py-2 text-gray-600">{fmtDate(l.fechaCaducidad) ?? '—'}</td>

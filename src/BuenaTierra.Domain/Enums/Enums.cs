@@ -140,3 +140,10 @@ public enum EstadoImpresion
     Impreso,
     Error
 }
+
+public enum EstadoCorreo
+{
+    Borrador,
+    Enviado,
+    Error
+}

@@ -424,6 +424,7 @@ public class EtiquetasController : ControllerBase
                     prod.PesoUnitarioGr,
                     prod.UnidadMedida,
                     prod.VidaUtilDias,
+                    prod.VidaUtilUnidad,
                     prod.IngredientesTexto,
                     prod.Trazas,
                     prod.Conservacion,

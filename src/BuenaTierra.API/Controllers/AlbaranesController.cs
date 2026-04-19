@@ -307,6 +307,8 @@ public class AlbaranesController : ControllerBase
 
                 decimal cantidadAntes = stock.CantidadDisponible;
                 stock.CantidadDisponible -= linea.Cantidad;
+                // Liberar la reserva que se creó al confirmar el pedido (si existía)
+                stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - linea.Cantidad);
                 stock.UpdatedAt = DateTime.UtcNow;
                 await _uow.Stock.UpdateAsync(stock, ct);
 

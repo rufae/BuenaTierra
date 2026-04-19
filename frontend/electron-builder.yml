@@ -20,6 +20,11 @@ extraResources:
     to: api/
     filter:
       - "**/*"
+  # Scripts SQL de migración — accesibles en process.resourcesPath/api/database/init/
+  - from: ../database/init/
+    to: api/database/init/
+    filter:
+      - "*_upgrade_*.sql"
 
 # ─── Windows ─────────────────────────────────────────────────────────────────
 win:
@@ -27,7 +32,7 @@ win:
     - target: nsis
       arch:
         - x64
-  # icon: public/app.ico   # descomenta cuando tengas un .ico
+  icon: ../buenatierra.ico
   # Firma de código (opcional — necesitas un certificado EV)
   # certificateFile: cert.pfx
   # certificatePassword: ${CERT_PASSWORD}
@@ -37,8 +42,8 @@ nsis:
   oneClick: false
   perMachine: false                  # instala por usuario (no requiere admin)
   allowToChangeInstallationDirectory: true
-  # installerIcon: public/app.ico   # descomenta cuando tengas un .ico
-  # uninstallerIcon: public/app.ico
+  installerIcon: ../buenatierra.ico
+  uninstallerIcon: ../buenatierra.ico
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: BuenaTierra

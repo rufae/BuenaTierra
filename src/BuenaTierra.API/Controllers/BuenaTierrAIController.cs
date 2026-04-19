@@ -59,6 +59,7 @@ public class BuenaTierrAIController : ControllerBase
                 p.IvaPorcentaje,
                 p.UnidadMedida,
                 p.VidaUtilDias,
+                p.VidaUtilUnidad,
                 p.StockMinimo,
                 p.IngredientesTexto,
                 p.Trazas

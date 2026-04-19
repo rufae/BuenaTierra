@@ -89,7 +89,11 @@ BEGIN
     SELECT p_empresa_id, p_producto_id, p_produccion_id, v_codigo_lote,
            v_produccion.fecha_produccion,
            CASE WHEN pr.vida_util_dias IS NOT NULL
-                THEN v_produccion.fecha_produccion + pr.vida_util_dias
+                THEN CASE
+                    WHEN COALESCE(pr.vida_util_unidad, 'Dias') ILIKE 'Mes%'
+                        THEN (v_produccion.fecha_produccion + (pr.vida_util_dias || ' months')::interval)::date
+                    ELSE v_produccion.fecha_produccion + pr.vida_util_dias
+                END
                 ELSE NULL END,
            v_cantidad_neta
     FROM productos pr WHERE pr.id = p_producto_id

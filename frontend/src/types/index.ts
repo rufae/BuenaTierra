@@ -49,6 +49,7 @@ export interface Producto {
   unidadMedida: string
   pesoUnitarioGr: number | null
   vidaUtilDias: number | null
+  vidaUtilUnidad: 'Dias' | 'Meses'
   activo: boolean
   requiereLote: boolean
   compartidoRepartidores: boolean
@@ -90,6 +91,7 @@ export interface CreateProductoDto {
   unidadMedida: string
   pesoUnitarioGr?: number
   vidaUtilDias?: number
+  vidaUtilUnidad?: 'Dias' | 'Meses'
   proveedorHabitual?: string
   referencia?: string
   fabricante?: string

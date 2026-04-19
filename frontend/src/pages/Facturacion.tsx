@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
 import type { Cliente, Producto, SerieFacturacion, Factura } from '../types'
-import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, Ban, ArrowRight, AlertTriangle, FileSpreadsheet, Search } from 'lucide-react'
+import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, ArrowRight, AlertTriangle, FileSpreadsheet, Search, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 
@@ -90,8 +90,10 @@ export default function Facturacion() {
   const [notas, setNotas] = useState('')
   const [lineas, setLineas] = useState<LineaItem[]>([])
   const [productoSel, setProductoSel] = useState(0)
-  const [cantidadSel, setCantidadSel] = useState(1)
+  const [cantidadSel, setCantidadSel] = useState('1')
   const [fifoPreviews, setFifoPreviews] = useState<FifoPreview[]>([])
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [importResult, setImportResult] = useState<{ importadas: number; errores: number; detalles: string[] } | null>(null)
 
   const { data: facturas, isLoading } = useQuery({
     queryKey: ['facturas', user?.empresaId],
@@ -190,18 +192,33 @@ export default function Facturacion() {
     onError: () => toast.error('Error al cobrar factura'),
   })
 
-  const anularMutation = useMutation({
-    mutationFn: (id: number) => api.post(`/facturas/${id}/anular`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['facturas'] }); qc.invalidateQueries({ queryKey: ['factura-detalle'] }); toast.success('Factura anulada') },
-    onError: () => toast.error('Error al anular factura'),
+  const importMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData()
+      fd.append('archivo', file)
+      const res = await api.post<{ data: { importadas: number; errores: number; detalles: string[] }; message: string }>(
+        '/facturas/importar', fd, { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      return res.data
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['facturas'] })
+      setImportResult(res.data)
+      toast.success(res.message ?? `${res.data.importadas} facturas importadas`)
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { errors?: string[] } } })?.response?.data?.errors?.[0] ?? 'Error al importar'
+      toast.error(msg)
+    },
   })
 
   function addLinea() {
-    if (!productoSel || cantidadSel <= 0) return toast.error('Selecciona producto y cantidad válida')
+    const cantidad = parseInt(cantidadSel, 10)
+    if (!productoSel || !Number.isInteger(cantidad) || cantidad <= 0) return toast.error('Selecciona producto y cantidad válida')
     const prod = productos?.find((p) => p.id === productoSel)
     if (!prod) return
     const existing = lineas.findIndex((l) => l.productoId === productoSel)
-    const newCantidad = existing >= 0 ? lineas[existing].cantidad + cantidadSel : cantidadSel
+    const newCantidad = existing >= 0 ? lineas[existing].cantidad + cantidad : cantidad
     if (existing >= 0) {
       const updated = [...lineas]
       updated[existing].cantidad = newCantidad
@@ -210,7 +227,7 @@ export default function Facturacion() {
       setLineas([...lineas, {
         productoId: productoSel,
         productoNombre: prod.nombre,
-        cantidad: cantidadSel,
+        cantidad,
         precioUnitario: prod.precioVenta,
         descuento: 0,
       }])
@@ -228,7 +245,7 @@ export default function Facturacion() {
       // Don't block — preview is optional
     })
     setProductoSel(0)
-    setCantidadSel(1)
+    setCantidadSel('1')
   }
 
   function removeLinea(idx: number) {
@@ -274,6 +291,21 @@ export default function Facturacion() {
           <p className="text-gray-500 text-sm mt-0.5">Los lotes se asignan automáticamente por FIFO</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => downloadBlob('/facturas/importar-plantilla', 'plantilla-importar-facturas.xlsx')}
+            title="Descargar plantilla para importar facturas"
+            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            Plantilla
+          </button>
+          <button
+            onClick={() => { setShowImportModal(true); setImportResult(null) }}
+            className="flex items-center gap-2 border border-blue-300 text-blue-700 hover:bg-blue-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            Importar
+          </button>
           <button
             onClick={() => downloadBlob('/facturas/exportar-excel', 'facturas.xlsx')}
             className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -385,11 +417,6 @@ export default function Facturacion() {
                                 <CheckCircle2 className="w-4 h-4" />
                               </button>
                             )}
-                            {estado !== 'Anulada' && estado !== 'Cobrada' && (
-                              <button onClick={() => anularMutation.mutate(f.id)} className="text-red-400 hover:text-red-600 transition-colors p-1 rounded" title="Anular">
-                                <Ban className="w-4 h-4" />
-                              </button>
-                            )}
                           </>
                         )
                       })()}
@@ -461,7 +488,7 @@ export default function Facturacion() {
                     <option value={0}>— Selecciona producto —</option>
                     {productos?.map((p) => <option key={p.id} value={p.id}>{p.nombre} — {p.precioVenta.toFixed(2)} €/{p.unidadMedida}</option>)}
                   </select>
-                  <input type="number" min={0.001} step={0.001} value={cantidadSel} onChange={(e) => setCantidadSel(parseFloat(e.target.value) || 1)} className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Cant." />
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" value={cantidadSel} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setCantidadSel(e.target.value.replace(/\D/g, ''))} className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Cant." />
                   <button type="button" onClick={addLinea} className="flex items-center gap-1 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
                     <Plus className="w-4 h-4" />Añadir
                   </button>
@@ -600,11 +627,6 @@ export default function Facturacion() {
                     <CheckCircle2 className="w-3.5 h-3.5" /> Cobrar
                   </button>
                 )}
-                {facturaDetalle.estado !== 'Anulada' && facturaDetalle.estado !== 'Cobrada' && (
-                  <button onClick={() => anularMutation.mutate(facturaDetalle.id)} className="flex items-center gap-1.5 text-xs bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium">
-                    <Ban className="w-3.5 h-3.5" /> Anular
-                  </button>
-                )}
               </div>
               <table className="w-full text-sm border border-gray-100 rounded-lg overflow-hidden">
                 <thead>
@@ -635,6 +657,79 @@ export default function Facturacion() {
                 <div><p className="text-gray-500 text-xs">IVA</p><p className="font-semibold">{facturaDetalle.ivaTotal.toFixed(2)} €</p></div>
                 <div><p className="text-gray-500 text-xs">Total</p><p className="font-bold text-brand-700 text-xl">{facturaDetalle.total.toFixed(2)} €</p></div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import invoices modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-900">Importar facturas históricas</h2>
+              <button onClick={() => setShowImportModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {!importResult ? (
+                <>
+                  <p className="text-sm text-gray-600">
+                    Selecciona un archivo <strong>.xlsx</strong> o <strong>.csv</strong> con las facturas a importar.
+                    Columnas requeridas: <code className="text-xs bg-gray-100 px-1 rounded">NumeroFactura</code>, <code className="text-xs bg-gray-100 px-1 rounded">Fecha</code>, <code className="text-xs bg-gray-100 px-1 rounded">Total</code>.
+                    Opcionales: <code className="text-xs bg-gray-100 px-1 rounded">ClienteNIF</code>, <code className="text-xs bg-gray-100 px-1 rounded">ClienteNombre</code>, <code className="text-xs bg-gray-100 px-1 rounded">Descripcion</code>.
+                  </p>
+                  <label className="flex flex-col items-center justify-center w-full border-2 border-dashed border-gray-300 rounded-xl p-8 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                    <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                    <span className="text-sm text-gray-600 font-medium">Haz clic para seleccionar archivo</span>
+                    <span className="text-xs text-gray-400 mt-1">.xlsx o .csv</span>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) importMutation.mutate(file)
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                  {importMutation.isPending && (
+                    <div className="flex items-center gap-2 text-sm text-blue-600">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Importando…
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                      <p className="text-2xl font-bold text-green-700">{importResult.importadas}</p>
+                      <p className="text-xs text-green-600">Importadas</p>
+                    </div>
+                    <div className="flex-1 bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                      <p className="text-2xl font-bold text-red-700">{importResult.errores}</p>
+                      <p className="text-xs text-red-600">Errores</p>
+                    </div>
+                  </div>
+                  {importResult.detalles.length > 0 && (
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {importResult.detalles.map((d, i) => (
+                        <p key={i} className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{d}</p>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setImportResult(null)}
+                    className="w-full text-sm text-blue-600 hover:text-blue-800 border border-blue-200 hover:bg-blue-50 rounded-lg py-2 transition-colors"
+                  >
+                    Importar otro archivo
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="px-6 pb-4 flex justify-end">
+              <button onClick={() => setShowImportModal(false)} className="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors">Cerrar</button>
             </div>
           </div>
         </div>

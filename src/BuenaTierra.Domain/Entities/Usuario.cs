@@ -17,6 +17,7 @@ public class Usuario : BaseEntity
     public string? RefreshToken { get; set; }
     public DateTime? RefreshTokenExp { get; set; }
     public int? ClienteId { get; set; }             // Vincula Repartidor → Cliente
+    public string? Configuracion { get; set; }       // JSON: smtp/imap per-user config
 
     // Navegación
     public virtual Empresa Empresa { get; set; } = null!;

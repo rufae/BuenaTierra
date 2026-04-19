@@ -7,7 +7,11 @@ using BuenaTierra.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace BuenaTierra.API.Controllers;
 
@@ -60,6 +64,158 @@ public class PedidosController : ControllerBase
             return Ok(PagedResponse<PedidoResumen>.Ok(paged, resultado.Count, pg.SafePage, pg.SafePageSize));
         }
         return Ok(ApiResponse<IEnumerable<PedidoResumen>>.Ok(resultado));
+    }
+
+    /// <summary>
+    /// GET /api/pedidos/exportar-excel — Exporta la lista de pedidos a Excel
+    /// con formato sanitario: 1 fila por producto-lote.
+    /// </summary>
+    [HttpGet("exportar-excel")]
+    public async Task<IActionResult> ExportarListaExcel(
+        [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta, CancellationToken ct)
+    {
+        IQueryable<Pedido> q = _uow.Pedidos.GetQueryable()
+            .Where(p => p.EmpresaId == EmpresaId)
+            .Include(p => p.Cliente)
+            .Include(p => p.Lineas).ThenInclude(l => l.Producto);
+
+        if (desde.HasValue) q = q.Where(p => p.FechaPedido >= desde.Value);
+        if (hasta.HasValue) q = q.Where(p => p.FechaPedido <= hasta.Value);
+
+        var list = await q.OrderByDescending(p => p.FechaPedido).ToListAsync(ct);
+
+        // Fallback para pedidos antiguos: reconstruir lotes desde albaranes vinculados
+        // cuando la línea no tenga reserva_lotes_json.
+        var pedidoIds = list.Select(p => p.Id).ToList();
+        var albaranesPorPedidoProducto = await _uow.Albaranes.GetQueryable()
+            .Where(a => a.EmpresaId == EmpresaId && a.PedidoId.HasValue && pedidoIds.Contains(a.PedidoId.Value))
+            .Include(a => a.Lineas).ThenInclude(l => l.Lote)
+            .SelectMany(a => a.Lineas.Select(l => new
+            {
+                PedidoId = a.PedidoId!.Value,
+                l.ProductoId,
+                CodigoLote = l.Lote != null ? l.Lote.CodigoLote : "Sin lote",
+                l.Cantidad
+            }))
+            .ToListAsync(ct);
+
+        var lotesFallback = albaranesPorPedidoProducto
+            .GroupBy(x => (x.PedidoId, x.ProductoId))
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => new ReservaLoteItem(0, x.CodigoLote, x.Cantidad)).ToList());
+
+        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
+        using var package = new OfficeOpenXml.ExcelPackage();
+        var ws = package.Workbook.Worksheets.Add("Pedidos");
+
+        ws.Cells[1, 1].Value = "Nº Pedido";
+        ws.Cells[1, 2].Value = "Fecha";
+        ws.Cells[1, 3].Value = "Cliente";
+        ws.Cells[1, 4].Value = "NIF Cliente";
+        ws.Cells[1, 5].Value = "Dirección";
+        ws.Cells[1, 6].Value = "Estado";
+        ws.Cells[1, 7].Value = "Producto";
+        ws.Cells[1, 8].Value = "Lote";
+        ws.Cells[1, 9].Value = "Cantidad";
+
+        using (var headerRange = ws.Cells[1, 1, 1, 9])
+        {
+            headerRange.Style.Font.Bold = true;
+            headerRange.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+            headerRange.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(68, 114, 196));
+            headerRange.Style.Font.Color.SetColor(System.Drawing.Color.White);
+        }
+
+        int row = 2;
+        foreach (var p in list)
+        {
+            var cli = p.Cliente;
+            var direccion = cli != null
+                ? string.Join(", ", new[] { cli.Direccion, cli.CodigoPostal, cli.Ciudad, cli.Provincia }
+                    .Where(s => !string.IsNullOrWhiteSpace(s)))
+                : "—";
+
+            var lineas = p.Lineas.Any() ? p.Lineas : new List<PedidoLinea>();
+            if (!lineas.Any())
+            {
+                ws.Cells[row, 1].Value = p.NumeroPedido;
+                ws.Cells[row, 2].Value = p.FechaPedido.ToString("dd/MM/yyyy");
+                ws.Cells[row, 3].Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
+                ws.Cells[row, 4].Value = cli?.Nif ?? "—";
+                ws.Cells[row, 5].Value = direccion;
+                ws.Cells[row, 6].Value = p.Estado.ToString();
+                ws.Cells[row, 7].Value = "—";
+                ws.Cells[row, 8].Value = "—";
+                ws.Cells[row, 9].Value = 0;
+                row++;
+                continue;
+            }
+
+            foreach (var l in lineas.OrderBy(x => x.Orden))
+            {
+                List<ReservaLoteItem>? reservas = null;
+                if (!string.IsNullOrWhiteSpace(l.ReservaLotesJson))
+                {
+                    try
+                    {
+                        reservas = JsonSerializer.Deserialize<List<ReservaLoteItem>>(l.ReservaLotesJson!);
+                    }
+                    catch (JsonException)
+                    {
+                        // Si hay datos históricos corruptos, no rompemos exportación.
+                        reservas = null;
+                    }
+                }
+
+                if ((reservas == null || reservas.Count == 0)
+                    && lotesFallback.TryGetValue((p.Id, l.ProductoId), out var reservasDesdeAlbaran)
+                    && reservasDesdeAlbaran.Count > 0)
+                {
+                    reservas = reservasDesdeAlbaran;
+                }
+
+                if (reservas != null && reservas.Count > 0)
+                {
+                    foreach (var r in reservas)
+                    {
+                        ws.Cells[row, 1].Value = p.NumeroPedido;
+                        ws.Cells[row, 2].Value = p.FechaPedido.ToString("dd/MM/yyyy");
+                        ws.Cells[row, 3].Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
+                        ws.Cells[row, 4].Value = cli?.Nif ?? "—";
+                        ws.Cells[row, 5].Value = direccion;
+                        ws.Cells[row, 6].Value = p.Estado.ToString();
+                        ws.Cells[row, 7].Value = l.Producto?.Nombre ?? l.Descripcion ?? "Producto";
+                        ws.Cells[row, 8].Value = string.IsNullOrWhiteSpace(r.CodigoLote) ? "Sin lote" : r.CodigoLote;
+                        ws.Cells[row, 9].Value = (int)Math.Round(r.Cantidad, 0, MidpointRounding.AwayFromZero);
+                        row++;
+                    }
+                    continue;
+                }
+
+                ws.Cells[row, 1].Value = p.NumeroPedido;
+                ws.Cells[row, 2].Value = p.FechaPedido.ToString("dd/MM/yyyy");
+                ws.Cells[row, 3].Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
+                ws.Cells[row, 4].Value = cli?.Nif ?? "—";
+                ws.Cells[row, 5].Value = direccion;
+                ws.Cells[row, 6].Value = p.Estado.ToString();
+                ws.Cells[row, 7].Value = l.Producto?.Nombre ?? l.Descripcion ?? "Producto";
+                ws.Cells[row, 8].Value = "Sin lote";
+                ws.Cells[row, 9].Value = (int)Math.Round(l.Cantidad, 0, MidpointRounding.AwayFromZero);
+                row++;
+            }
+        }
+
+        ws.Cells.AutoFitColumns();
+        if (ws.Cells[1, 5].Value != null) ws.Column(5).Width = Math.Min(ws.Column(5).Width, 55);
+        if (ws.Cells[1, 7].Value != null) ws.Column(7).Width = Math.Min(ws.Column(7).Width, 40);
+        if (ws.Cells[1, 8].Value != null) ws.Column(8).Width = Math.Min(ws.Column(8).Width, 35);
+
+        var bytes = package.GetAsByteArray();
+        var dStr = (desde ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(-1))).ToString("yyyyMMdd");
+        var hStr = (hasta ?? DateOnly.FromDateTime(DateTime.Today)).ToString("yyyyMMdd");
+        var fileName = $"pedidos-{dStr}-{hStr}.xlsx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
     /// <summary>GET /api/pedidos/{id} — Detalle de pedido con líneas</summary>
@@ -249,41 +405,110 @@ public class PedidosController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/pedidos/{id}/confirmar — Confirmar pedido (estado → Confirmado)
+    /// POST /api/pedidos/{id}/confirmar — Confirmar pedido (estado → Confirmado).
+    /// Asigna lotes FIFO y reserva stock para que los informes reflejen el compromiso.
     /// </summary>
     [HttpPost("{id:int}/confirmar")]
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<string>>> Confirmar(int id, CancellationToken ct)
     {
-        var pedido = await _uow.Pedidos.GetByIdAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
         if (pedido.Estado != EstadoPedido.Pendiente)
             return BadRequest(ApiResponse<string>.Fail("Solo se pueden confirmar pedidos en estado Pendiente"));
 
-        pedido.Estado = EstadoPedido.Confirmado;
-        await _uow.Pedidos.UpdateAsync(pedido, ct);
-        await _uow.SaveChangesAsync(ct);
-        return Ok(ApiResponse<string>.Ok("OK", "Pedido confirmado"));
+        await _uow.BeginTransactionAsync(ct);
+        try
+        {
+            // Asignar lotes FIFO y reservar stock para cada línea
+            foreach (var linea in pedido.Lineas)
+            {
+                var producto = linea.Producto
+                    ?? await _uow.Productos.GetByIdAsync(linea.ProductoId, ct);
+
+                if (producto?.RequiereLote != true) continue;
+
+                var lotes = await _loteService.AsignarLotesAsync(EmpresaId, linea.ProductoId, linea.Cantidad, ct);
+
+                // Guardar asignación FIFO en la línea
+                var reservaItems = lotes.Select(l => new ReservaLoteItem(l.LoteId, l.CodigoLote, l.Cantidad)).ToList();
+                linea.ReservaLotesJson = JsonSerializer.Serialize(reservaItems);
+
+                // Reservar stock: incrementar CantidadReservada por lote
+                foreach (var lote in lotes)
+                {
+                    var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, linea.ProductoId, lote.LoteId, ct);
+                    if (stock != null)
+                    {
+                        stock.CantidadReservada += lote.Cantidad;
+                        stock.UpdatedAt = DateTime.UtcNow;
+                        await _uow.Stock.UpdateAsync(stock, ct);
+                    }
+                }
+            }
+
+            pedido.Estado = EstadoPedido.Confirmado;
+            await _uow.Pedidos.UpdateAsync(pedido, ct);
+            await _uow.SaveChangesAsync(ct);
+            await _uow.CommitTransactionAsync(ct);
+
+            return Ok(ApiResponse<string>.Ok("OK", "Pedido confirmado y stock reservado"));
+        }
+        catch
+        {
+            await _uow.RollbackTransactionAsync(ct);
+            throw;
+        }
     }
 
     /// <summary>
-    /// POST /api/pedidos/{id}/cancelar — Cancelar pedido
+    /// POST /api/pedidos/{id}/cancelar — Cancelar pedido y liberar reservas de stock
     /// </summary>
     [HttpPost("{id:int}/cancelar")]
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<string>>> Cancelar(int id, CancellationToken ct)
     {
-        var pedido = await _uow.Pedidos.GetByIdAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
         if (pedido.Estado == EstadoPedido.Cancelado)
             return BadRequest(ApiResponse<string>.Fail("El pedido ya está cancelado"));
 
-        pedido.Estado = EstadoPedido.Cancelado;
-        await _uow.Pedidos.UpdateAsync(pedido, ct);
-        await _uow.SaveChangesAsync(ct);
-        return Ok(ApiResponse<string>.Ok("OK", "Pedido cancelado"));
+        await _uow.BeginTransactionAsync(ct);
+        try
+        {
+            // Liberar reservas de stock asignadas al confirmar
+            foreach (var linea in pedido.Lineas.Where(l => l.ReservaLotesJson != null))
+            {
+                var reserva = JsonSerializer.Deserialize<List<ReservaLoteItem>>(linea.ReservaLotesJson!);
+                if (reserva == null) continue;
+
+                foreach (var item in reserva)
+                {
+                    var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, linea.ProductoId, item.LoteId, ct);
+                    if (stock != null)
+                    {
+                        stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - item.Cantidad);
+                        stock.UpdatedAt = DateTime.UtcNow;
+                        await _uow.Stock.UpdateAsync(stock, ct);
+                    }
+                }
+                linea.ReservaLotesJson = null;
+            }
+
+            pedido.Estado = EstadoPedido.Cancelado;
+            await _uow.Pedidos.UpdateAsync(pedido, ct);
+            await _uow.SaveChangesAsync(ct);
+            await _uow.CommitTransactionAsync(ct);
+
+            return Ok(ApiResponse<string>.Ok("OK", "Pedido cancelado y reservas de stock liberadas"));
+        }
+        catch
+        {
+            await _uow.RollbackTransactionAsync(ct);
+            throw;
+        }
     }
 
     /// <summary>
@@ -358,7 +583,7 @@ public class PedidosController : ControllerBase
         if (pedido.Estado != EstadoPedido.Confirmado)
             return BadRequest(ApiResponse<AlbaranCreado>.Fail("Solo se puede crear albarán de pedidos confirmados"));
 
-        // Asignar lotes FIFO por cada línea del pedido
+        // Usar lotes pre-asignados al confirmar (si existen) o asignar FIFO ahora
         var lineasConLotes = new List<(PedidoLinea Linea, Producto Producto, List<LoteAsignado> Lotes)>();
 
         foreach (var linea in pedido.Lineas)
@@ -368,10 +593,20 @@ public class PedidosController : ControllerBase
                 ?? throw new EntidadNotFoundException(nameof(Producto), linea.ProductoId);
 
             List<LoteAsignado> lotes;
-            if (producto.RequiereLote)
+            if (linea.ReservaLotesJson != null)
+            {
+                // Lotes ya asignados y reservados al confirmar el pedido — usarlos directamente
+                var reserva = JsonSerializer.Deserialize<List<ReservaLoteItem>>(linea.ReservaLotesJson) ?? [];
+                lotes = reserva.Select(r => new LoteAsignado(r.LoteId, r.CodigoLote, linea.ProductoId, r.Cantidad, DateOnly.MinValue, null)).ToList();
+            }
+            else if (producto.RequiereLote)
+            {
                 lotes = await _loteService.AsignarLotesAsync(EmpresaId, linea.ProductoId, linea.Cantidad, ct);
+            }
             else
+            {
                 lotes = [new LoteAsignado(0, "", linea.ProductoId, linea.Cantidad, DateOnly.MinValue, null)];
+            }
 
             lineasConLotes.Add((linea, producto, lotes));
         }
@@ -488,6 +723,218 @@ public class PedidosController : ControllerBase
         return Ok(ApiResponse<FacturaCreada>.Ok(factura, $"Factura {factura.NumeroFactura} generada desde pedido {pedido.NumeroPedido}"));
     }
 
+    /// <summary>
+    /// GET /api/pedidos/{id}/pdf — Descargar PDF del pedido/encargo
+    /// </summary>
+    [HttpGet("{id:int}/pdf")]
+    public async Task<IActionResult> GetPdf(int id, CancellationToken ct)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        if (pedido == null || pedido.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
+
+        var empresa = await _uow.Empresas.GetByIdAsync(EmpresaId, ct);
+
+        var doc = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(1.5f, Unit.Centimetre);
+                page.DefaultTextStyle(x => x.FontSize(9).FontFamily("Arial"));
+
+                page.Header().Column(col =>
+                {
+                    col.Item().Row(row =>
+                    {
+                        row.RelativeItem().Column(c =>
+                        {
+                            c.Item().Text(empresa?.RazonSocial ?? empresa?.Nombre ?? "BuenaTierra")
+                                .Bold().FontSize(14);
+                            if (empresa != null)
+                            {
+                                c.Item().Text($"NIF: {empresa.Nif}");
+                                if (empresa.Direccion != null)
+                                    c.Item().Text(empresa.Direccion);
+                                if (empresa.Ciudad != null)
+                                    c.Item().Text($"{empresa.CodigoPostal} {empresa.Ciudad} ({empresa.Provincia})");
+                                if (empresa.Telefono != null)
+                                    c.Item().Text($"Tel: {empresa.Telefono}");
+                            }
+                        });
+
+                        row.ConstantItem(200).Column(c =>
+                        {
+                            c.Item().AlignRight().Text("PEDIDO/ENCARGO")
+                                .Bold().FontSize(18).FontColor("#27AE60");
+                            c.Item().AlignRight().Text($"Nº: {pedido.NumeroPedido}").Bold().FontSize(11);
+                            c.Item().AlignRight().Text($"Fecha: {pedido.FechaPedido:dd/MM/yyyy}");
+                            if (pedido.FechaEntrega.HasValue)
+                                c.Item().AlignRight().Text($"Entrega: {pedido.FechaEntrega:dd/MM/yyyy}");
+                            c.Item().AlignRight().Text($"Estado: {pedido.Estado}");
+                        });
+                    });
+
+                    col.Item().PaddingTop(5).LineHorizontal(1).LineColor("#27AE60");
+
+                    col.Item().PaddingTop(8).Row(row =>
+                    {
+                        row.RelativeItem().Column(c =>
+                        {
+                            c.Item().Text("CLIENTE").Bold().FontSize(8).FontColor("#888888");
+                            c.Item().Text(pedido.Cliente?.NombreCompleto ?? "—").Bold();
+                            if (pedido.Cliente?.Nif != null)
+                                c.Item().Text($"NIF/CIF: {pedido.Cliente.Nif}");
+                            if (pedido.Cliente?.Direccion != null)
+                                c.Item().Text(pedido.Cliente.Direccion);
+                            if (pedido.Cliente?.Ciudad != null)
+                                c.Item().Text($"{pedido.Cliente.CodigoPostal} {pedido.Cliente.Ciudad}");
+                        });
+                    });
+
+                    col.Item().PaddingTop(8).LineHorizontal(0.5f).LineColor("#DDDDDD");
+                });
+
+                page.Content().PaddingTop(10).Column(col =>
+                {
+                    col.Item().Table(table =>
+                    {
+                        table.ColumnsDefinition(cols =>
+                        {
+                            cols.RelativeColumn(5);
+                            cols.ConstantColumn(55);
+                            cols.ConstantColumn(65);
+                            cols.ConstantColumn(40);
+                            cols.ConstantColumn(65);
+                        });
+
+                        static IContainer HeaderCell(IContainer c) =>
+                            c.Background("#27AE60").Padding(4).AlignCenter();
+
+                        table.Header(header =>
+                        {
+                            header.Cell().Element(HeaderCell).Text("Producto").Bold().FontColor(Colors.White).FontSize(8);
+                            header.Cell().Element(HeaderCell).Text("Cant.").Bold().FontColor(Colors.White).FontSize(8);
+                            header.Cell().Element(HeaderCell).Text("Precio").Bold().FontColor(Colors.White).FontSize(8);
+                            header.Cell().Element(HeaderCell).Text("Dto%").Bold().FontColor(Colors.White).FontSize(8);
+                            header.Cell().Element(HeaderCell).Text("Total").Bold().FontColor(Colors.White).FontSize(8);
+                        });
+
+                        bool odd = true;
+                        foreach (var linea in pedido.Lineas.OrderBy(l => l.Orden))
+                        {
+                            string bg = odd ? "#FFFFFF" : "#F9F9F9";
+                            odd = !odd;
+
+                            IContainer BodyCell(IContainer c) => c.Background(bg).Padding(3);
+                            IContainer BodyCellRight(IContainer c) => c.Background(bg).Padding(3).AlignRight();
+
+                            decimal subtotal = Math.Round(linea.Cantidad * linea.PrecioUnitario * (1 - linea.Descuento / 100), 2);
+
+                            table.Cell().Element(BodyCell).Text(linea.Producto?.Nombre ?? linea.Descripcion ?? "").FontSize(8);
+                            table.Cell().Element(BodyCellRight).Text($"{linea.Cantidad:N2}").FontSize(8);
+                            table.Cell().Element(BodyCellRight).Text($"{linea.PrecioUnitario:N4} €").FontSize(8);
+                            table.Cell().Element(BodyCellRight).Text($"{linea.Descuento:N1}%").FontSize(8);
+                            table.Cell().Element(BodyCellRight).Text($"{subtotal:N2} €").FontSize(8).Bold();
+                        }
+                    });
+
+                    col.Item().PaddingTop(12).AlignRight().Table(totales =>
+                    {
+                        totales.ColumnsDefinition(c =>
+                        {
+                            c.ConstantColumn(130);
+                            c.ConstantColumn(80);
+                        });
+
+                        IContainer TotalLabel(IContainer c) => c.Background("#F5F5F5").Padding(4).AlignRight();
+                        IContainer TotalValue(IContainer c) => c.Background("#FFFFFF").Padding(4).AlignRight().BorderLeft(0.5f, Unit.Point).BorderColor("#DDDDDD");
+                        IContainer TotalLabelBold(IContainer c) => c.Background("#27AE60").Padding(4).AlignRight();
+                        IContainer TotalValueBold(IContainer c) => c.Background("#27AE60").Padding(4).AlignRight();
+
+                        totales.Cell().Element(TotalLabel).Text("Base Imponible:").FontSize(9);
+                        totales.Cell().Element(TotalValue).Text($"{pedido.Subtotal:N2} €").FontSize(9);
+
+                        totales.Cell().Element(TotalLabel).Text("IVA:").FontSize(9);
+                        totales.Cell().Element(TotalValue).Text($"{pedido.IvaTotal:N2} €").FontSize(9);
+
+                        if (pedido.RecargoEquivalenciaTotal > 0)
+                        {
+                            totales.Cell().Element(TotalLabel).Text("Recargo Equivalencia:").FontSize(9);
+                            totales.Cell().Element(TotalValue).Text($"{pedido.RecargoEquivalenciaTotal:N2} €").FontSize(9);
+                        }
+
+                        if (pedido.RetencionTotal > 0)
+                        {
+                            totales.Cell().Element(TotalLabel).Text("Retención (-):").FontSize(9);
+                            totales.Cell().Element(TotalValue).Text($"-{pedido.RetencionTotal:N2} €").FontSize(9).FontColor("#C0392B");
+                        }
+
+                        totales.Cell().Element(TotalLabelBold).Text("TOTAL:").Bold().FontSize(11).FontColor(Colors.White);
+                        totales.Cell().Element(TotalValueBold).Text($"{pedido.Total:N2} €").Bold().FontSize(11).FontColor(Colors.White);
+                    });
+
+                    if (!string.IsNullOrWhiteSpace(pedido.Notas))
+                    {
+                        col.Item().PaddingTop(12).Column(c =>
+                        {
+                            c.Item().Text("Notas/Observaciones:").Bold().FontSize(8).FontColor("#888888");
+                            c.Item().Text(pedido.Notas).FontSize(8);
+                        });
+                    }
+                });
+
+                page.Footer().Column(col =>
+                {
+                    col.Item().LineHorizontal(0.5f).LineColor("#DDDDDD");
+                    col.Item().PaddingTop(4).Row(row =>
+                    {
+                        row.RelativeItem().Text(
+                            "Documento de pedido/encargo. No tiene valor de factura ni albarán.")
+                            .FontSize(7).FontColor("#888888").Italic();
+                        row.ConstantItem(60).AlignRight().Text(text =>
+                        {
+                            text.Span("Página ").FontSize(7).FontColor("#888888");
+                            text.CurrentPageNumber().FontSize(7).FontColor("#888888");
+                            text.Span(" / ").FontSize(7).FontColor("#888888");
+                            text.TotalPages().FontSize(7).FontColor("#888888");
+                        });
+                    });
+                });
+            });
+        });
+
+        var bytes = doc.GeneratePdf();
+        return File(bytes, "application/pdf", $"Pedido_{pedido.NumeroPedido}.pdf");
+    }
+
+    /// <summary>
+    /// DELETE /api/pedidos/{id} — Elimina pedidos en estado Pendiente o Cancelado
+    /// (solo si no tienen albaranes o facturas asociadas).
+    /// </summary>
+    [HttpDelete("{id:int}")]
+    [Authorize(Policy = "ObradorOrAdmin")]
+    public async Task<ActionResult<ApiResponse<string>>> Eliminar(int id, CancellationToken ct)
+    {
+        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        if (pedido == null || pedido.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
+
+        if (pedido.Estado != EstadoPedido.Pendiente && pedido.Estado != EstadoPedido.Cancelado)
+            return UnprocessableEntity(ApiResponse<string>.Fail("Solo se pueden eliminar pedidos en estado Pendiente o Cancelado"));
+
+        var tieneAlbaran = await _uow.Albaranes.GetQueryable().AnyAsync(a => a.PedidoId == id && a.EmpresaId == EmpresaId, ct);
+        var tieneFactura = await _uow.Facturas.GetQueryable().AnyAsync(f => f.PedidoId == id && f.EmpresaId == EmpresaId, ct);
+        if (tieneAlbaran || tieneFactura)
+            return UnprocessableEntity(ApiResponse<string>.Fail("No se puede eliminar porque el pedido ya tiene albarán/factura asociada"));
+
+        await _uow.Pedidos.DeleteAsync(pedido, ct);
+        await _uow.SaveChangesAsync(ct);
+        return Ok(ApiResponse<string>.Ok("OK", "Pedido eliminado"));
+    }
+
     private static PedidoDetalle MapToDetalle(Pedido p) => new(
         p.Id,
         p.NumeroPedido ?? $"PED-{p.Id}",
@@ -553,3 +1000,6 @@ public class CrearFacturaDesdePedidoRequest
     public DateOnly? FechaFactura { get; set; }
     public bool EsSimplificada { get; set; } = false;
 }
+
+/// <summary>Asignación de un lote al confirmar el pedido, serializada en JSON en pedidos_lineas.reserva_lotes_json</summary>
+public record ReservaLoteItem(int LoteId, string CodigoLote, decimal Cantidad);

@@ -37,6 +37,14 @@ function displayToIso(raw: string): string {
   return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`
 }
 
+/** 12122025 -> 12/12/2025 (formateo progresivo) */
+function digitsToDisplay(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 8)
+  if (d.length <= 2) return d
+  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`
+  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`
+}
+
 /** YYYY-MM-DD → Date a medianoche local (evita desfase UTC) */
 function isoToDate(iso: string): Date | null {
   if (!iso) return null
@@ -117,10 +125,11 @@ export function DateInput({
 
   function handleText(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value
-    setText(raw)
-    const iso = displayToIso(raw)
+    const formatted = digitsToDisplay(raw)
+    setText(formatted)
+    const iso = displayToIso(formatted)
     if (iso) { onChange(iso); const d = isoToDate(iso); if (d) setView(d) }
-    else if (raw === '') onChange('')
+    else if (formatted === '') onChange('')
   }
 
   function selectDay(d: Date) {

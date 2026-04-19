@@ -154,10 +154,11 @@ public class ClientesController : ControllerBase
         var clientes = await _uow.Clientes.GetByEmpresaAsync(EmpresaId, false, ct);
         var list = clientes.ToList();
 
+        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
         using var package = new OfficeOpenXml.ExcelPackage();
         var ws = package.Workbook.Worksheets.Add("Clientes");
 
-        string[] headers = { "Código", "Tipo", "Nombre", "NIF", "Teléfono", "Email", "Ciudad", "Estado", "Forma Pago", "R.E.", "Activo" };
+        string[] headers = { "Código", "Tipo", "Nombre", "NIF", "Teléfono", "Email", "Ciudad", "Estado", "R.E.", "Activo" };
         for (int i = 0; i < headers.Length; i++)
             ws.Cells[1, i + 1].Value = headers[i];
 
@@ -180,9 +181,8 @@ public class ClientesController : ControllerBase
             ws.Cells[row, 6].Value = c.Email;
             ws.Cells[row, 7].Value = c.Ciudad;
             ws.Cells[row, 8].Value = c.EstadoCliente.ToString();
-            ws.Cells[row, 9].Value = c.FormaPago.ToString();
-            ws.Cells[row, 10].Value = c.RecargoEquivalencia ? "Sí" : "No";
-            ws.Cells[row, 11].Value = c.Activo ? "Sí" : "No";
+            ws.Cells[row, 9].Value = c.RecargoEquivalencia ? "Sí" : "No";
+            ws.Cells[row, 10].Value = c.Activo ? "Sí" : "No";
             row++;
         }
         ws.Cells.AutoFitColumns();

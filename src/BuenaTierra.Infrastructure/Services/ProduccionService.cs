@@ -11,7 +11,7 @@ namespace BuenaTierra.Infrastructure.Services;
 /// <summary>
 /// Gestiona el ciclo de vida de producciones y generación automática de lotes.
 /// Cuando una producción pasa a estado 'Finalizada', genera automáticamente
-/// el lote con código DDMMYYYY-ProductoID-Secuencia y actualiza el stock.
+/// el lote con código DDMMYY-ProductoID-Secuencia y actualiza el stock.
 /// </summary>
 public class ProduccionService : IProduccionService
 {
@@ -106,7 +106,7 @@ public class ProduccionService : IProduccionService
 
             // Generar código de lote:
             //  - Si el usuario especificó uno al registrar, usarlo.
-            //  - Si no, autogenerar como ddMMyyyy[-seq] (formato limpio).
+            //  - Si no, autogenerar como ddMMyy[-seq] (formato limpio).
             string codigoLote;
             if (!string.IsNullOrWhiteSpace(produccion.CodigoLoteSugerido))
             {
@@ -115,9 +115,9 @@ public class ProduccionService : IProduccionService
             }
             else
             {
-                // Autogenerar: ddMMyyyy. Si ya existe ese código exacto para est producto, añadir secuencia.
+                // Autogenerar: ddMMyy. Si ya existe ese código exacto para est producto, añadir secuencia.
                 var lotesExistentes = await _uow.Lotes.GetByProductoAsync(empresaId, produccion.ProductoId, ct);
-                string baseCode = $"{produccion.FechaProduccion:ddMMyyyy}";
+                string baseCode = $"{produccion.FechaProduccion:ddMMyy}";
                 int seq = lotesExistentes.Count(l => l.CodigoLote == baseCode || l.CodigoLote.StartsWith(baseCode + "-")) + 1;
                 codigoLote = seq == 1 ? baseCode : $"{baseCode}-{seq:D3}";
             }
@@ -125,11 +125,16 @@ public class ProduccionService : IProduccionService
             // Obtener vida útil del producto para calcular caducidad
             var producto = await _uow.Productos.GetByIdAsync(produccion.ProductoId, ct)!;
 
-            // Prioridad: fecha manual del usuario > calculada por VidaUtilDias del producto
-            DateOnly? fechaCaducidad = produccion.FechaCaducidadSugerida
-                ?? (producto?.VidaUtilDias.HasValue == true
-                    ? produccion.FechaProduccion.AddDays(producto.VidaUtilDias!.Value)
-                    : null);
+            // Prioridad: fecha manual del usuario > cálculo automático por vida útil del producto.
+            DateOnly? fechaCaducidad = produccion.FechaCaducidadSugerida;
+            if (!fechaCaducidad.HasValue && producto?.VidaUtilDias.HasValue == true)
+            {
+                var unidad = (producto.VidaUtilUnidad ?? "Dias").Trim();
+                var esMeses = unidad.StartsWith("Mes", StringComparison.OrdinalIgnoreCase);
+                fechaCaducidad = esMeses
+                    ? produccion.FechaProduccion.AddMonths(producto.VidaUtilDias.Value)
+                    : produccion.FechaProduccion.AddDays(producto.VidaUtilDias.Value);
+            }
 
             decimal cantidadNeta = produccion.CantidadNeta;
 
