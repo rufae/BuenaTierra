@@ -106,8 +106,9 @@ export default function FacturacionRapida() {
   }
 
   function setQty(productoId: number, val: number) {
-    if (val <= 0) { setCart(prev => prev.filter(c => c.producto.id !== productoId)); return }
-    setCart(prev => prev.map(c => c.producto.id === productoId ? { ...c, cantidad: val } : c))
+    const next = Math.trunc(val)
+    if (next <= 0) { setCart(prev => prev.filter(c => c.producto.id !== productoId)); return }
+    setCart(prev => prev.map(c => c.producto.id === productoId ? { ...c, cantidad: next } : c))
   }
 
   function removeFromCart(productoId: number) {
@@ -299,9 +300,11 @@ export default function FacturacionRapida() {
                     </button>
                     <input
                       type="number"
-                      min={0}
+                      min={1}
+                      step={1}
                       value={item.cantidad}
-                      onChange={e => setQty(item.producto.id, +e.target.value)}
+                      onFocus={e => e.currentTarget.select()}
+                      onChange={e => setQty(item.producto.id, parseInt(e.target.value || '0', 10))}
                       className="w-12 text-center text-sm font-bold text-gray-900 border-0 focus:ring-0 bg-transparent"
                     />
                     <button onClick={() => updateQty(item.producto.id, 1)}

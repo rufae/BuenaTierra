@@ -838,8 +838,9 @@ function TabControlMaterias() {
 
                 {/* Fila 2 */}
                 <CField label="Unidades">
-                  <input type="number" min="0" step="0.001" value={form.unidades}
-                    onChange={e => f('unidades', parseFloat(e.target.value) || 0)}
+                  <input type="number" min="0" step="1" value={form.unidades}
+                    onFocus={e => e.currentTarget.select()}
+                    onChange={e => f('unidades', parseInt(e.target.value || '0', 10) || 0)}
                     className={INPUT2} />
                 </CField>
 

@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import {
   User, Lock, Loader2, Eye, EyeOff, Phone, Mail, Shield, Building2,
   CheckCircle2, KeyRound, Settings, Percent, Printer, Package, Server,
-  Upload, Trash2, Plus, Pencil, Save, Bot,
+  Upload, Trash2, Plus, Pencil, Save, Bot, Inbox, RefreshCw,
 } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../store/authStore'
@@ -50,7 +50,21 @@ interface ConfiguracionEmpresa {
   }
 }
 
-type Tab = 'perfil' | 'password' | 'empresa' | 'series' | 'iva' | 'stock' | 'smtp' | 'ia'
+interface UserConfiguracion {
+  smtpHost?: string
+  smtpPort?: number
+  smtpUser?: string
+  smtpPassword?: string
+  smtpFromEmail?: string
+  smtpUseSsl?: boolean
+  imapHost?: string
+  imapPort?: number
+  imapUser?: string
+  imapPassword?: string
+  imapUseSsl?: boolean
+}
+
+type Tab = 'perfil' | 'password' | 'empresa' | 'series' | 'iva' | 'stock' | 'smtp' | 'ia' | 'correo'
 
 const ROL_CONFIG: Record<string, { label: string; color: string }> = {
   Admin:              { label: 'Administrador', color: 'bg-purple-100 text-purple-700 border-purple-200' },
@@ -150,6 +164,12 @@ export default function Ajustes() {
     queryKey: ['series'],
     enabled: isAdmin,
     queryFn: async () => (await api.get('/series')).data.data,
+  })
+
+  const { data: userConfigData } = useQuery<UserConfiguracion>({
+    queryKey: ['user-configuracion', user?.usuarioId],
+    enabled: !!user,
+    queryFn: async () => (await api.get('/usuarios/me/configuracion')).data.data ?? {},
   })
 
   // ═══════════════════════════════════════════════════════
@@ -353,6 +373,43 @@ export default function Ajustes() {
     iaConfigMutation.mutate(config.buenatierrAI)
   }
 
+  // ═══════════════════════════════════════════════════════
+  // USER CORREO CONFIG (SMTP + IMAP per-user)
+  // ═══════════════════════════════════════════════════════
+
+  const [userConfig, setUserConfig] = useState<UserConfiguracion>({})
+
+  useEffect(() => {
+    if (userConfigData) setUserConfig(userConfigData)
+  }, [userConfigData])
+
+  const userConfigMutation = useMutation({
+    mutationFn: (cfg: UserConfiguracion) => api.put('/usuarios/me/configuracion', cfg),
+    onSuccess: () => {
+      toast.success('Configuración de correo guardada')
+      qc.invalidateQueries({ queryKey: ['user-configuracion'] })
+    },
+    onError: () => toast.error('Error al guardar configuración de correo'),
+  })
+
+  const sincronizarMutation = useMutation({
+    mutationFn: () => api.post('/correos/sincronizar'),
+    onSuccess: (res) => {
+      const d = (res.data as { data?: { nuevos?: number; errores?: number } }).data
+      toast.success(`Sincronización: ${d?.nuevos ?? 0} nuevos${d?.errores ? `, ${d.errores} errores` : ''}`)
+      qc.invalidateQueries({ queryKey: ['correos'] })
+    },
+    onError: (e: unknown) => {
+      const resp = (e as { response?: { data?: { message?: string; errors?: string[] } } })?.response?.data
+      toast.error(resp?.message ?? resp?.errors?.[0] ?? 'Error al sincronizar. Revisa la configuración IMAP.')
+    },
+  })
+
+  function handleUserConfigSave(e: FormEvent) {
+    e.preventDefault()
+    userConfigMutation.mutate(userConfig)
+  }
+
   function applyAiPreset(preset: 'groq' | 'openai' | 'ollama' | 'custom') {
     const next = { ...(config.buenatierrAI ?? {}) }
     if (preset === 'groq') {
@@ -388,13 +445,15 @@ export default function Ajustes() {
     { id: 'smtp'    as Tab, icon: <Server className="w-4 h-4" />,    label: 'SMTP' },
     { id: 'ia'      as Tab, icon: <Bot className="w-4 h-4" />,       label: 'BuenaTierrAI' },
   ]
+
+  const correoTab = { id: 'correo' as Tab, icon: <Inbox className="w-4 h-4" />, label: 'Correo' }
   const iaTabOnly = [{ id: 'ia' as Tab, icon: <Bot className="w-4 h-4" />, label: 'BuenaTierrAI' }]
 
   const allTabs = isAdmin
-    ? [...userTabs, ...adminTabs]
+    ? [...userTabs, ...adminTabs, correoTab]
     : canConfigureIa
-      ? [...userTabs, ...iaTabOnly]
-      : userTabs
+      ? [...userTabs, ...iaTabOnly, correoTab]
+      : [...userTabs, correoTab]
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -779,7 +838,74 @@ export default function Ajustes() {
           </form>
         )}
 
-        {/* ── IA ── */}
+        {/* ── CORREO (per-user SMTP + IMAP) ── */}
+        {tab === 'correo' && (
+          <form onSubmit={handleUserConfigSave} className="p-6 space-y-6">
+            {/* SMTP */}
+            <div className="space-y-4">
+              <SectionTitle><Mail className="w-4 h-4 text-brand-500" /> Envío (SMTP)</SectionTitle>
+              <p className="text-xs text-gray-500 -mt-2">Configuración personal para enviar emails. Si no configuras nada se usará la configuración de empresa.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Servidor SMTP" value={userConfig.smtpHost ?? ''} onChange={v => setUserConfig(c => ({ ...c, smtpHost: v }))} placeholder="smtp.gmail.com" />
+                <Field label="Puerto" value={String(userConfig.smtpPort ?? '')} onChange={v => setUserConfig(c => ({ ...c, smtpPort: v ? Number(v) : undefined }))} type="number" placeholder="587" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Usuario" value={userConfig.smtpUser ?? ''} onChange={v => setUserConfig(c => ({ ...c, smtpUser: v }))} icon={<Mail className="w-3.5 h-3.5" />} />
+                <Field label="Contraseña" value={userConfig.smtpPassword ?? ''} onChange={v => setUserConfig(c => ({ ...c, smtpPassword: v }))} type="password" icon={<Lock className="w-3.5 h-3.5" />} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Email remitente" value={userConfig.smtpFromEmail ?? ''} onChange={v => setUserConfig(c => ({ ...c, smtpFromEmail: v }))} type="email" placeholder="yo@midominio.es" />
+                <div className="flex items-end pb-0.5">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={userConfig.smtpUseSsl ?? true} onChange={e => setUserConfig(c => ({ ...c, smtpUseSsl: e.target.checked }))}
+                      className="rounded border-gray-300 text-brand-500 focus:ring-brand-400" />
+                    <span className="text-sm text-gray-700">Usar SSL/TLS</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <hr className="border-gray-100" />
+
+            {/* IMAP */}
+            <div className="space-y-4">
+              <SectionTitle><Inbox className="w-4 h-4 text-brand-500" /> Recepción (IMAP)</SectionTitle>
+              <p className="text-xs text-gray-500 -mt-2">Configura IMAP para recibir y sincronizar tu bandeja de entrada en la aplicación.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Servidor IMAP" value={userConfig.imapHost ?? ''} onChange={v => setUserConfig(c => ({ ...c, imapHost: v }))} placeholder="imap.gmail.com" />
+                <Field label="Puerto" value={String(userConfig.imapPort ?? '')} onChange={v => setUserConfig(c => ({ ...c, imapPort: v ? Number(v) : undefined }))} type="number" placeholder="993" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Usuario IMAP" value={userConfig.imapUser ?? ''} onChange={v => setUserConfig(c => ({ ...c, imapUser: v }))} icon={<Mail className="w-3.5 h-3.5" />} placeholder="usuario@gmail.com" />
+                <Field label="Contraseña IMAP" value={userConfig.imapPassword ?? ''} onChange={v => setUserConfig(c => ({ ...c, imapPassword: v }))} type="password" icon={<Lock className="w-3.5 h-3.5" />} />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={userConfig.imapUseSsl ?? true} onChange={e => setUserConfig(c => ({ ...c, imapUseSsl: e.target.checked }))}
+                    className="rounded border-gray-300 text-brand-500 focus:ring-brand-400" />
+                  <span className="text-sm text-gray-700">Usar SSL/TLS</span>
+                </label>
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-700">
+                Para Gmail usa App Password (no la contraseña normal). Activa IMAP en Google Account → Seguridad → Contraseñas de aplicaciones.
+              </div>
+            </div>
+
+            <hr className="border-gray-100" />
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-1">
+              <button type="button" disabled={sincronizarMutation.isPending} onClick={() => sincronizarMutation.mutate()}
+                className="flex items-center gap-2 border border-gray-200 hover:bg-gray-50 disabled:opacity-60 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+                {sincronizarMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Sincronizar bandeja de entrada
+              </button>
+              <SaveBtn loading={userConfigMutation.isPending} label="Guardar configuración" />
+            </div>
+          </form>
+        )}
+
         {tab === 'ia' && canConfigureIa && (
           <form onSubmit={handleIaConfigSave} className="p-6 space-y-5">
             <SectionTitle><Bot className="w-4 h-4 text-brand-500" /> Configuración BuenaTierrAI</SectionTitle>

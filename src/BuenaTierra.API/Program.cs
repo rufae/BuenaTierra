@@ -252,7 +252,7 @@ app.MapControllers();
 
                 var sql = await File.ReadAllTextAsync(scriptPath);
                 // Los scripts son idempotentes, pero solo ejecutar si hay algo pendiente
-                if (currentVersion < 2) // v2 es la versión actual conocida
+                if (currentVersion < 8) // v8 es la versión actual conocida
                 {
                     Log.Information("Aplicando migración: {Script}", fileName);
                     // Quitar comandos psql (\echo, \i) que no son SQL estándar
@@ -267,8 +267,33 @@ app.MapControllers();
         await migCtx.Database.ExecuteSqlRawAsync(@"
             INSERT INTO schema_version (version, descripcion) VALUES
             (1, 'Esquema inicial — tablas, funciones, vistas, triggers, roles'),
-            (2, 'Consolidación: named CHECK constraints, estados normalizados, schema_version')
+            (2, 'Consolidación: named CHECK constraints, estados normalizados, schema_version'),
+            (3, 'Módulo de correo integrado (correos_mensajes)'),
+            (4, 'Per-user email config + IMAP inbox support'),
+            (5, 'Formato código lote DDMMYYYY → DDMMYY'),
+            (6, 'Reserva de stock al confirmar pedidos (reserva_lotes_json en pedidos_lineas)'),
+            (7, 'Corrige UNIQUE lotes: (empresa_id, producto_id, codigo_lote)'),
+            (8, 'Vida util configurable por dias o meses en productos')
             ON CONFLICT (version) DO NOTHING;
+        ");
+
+        // ── Migraciones inline de seguridad ──────────────────────────────────
+        // Garantizan columnas críticas aunque los scripts .sql no estén en disco
+        // (p.ej. instalación de cliente sin carpeta database/init/).
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS productos ADD COLUMN IF NOT EXISTS vida_util_unidad VARCHAR(10);
+            UPDATE productos SET vida_util_unidad = 'Dias' WHERE vida_util_unidad IS NULL OR btrim(vida_util_unidad) = '';
+        ");
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE productos ALTER COLUMN vida_util_unidad SET DEFAULT 'Dias';"); } catch { }
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE productos ALTER COLUMN vida_util_unidad SET NOT NULL;"); } catch { }
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE productos DROP CONSTRAINT IF EXISTS ck_productos_vida_util_unidad;"); } catch { }
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE productos ADD CONSTRAINT ck_productos_vida_util_unidad CHECK (vida_util_unidad IN ('Dias','Meses'));"); } catch { }
+
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS pedidos_lineas ADD COLUMN IF NOT EXISTS reserva_lotes_json TEXT;
+        ");
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS configuracion TEXT;
         ");
     }
     catch (Exception ex)
@@ -280,6 +305,7 @@ app.MapControllers();
 // ============================================================
 // SEED — crea empresa y usuarios si no existen (todos los entornos)
 // ============================================================
+try
 {
     using var scope = app.Services.CreateScope();
     var ctx = scope.ServiceProvider.GetRequiredService<BuenaTierra.Infrastructure.Persistence.AppDbContext>();
@@ -376,6 +402,10 @@ app.MapControllers();
     }
 
     ctx.SaveChanges();
+}
+catch (Exception ex)
+{
+    Log.Warning(ex, "SEED: base de datos no disponible al arrancar. La API continuará; comprueba que PostgreSQL está activo y la base de datos 'buenatierra' existe.");
 }
 
 Log.Information("BuenaTierra API iniciando en entorno {Environment}", app.Environment.EnvironmentName);

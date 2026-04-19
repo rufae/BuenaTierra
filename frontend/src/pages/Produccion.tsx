@@ -48,12 +48,12 @@ interface ProduccionCreada {
   codigoLote: string | null
 }
 
-// ddMMyyyy para una fecha dada
+// ddMMyy para una fecha dada
 function loteCodigo(date: Date = new Date()): string {
   const dd = String(date.getDate()).padStart(2, '0')
   const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const yyyy = date.getFullYear()
-  return `${dd}${mm}${yyyy}`
+  const yy = String(date.getFullYear()).slice(-2)
+  return `${dd}${mm}${yy}`
 }
 
 // Formatea "YYYY-MM-DD..." a "DD/MM/YYYY"
@@ -95,7 +95,8 @@ export default function ProduccionPage() {
     const parts = isoDate.split('-')
     if (parts.length === 3) {
       const [yyyy, mm, dd] = parts
-      setForm(f => ({ ...f, fechaProduccion: isoDate, codigoLoteSugerido: `${dd}${mm}${yyyy}` }))
+      const yy = yyyy.slice(-2)
+      setForm(f => ({ ...f, fechaProduccion: isoDate, codigoLoteSugerido: `${dd}${mm}${yy}` }))
     } else {
       setForm(f => ({ ...f, fechaProduccion: isoDate }))
     }
@@ -453,7 +454,7 @@ export default function ProduccionPage() {
                   </label>
                   <input type="text" value={form.codigoLoteSugerido}
                     onChange={e => setForm({ ...form, codigoLoteSugerido: e.target.value })}
-                    required placeholder="ddMMyyyy"
+                    required placeholder="ddMMyy"
                     className="w-full border border-brand-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500" />
                   <p className="text-xs text-gray-400 mt-0.5">Autogenerado · modificable</p>
                 </div>
@@ -467,9 +468,10 @@ export default function ProduccionPage() {
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Cantidad producida *</label>
-                <input type="number" min="0.001" step="0.001"
+                <input type="number" min="1" step="1"
                   value={form.cantidadProducida || ''}
-                  onChange={e => setForm({ ...form, cantidadProducida: e.target.value ? parseFloat(e.target.value) : 0 })}
+                  onFocus={e => e.currentTarget.select()}
+                  onChange={e => setForm({ ...form, cantidadProducida: e.target.value ? parseInt(e.target.value, 10) : 0 })}
                   required placeholder="0"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 <p className="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 mt-1.5">

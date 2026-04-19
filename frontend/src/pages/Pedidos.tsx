@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, Producto, SerieFacturacion } from '../types'
-import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin, Search } from 'lucide-react'
+import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin, Search, Trash2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 import { DateInput } from '../components/DateInput'
@@ -38,6 +38,34 @@ export default function Pedidos() {
     queryKey: ['pedidos'],
     queryFn: async () => (await api.get<{ data: PedidoResumen[] }>('/pedidos')).data.data,
   })
+
+  const downloadExcel = async () => {
+    try {
+      const resp = await api.get('/pedidos/exportar-excel', { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([resp.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'pedidos.xlsx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Error al exportar Excel de pedidos')
+    }
+  }
+
+  const downloadPdf = async (id: number, numero: string) => {
+    try {
+      const resp = await api.get(`/pedidos/${id}/pdf`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([resp.data], { type: 'application/pdf' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Pedido_${numero}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Error al generar el PDF')
+    }
+  }
 
   const { data: detalle } = useQuery({
     queryKey: ['pedido', detailOpen],
@@ -147,6 +175,16 @@ export default function Pedidos() {
     onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? e.response?.data?.message ?? 'Error al crear factura'),
   })
 
+  const eliminarMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/pedidos/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pedidos'] })
+      setDetailOpen(null)
+      toast.success('Pedido eliminado')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message ?? e.response?.data?.errors?.[0] ?? 'Error al eliminar pedido'),
+  })
+
   function resetForm() { setShowForm(false); setClienteId(''); setFechaEntrega(''); setNotas(''); setItems([{ productoId: 0, cantidad: 1 }]) }
 
   function addItem() { setItems(prev => [...prev, { productoId: 0, cantidad: 1 }]) }
@@ -178,9 +216,17 @@ export default function Pedidos() {
           <h1 className="text-xl font-bold text-gray-900">Pedidos</h1>
           <p className="text-sm text-gray-500 mt-0.5">Gestión de pedidos de clientes · conversión a albaranes</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">
-          <Plus className="w-4 h-4" />Nuevo pedido
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={downloadExcel}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700"
+          >
+            <Download className="w-4 h-4" /> Exportar Excel
+          </button>
+          <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">
+            <Plus className="w-4 h-4" />Nuevo pedido
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -296,9 +342,25 @@ export default function Pedidos() {
                             <MapPin className="w-3 h-3" /> Entregado
                           </button>
                         )}
+                        <button
+                          onClick={() => downloadPdf(p.id, p.numeroPedido)}
+                          className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                          <Download className="w-3 h-3" /> PDF
+                        </button>
                         {p.estado !== 'Cancelado' && p.estado !== 'Servido' && p.estado !== 'Entregado' && (
                           <button onClick={() => cancelarMutation.mutate(p.id)} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
                             <X className="w-3 h-3" /> Cancelar
+                          </button>
+                        )}
+                        {(p.estado === 'Pendiente' || p.estado === 'Cancelado') && (
+                          <button
+                            onClick={() => {
+                              if (!window.confirm(`¿Eliminar el pedido ${p.numeroPedido}? Esta acción no se puede deshacer.`)) return
+                              eliminarMutation.mutate(p.id)
+                            }}
+                            className="text-xs text-red-600 hover:text-red-800 flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" /> Eliminar
                           </button>
                         )}
                       </div>
@@ -392,7 +454,7 @@ export default function Pedidos() {
                           <option value={0}>Seleccionar producto…</option>
                           {(productos ?? []).map(p => <option key={p.id} value={p.id}>{p.nombre} ({p.precioVenta.toFixed(2)} €)</option>)}
                         </select>
-                        <input type="number" min="0.01" step="0.01" value={item.cantidad} onChange={e => updateItem(i, 'cantidad', +e.target.value)}
+                        <input type="number" min="1" step="1" value={item.cantidad} onFocus={e => e.currentTarget.select()} onChange={e => updateItem(i, 'cantidad', parseInt(e.target.value || '0', 10))}
                           className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="Cant." />
                         {items.length > 1 && (
                           <button type="button" onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>

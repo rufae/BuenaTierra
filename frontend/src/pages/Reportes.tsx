@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, Cell,
 } from 'recharts'
 import {
-  TrendingUp, Package, Factory, Users, Download, RefreshCw, AlertTriangle, RotateCcw, ShieldCheck,
+  TrendingUp, Package, Factory, Users, Download, RefreshCw, AlertTriangle, RotateCcw, ShieldCheck, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import api from '../lib/api'
 import toast from 'react-hot-toast'
@@ -29,6 +29,15 @@ interface VentasData {
   hasta: string
 }
 
+interface StockLote {
+  loteId: number
+  codigoLote: string
+  cantidadDisponible: number
+  cantidadReservada: number
+  disponible: number
+  tieneAlerta: boolean
+  bloqueado: boolean
+}
 interface StockProducto {
   productoId: number
   productoNombre: string
@@ -38,6 +47,7 @@ interface StockProducto {
   stockDisponible: number
   numLotes: number
   conAlertas: boolean
+  lotes: StockLote[]
 }
 interface StockData {
   items: StockProducto[]
@@ -145,6 +155,14 @@ export default function Reportes() {
   const [tab, setTab] = useState<Tab>('ventas')
   const [desde, setDesde] = useState(fmt8601(hace30))
   const [hasta, setHasta] = useState(fmt8601(hoy))
+  const [expandedStockRows, setExpandedStockRows] = useState<Set<number>>(new Set())
+  const toggleStockRow = useCallback((id: number) => {
+    setExpandedStockRows(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }, [])
 
   // ── Queries ─────────────────────────────────────────────────────────────
   const ventasQ = useQuery<VentasData>({
@@ -567,40 +585,77 @@ export default function Reportes() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {stockQ.data.items.map(p => (
-                      <tr
-                        key={p.productoId}
-                        className={`hover:bg-gray-50 ${p.conAlertas ? 'bg-red-50/40' : ''}`}
-                      >
-                        <td className="px-4 py-2.5 font-medium text-gray-900">
-                          {p.productoNombre}
-                          <span className="ml-2 text-xs text-gray-400">{p.unidad}</span>
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-gray-700">
-                          {fmtNum(p.stockTotal)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-amber-600">
-                          {fmtNum(p.stockReservado)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-gray-900">
-                          {fmtNum(p.stockDisponible)}
-                        </td>
-                        <td className="px-4 py-2.5 text-center text-gray-500">
-                          {p.numLotes}
-                        </td>
-                        <td className="px-4 py-2.5 text-center">
-                          {p.conAlertas ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                              <AlertTriangle className="w-3 h-3" /> Alerta
-                            </span>
-                          ) : (
-                            <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                              OK
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {stockQ.data.items.map(p => {
+                      const isExpanded = expandedStockRows.has(p.productoId)
+                      return (
+                        <>
+                          <tr
+                            key={p.productoId}
+                            onClick={() => toggleStockRow(p.productoId)}
+                            className={`cursor-pointer select-none hover:bg-amber-50/60 transition-colors ${p.conAlertas ? 'bg-red-50/40' : ''}`}
+                          >
+                            <td className="px-4 py-2.5 font-medium text-gray-900">
+                              <span className="inline-flex items-center gap-1.5">
+                                {isExpanded
+                                  ? <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                                  : <ChevronRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                                }
+                                {p.productoNombre}
+                                <span className="ml-1 text-xs text-gray-400">{p.unidad}</span>
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-gray-700">
+                              {fmtNum(p.stockTotal)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-amber-600">
+                              {fmtNum(p.stockReservado)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-semibold text-gray-900">
+                              {fmtNum(p.stockDisponible)}
+                            </td>
+                            <td className="px-4 py-2.5 text-center text-gray-500">
+                              {p.numLotes}
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              {p.conAlertas ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                  <AlertTriangle className="w-3 h-3" /> Alerta
+                                </span>
+                              ) : (
+                                <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                  OK
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                          {isExpanded && p.lotes?.map(l => (
+                            <tr key={`${p.productoId}-${l.loteId}`} className="bg-amber-50/30">
+                              <td className="pl-10 pr-4 py-1.5 text-xs text-gray-600">
+                                <span className="font-mono font-medium text-gray-700">{l.codigoLote}</span>
+                                {l.bloqueado && (
+                                  <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-200 text-gray-500">Bloqueado</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-1.5 text-right text-xs text-gray-600">{fmtNum(l.cantidadDisponible)}</td>
+                              <td className="px-4 py-1.5 text-right text-xs text-amber-500">{fmtNum(l.cantidadReservada)}</td>
+                              <td className="px-4 py-1.5 text-right text-xs font-semibold text-gray-700">{fmtNum(l.disponible)}</td>
+                              <td className="px-4 py-1.5 text-center text-xs text-gray-300">—</td>
+                              <td className="px-4 py-1.5 text-center">
+                                {l.tieneAlerta ? (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-600">
+                                    <AlertTriangle className="w-2.5 h-2.5" /> Alerta
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-600">
+                                    OK
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </>
+                      )
+                    })}
                     {stockQ.data.items.length === 0 && (
                       <tr>
                         <td

@@ -37,6 +37,7 @@ public class AppDbContext : DbContext
     public DbSet<PlantillaEtiqueta> PlantillasEtiqueta => Set<PlantillaEtiqueta>();
     public DbSet<EtiquetaImportada> EtiquetasImportadas => Set<EtiquetaImportada>();
     public DbSet<TrabajoImpresionEtiqueta> TrabajosImpresion => Set<TrabajoImpresionEtiqueta>();
+    public DbSet<CorreoMensaje> CorreosMensajes => Set<CorreoMensaje>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -69,6 +70,7 @@ public class AppDbContext : DbContext
         mb.Entity<PlantillaEtiqueta>().ToTable("plantillas_etiqueta");
         mb.Entity<EtiquetaImportada>().ToTable("etiquetas_importadas");
         mb.Entity<TrabajoImpresionEtiqueta>().ToTable("trabajos_impresion_etiqueta");
+        mb.Entity<CorreoMensaje>().ToTable("correos_mensajes");
 
         mb.Entity<Trazabilidad>(e =>
         {
@@ -92,6 +94,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Email).HasMaxLength(200).IsRequired();
             e.HasIndex(x => new { x.EmpresaId, x.Email }).IsUnique();
             e.Property(x => x.Rol).HasConversion(new EnumToStringConverter<RolUsuario>()).HasMaxLength(20);
+            e.Property(x => x.Configuracion).HasColumnName("configuracion").HasColumnType("text");
             e.HasOne(x => x.Empresa).WithMany(x => x.Usuarios).HasForeignKey(x => x.EmpresaId);
             e.HasOne(x => x.ClienteVinculado).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.SetNull);
         });
@@ -172,6 +175,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.PrecioVenta).HasPrecision(10, 4).IsRequired();
             e.Property(x => x.PrecioCoste).HasPrecision(10, 4);
             e.Property(x => x.IvaPorcentaje).HasPrecision(5, 2);
+            e.Property(x => x.VidaUtilUnidad).HasMaxLength(10).HasDefaultValue("Dias");
             e.Property(x => x.DescuentoPorDefecto).HasPrecision(5, 2);
             e.Property(x => x.StockMinimo).HasPrecision(10, 3);
             e.Property(x => x.StockMaximo).HasPrecision(10, 3);
@@ -369,6 +373,29 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Producto).WithMany().HasForeignKey(x => x.ProductoId);
             e.HasOne(x => x.Lote).WithMany().HasForeignKey(x => x.LoteId);
             e.HasOne(x => x.Usuario).WithMany().HasForeignKey(x => x.UsuarioId);
+        });
+
+        // ---- CORREO MENSAJE ----
+        mb.Entity<CorreoMensaje>(e =>
+        {
+            e.Property(x => x.Folder).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Estado).HasConversion(new EnumToStringConverter<EstadoCorreo>()).HasMaxLength(20);
+            e.Property(x => x.De).HasMaxLength(1000);
+            e.Property(x => x.Para).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.Cc).HasMaxLength(1000);
+            e.Property(x => x.Cco).HasMaxLength(1000);
+            e.Property(x => x.Asunto).HasMaxLength(300).IsRequired();
+            e.Property(x => x.Cuerpo).HasColumnType("text").IsRequired();
+            e.Property(x => x.AdjuntoNombre).HasMaxLength(300);
+            e.Property(x => x.AdjuntoDatos).HasColumnType("bytea");
+            e.Property(x => x.AdjuntoContentType).HasMaxLength(100);
+            e.Property(x => x.UidImap).HasColumnName("uid_imap");
+            e.Property(x => x.Error).HasMaxLength(2000);
+            e.HasIndex(x => new { x.EmpresaId, x.Folder, x.CreatedAt });
+            e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
+            e.HasOne(x => x.Usuario).WithMany().HasForeignKey(x => x.UsuarioId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Cliente).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Factura).WithMany().HasForeignKey(x => x.FacturaId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // ---- PRODUCTO: campos nutricionales ----

@@ -1,7 +1,7 @@
 -- ============================================================
 -- BuenaTierra - Inicialización de Base de Datos PostgreSQL 15
 -- Ejecutado automáticamente por Docker en primer arranque
--- Versión de esquema: 2  (2026-03-28)
+-- Versión de esquema: 3  (2026-04-07)
 -- ============================================================
 
 \echo 'Iniciando creación de base de datos BuenaTierra...'
@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     refresh_token       VARCHAR(500),
     refresh_token_exp   TIMESTAMPTZ,
     cliente_id          INTEGER,
+    configuracion       TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, email)
@@ -211,6 +212,7 @@ CREATE TABLE IF NOT EXISTS productos (
     unidad_medida       VARCHAR(20) DEFAULT 'unidad',
     peso_unitario_gr    NUMERIC(10,3),
     vida_util_dias      INTEGER,
+    vida_util_unidad    VARCHAR(10) NOT NULL DEFAULT 'Dias' CHECK (vida_util_unidad IN ('Dias','Meses')),
     temperatura_min     NUMERIC(5,1),
     temperatura_max     NUMERIC(5,1),
     requiere_lote       BOOLEAN NOT NULL DEFAULT TRUE,
@@ -293,7 +295,7 @@ CREATE INDEX IF NOT EXISTS idx_producciones_producto ON producciones(producto_id
 
 -- ============================================================
 -- TABLA: lotes
--- Formato código: DíaMesAño-ProductoID-Secuencia
+-- Formato código: DíaMesAño (2dígitos)-ProductoID-Secuencia
 -- ============================================================
 CREATE TABLE IF NOT EXISTS lotes (
     id                  SERIAL PRIMARY KEY,
@@ -308,7 +310,7 @@ CREATE TABLE IF NOT EXISTS lotes (
     motivo_bloqueado    TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(empresa_id, codigo_lote)
+    UNIQUE(empresa_id, producto_id, codigo_lote)
 );
 CREATE INDEX IF NOT EXISTS idx_lotes_empresa ON lotes(empresa_id);
 CREATE INDEX IF NOT EXISTS idx_lotes_producto ON lotes(producto_id);
@@ -534,6 +536,36 @@ CREATE TABLE IF NOT EXISTS facturas_lineas (
 CREATE INDEX IF NOT EXISTS idx_fact_lineas_factura ON facturas_lineas(factura_id);
 CREATE INDEX IF NOT EXISTS idx_fact_lineas_lote ON facturas_lineas(lote_id);
 CREATE INDEX IF NOT EXISTS idx_fact_lineas_producto ON facturas_lineas(producto_id);
+
+-- ============================================================
+-- TABLA: correos_mensajes
+-- Bandeja integrada (enviados, borradores, errores)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS correos_mensajes (
+    id              SERIAL PRIMARY KEY,
+    empresa_id      INTEGER NOT NULL REFERENCES empresas(id),
+    usuario_id      INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+    cliente_id      INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+    factura_id      INTEGER REFERENCES facturas(id) ON DELETE SET NULL,
+    folder          VARCHAR(20) NOT NULL DEFAULT 'Sent' CHECK (folder IN ('Inbox','Sent','Drafts','Errors')),
+    estado          TEXT NOT NULL DEFAULT 'Enviado' CHECK (estado IN ('Borrador','Enviado','Error')),
+    para            VARCHAR(1000) NOT NULL,
+    cc              VARCHAR(1000),
+    cco             VARCHAR(1000),
+    asunto          VARCHAR(300) NOT NULL,
+    cuerpo          TEXT NOT NULL,
+    adjunto_nombre          VARCHAR(300),
+    de                      VARCHAR(1000),
+    adjunto_datos           BYTEA,
+    adjunto_content_type    VARCHAR(100),
+    uid_imap                BIGINT,
+    error                   VARCHAR(2000),
+    fecha_envio             TIMESTAMPTZ,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_correos_empresa_folder_created ON correos_mensajes(empresa_id, folder, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_correos_uid_imap ON correos_mensajes(empresa_id, usuario_id, uid_imap) WHERE uid_imap IS NOT NULL;
 
 -- ============================================================
 -- TABLA: trazabilidad
@@ -931,12 +963,12 @@ BEGIN
 
     v_cantidad_neta := v_produccion.cantidad_producida - COALESCE(v_produccion.cantidad_merma, 0);
 
-    -- Generar código de lote: DDMMYYYY-PRODUCTOID-SEQ
+    -- Generar código de lote: DDMMYY-PRODUCTOID-SEQ
     SELECT COALESCE(MAX(id), 0) + 1 INTO v_seq FROM lotes
     WHERE empresa_id = p_empresa_id AND producto_id = p_producto_id
       AND fecha_fabricacion = v_produccion.fecha_produccion;
 
-    v_codigo_lote := TO_CHAR(v_produccion.fecha_produccion, 'DDMMYYYY') || '-' ||
+    v_codigo_lote := TO_CHAR(v_produccion.fecha_produccion, 'DDMMYY') || '-' ||
                      p_producto_id::TEXT || '-' || LPAD(v_seq::TEXT, 3, '0');
 
     -- Crear lote
@@ -945,7 +977,11 @@ BEGIN
     SELECT p_empresa_id, p_producto_id, p_produccion_id, v_codigo_lote,
            v_produccion.fecha_produccion,
            CASE WHEN pr.vida_util_dias IS NOT NULL
-                THEN v_produccion.fecha_produccion + pr.vida_util_dias
+                THEN CASE
+                    WHEN COALESCE(pr.vida_util_unidad, 'Dias') ILIKE 'Mes%'
+                        THEN (v_produccion.fecha_produccion + (pr.vida_util_dias || ' months')::interval)::date
+                    ELSE v_produccion.fecha_produccion + pr.vida_util_dias
+                END
                 ELSE NULL END,
            v_cantidad_neta
     FROM productos pr WHERE pr.id = p_producto_id
@@ -981,7 +1017,7 @@ DO $$ DECLARE t TEXT;
 BEGIN FOR t IN VALUES
     ('empresas'),('usuarios'),('clientes'),('productos'),
     ('producciones'),('pedidos'),('albaranes'),('facturas'),
-    ('control_materias_primas'),('plantillas_etiqueta')
+    ('control_materias_primas'),('plantillas_etiqueta'),('correos_mensajes')
 LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS trg_updated_at_%s ON %s;
                     CREATE TRIGGER trg_updated_at_%s BEFORE UPDATE ON %s

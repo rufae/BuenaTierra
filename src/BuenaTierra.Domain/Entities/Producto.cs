@@ -15,6 +15,7 @@ public class Producto : TenantEntity
     public string UnidadMedida { get; set; } = "unidad";
     public decimal? PesoUnitarioGr { get; set; }
     public int? VidaUtilDias { get; set; }
+    public string VidaUtilUnidad { get; set; } = "Dias";
     public decimal? TemperaturaMin { get; set; }
     public decimal? TemperaturaMax { get; set; }
     public bool RequiereLote { get; set; } = true;

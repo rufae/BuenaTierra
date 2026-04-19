@@ -92,8 +92,9 @@ function waitForApi (url, timeoutMs) {
 
     function tryOnce () {
       http.get(healthUrl, (res) => {
-        if (res.statusCode < 500) {
-          resolve()
+        // 200 = OK, 503 = API arrancó pero DB no conecta (aceptamos ambos como "API viva")
+        if (res.statusCode < 500 || res.statusCode === 503) {
+          resolve(res.statusCode)
         } else {
           retry()
         }
@@ -181,7 +182,14 @@ app.whenReady().then(async () => {
   launchApi()
 
   try {
-    await waitForApi(API_URL, API_TIMEOUT_MS)
+    const statusCode = await waitForApi(API_URL, API_TIMEOUT_MS)
+    if (statusCode === 503) {
+      // API arrancó pero DB no conecta — mostrar aviso pero abrir la app
+      dialog.showErrorBox(
+        'BuenaTierra — Base de datos no disponible',
+        'La API ha arrancado pero no puede conectar con PostgreSQL.\n\nVerifica que:\n  1. El servicio PostgreSQL está iniciado\n  2. Existe la base de datos "buenatierra"\n  3. El usuario "buenatierra_admin" tiene acceso\n\nLog de diagnóstico:\n' + LOG_FILE
+      )
+    }
   } catch (err) {
     if (!isDev) {
       dialog.showErrorBox(

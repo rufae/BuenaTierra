@@ -113,8 +113,16 @@ public class ProductosController : ControllerBase
         return Ok(ApiResponse<Producto>.Ok(existente));
     }
 
+    private static string NormalizeVidaUtilUnidad(string? unidad, string? fallback = null)
+    {
+        var raw = (unidad ?? fallback ?? "Dias").Trim();
+        return raw.StartsWith("Mes", StringComparison.OrdinalIgnoreCase) ? "Meses" : "Dias";
+    }
+
     private static void MapRequest(ProductoRequest r, Producto p)
     {
+        var vidaUtilUnidad = NormalizeVidaUtilUnidad(r.VidaUtilUnidad, p.VidaUtilUnidad);
+
         p.Codigo                 = r.Codigo;
         p.CodigoBarras           = r.CodigoBarras;
         p.Nombre                 = r.Nombre ?? string.Empty;
@@ -126,6 +134,7 @@ public class ProductosController : ControllerBase
         p.UnidadMedida           = r.UnidadMedida ?? "ud";
         p.PesoUnitarioGr         = r.PesoUnitarioGr;
         p.VidaUtilDias           = r.VidaUtilDias;
+        p.VidaUtilUnidad         = vidaUtilUnidad;
         p.DescuentoPorDefecto    = r.DescuentoPorDefecto;
         p.ProveedorHabitual      = r.ProveedorHabitual;
         p.Referencia             = r.Referencia;
@@ -168,6 +177,87 @@ public class ProductosController : ControllerBase
         await _uow.Productos.DeleteAsync(existente, ct);
         await _uow.SaveChangesAsync(ct);
         return Ok(ApiResponse<string>.Ok("Eliminado"));
+    }
+
+    // ── Export Excel ──────────────────────────────────────────────────────────
+
+    /// <summary>GET /api/productos/exportar-excel — Exporta catálogo filtrado a Excel</summary>
+    [HttpGet("exportar-excel")]
+    public async Task<IActionResult> ExportarExcel(
+        [FromQuery] bool soloActivos = true,
+        [FromQuery] int? categoriaId = null,
+        [FromQuery] string? q = null,
+        CancellationToken ct = default)
+    {
+        var todos = (await _uow.Productos.GetByEmpresaAsync(EmpresaId, soloActivos, ct)).ToList();
+
+        if (categoriaId.HasValue)
+            todos = todos.Where(p => p.CategoriaId == categoriaId.Value).ToList();
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var term = q.Trim().ToLowerInvariant();
+            todos = todos.Where(p =>
+                p.Nombre.ToLowerInvariant().Contains(term) ||
+                (p.Codigo ?? "").ToLowerInvariant().Contains(term) ||
+                (p.CodigoBarras ?? "").ToLowerInvariant().Contains(term)
+            ).ToList();
+        }
+
+        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
+        using var package = new OfficeOpenXml.ExcelPackage();
+        var ws = package.Workbook.Worksheets.Add("Productos");
+
+        string[] headers = {
+            "Código", "Cód. Barras", "Nombre", "Descripción", "Familia",
+            "Precio Venta", "Precio Coste", "IVA %", "Unidad",
+            "Peso Unitario (g)", "Vida Útil", "Unidad Vida Útil", "Dto. Defecto %",
+            "Stock Mínimo", "Stock Máximo", "Requiere Lote", "Activo"
+        };
+
+        for (int i = 0; i < headers.Length; i++)
+            ws.Cells[1, i + 1].Value = headers[i];
+
+        using (var hr = ws.Cells[1, 1, 1, headers.Length])
+        {
+            hr.Style.Font.Bold = true;
+            hr.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+            hr.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(41, 128, 185));
+            hr.Style.Font.Color.SetColor(System.Drawing.Color.White);
+        }
+
+        int row = 2;
+        foreach (var p in todos)
+        {
+            ws.Cells[row, 1].Value  = p.Codigo;
+            ws.Cells[row, 2].Value  = p.CodigoBarras;
+            ws.Cells[row, 3].Value  = p.Nombre;
+            ws.Cells[row, 4].Value  = p.Descripcion;
+            ws.Cells[row, 5].Value  = p.Categoria?.Nombre;
+            ws.Cells[row, 6].Value  = p.PrecioVenta;
+            ws.Cells[row, 7].Value  = p.PrecioCoste;
+            ws.Cells[row, 8].Value  = p.IvaPorcentaje;
+            ws.Cells[row, 9].Value  = p.UnidadMedida;
+            ws.Cells[row, 10].Value = p.PesoUnitarioGr;
+            ws.Cells[row, 11].Value = p.VidaUtilDias;
+            ws.Cells[row, 12].Value = p.VidaUtilUnidad;
+            ws.Cells[row, 13].Value = p.DescuentoPorDefecto;
+            ws.Cells[row, 14].Value = p.StockMinimo;
+            ws.Cells[row, 15].Value = p.StockMaximo;
+            ws.Cells[row, 16].Value = p.RequiereLote ? "Sí" : "No";
+            ws.Cells[row, 17].Value = p.Activo ? "Sí" : "No";
+
+            ws.Cells[row, 6].Style.Numberformat.Format = "#,##0.0000 €";
+            ws.Cells[row, 7].Style.Numberformat.Format = "#,##0.0000 €";
+            row++;
+        }
+
+        ws.Cells.AutoFitColumns();
+
+        var bytes = package.GetAsByteArray();
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "productos.xlsx");
     }
 
     // ── Ingredientes del producto ─────────────────────────────────────────────
@@ -350,6 +440,7 @@ public record ProductoRequest(
     string?  UnidadMedida,
     decimal? PesoUnitarioGr,
     int?     VidaUtilDias,
+    string?  VidaUtilUnidad,
     decimal? DescuentoPorDefecto,
     string?  ProveedorHabitual,
     string?  Referencia,
