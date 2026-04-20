@@ -298,33 +298,44 @@ public class AlbaranesController : ControllerBase
             await _uow.Facturas.AddAsync(factura, ct);
             await _uow.SaveChangesAsync(ct);
 
-            // Descontar stock y registrar trazabilidad para cada línea con lote
+            var consumirStock = !albaran.PedidoId.HasValue;
+
+            // Si el albarán nace de un pedido confirmado, el stock ya salió en la confirmación.
+            // Aquí solo se libera una posible reserva legacy y se registra el vínculo documental.
             foreach (var linea in albaran.Lineas.Where(l => l.LoteId.HasValue))
             {
                 var stock = await _uow.Stock.GetByProductoLoteAsync(
                     EmpresaId, linea.ProductoId, linea.LoteId!.Value, ct)
                     ?? throw new DomainException($"Stock no encontrado: producto={linea.ProductoId}, lote={linea.LoteId}");
 
-                decimal cantidadAntes = stock.CantidadDisponible;
-                stock.CantidadDisponible -= linea.Cantidad;
-                // Liberar la reserva que se creó al confirmar el pedido (si existía)
-                stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - linea.Cantidad);
-                stock.UpdatedAt = DateTime.UtcNow;
-                await _uow.Stock.UpdateAsync(stock, ct);
-
-                await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                if (consumirStock)
                 {
-                    EmpresaId = EmpresaId,
-                    ProductoId = linea.ProductoId,
-                    LoteId = linea.LoteId!.Value,
-                    Tipo = TipoMovimientoStock.Venta,
-                    Cantidad = linea.Cantidad,
-                    CantidadAntes = cantidadAntes,
-                    CantidadDespues = stock.CantidadDisponible,
-                    ReferenciaTipo = "factura",
-                    ReferenciaId = factura.Id,
-                    UsuarioId = UsuarioId
-                }, ct);
+                    decimal cantidadAntes = stock.CantidadDisponible;
+                    stock.CantidadDisponible -= linea.Cantidad;
+                    stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - linea.Cantidad);
+                    stock.UpdatedAt = DateTime.UtcNow;
+                    await _uow.Stock.UpdateAsync(stock, ct);
+
+                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    {
+                        EmpresaId = EmpresaId,
+                        ProductoId = linea.ProductoId,
+                        LoteId = linea.LoteId!.Value,
+                        Tipo = TipoMovimientoStock.Venta,
+                        Cantidad = linea.Cantidad,
+                        CantidadAntes = cantidadAntes,
+                        CantidadDespues = stock.CantidadDisponible,
+                        ReferenciaTipo = "factura",
+                        ReferenciaId = factura.Id,
+                        UsuarioId = UsuarioId
+                    }, ct);
+                }
+                else if (stock.CantidadReservada > 0)
+                {
+                    stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - linea.Cantidad);
+                    stock.UpdatedAt = DateTime.UtcNow;
+                    await _uow.Stock.UpdateAsync(stock, ct);
+                }
 
                 await _uow.Trazabilidades.AddAsync(new Trazabilidad
                 {
@@ -334,7 +345,7 @@ public class AlbaranesController : ControllerBase
                     ClienteId = albaran.ClienteId,
                     FacturaId = factura.Id,
                     Cantidad = linea.Cantidad,
-                    TipoOperacion = "venta_factura",
+                    TipoOperacion = consumirStock ? "venta_factura" : "factura_desde_pedido",
                     FechaOperacion = DateTime.UtcNow,
                     UsuarioId = UsuarioId
                 }, ct);

@@ -406,7 +406,7 @@ public class PedidosController : ControllerBase
 
     /// <summary>
     /// POST /api/pedidos/{id}/confirmar — Confirmar pedido (estado → Confirmado).
-    /// Asigna lotes FIFO y reserva stock para que los informes reflejen el compromiso.
+    /// Asigna lotes FIFO y consume stock en este punto para evitar descuentos duplicados posteriores.
     /// </summary>
     [HttpPost("{id:int}/confirmar")]
     [Authorize(Policy = "ObradorOrAdmin")]
@@ -421,7 +421,13 @@ public class PedidosController : ControllerBase
         await _uow.BeginTransactionAsync(ct);
         try
         {
-            // Asignar lotes FIFO y reservar stock para cada línea
+            // Asignar lotes FIFO y consumir stock para cada línea.
+            // Nota: si ya existen movimientos de tipo "pedido_confirmado" para este pedido,
+            // evitamos volver a descontar para no duplicar salidas (caso de inserciones manuales).
+            var movimientosExistentes = await _uow.MovimientosStock.GetQueryable()
+                .Where(m => m.EmpresaId == EmpresaId && m.ReferenciaTipo == "pedido_confirmado" && m.ReferenciaId == pedido.Id)
+                .ToListAsync(ct);
+            bool pedidoYaConsumido = movimientosExistentes.Any();
             foreach (var linea in pedido.Lineas)
             {
                 var producto = linea.Producto
@@ -435,16 +441,55 @@ public class PedidosController : ControllerBase
                 var reservaItems = lotes.Select(l => new ReservaLoteItem(l.LoteId, l.CodigoLote, l.Cantidad)).ToList();
                 linea.ReservaLotesJson = JsonSerializer.Serialize(reservaItems);
 
-                // Reservar stock: incrementar CantidadReservada por lote
+                // Consumir stock al confirmar el pedido para que factura/albarán no vuelvan a restarlo.
                 foreach (var lote in lotes)
                 {
                     var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, linea.ProductoId, lote.LoteId, ct);
-                    if (stock != null)
+                    if (stock == null) continue;
+
+                    if (pedidoYaConsumido)
                     {
-                        stock.CantidadReservada += lote.Cantidad;
-                        stock.UpdatedAt = DateTime.UtcNow;
-                        await _uow.Stock.UpdateAsync(stock, ct);
+                        // Ya existe consumo registrado para este pedido — no restamos de nuevo.
+                        continue;
                     }
+
+                    var cantidadAntes = stock.CantidadDisponible;
+                    stock.CantidadDisponible -= lote.Cantidad;
+                    stock.UpdatedAt = DateTime.UtcNow;
+                    await _uow.Stock.UpdateAsync(stock, ct);
+
+                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    {
+                        EmpresaId = EmpresaId,
+                        ProductoId = linea.ProductoId,
+                        LoteId = lote.LoteId,
+                        Tipo = TipoMovimientoStock.Venta,
+                        Cantidad = lote.Cantidad,
+                        CantidadAntes = cantidadAntes,
+                        CantidadDespues = stock.CantidadDisponible,
+                        ReferenciaTipo = "pedido_confirmado",
+                        ReferenciaId = pedido.Id,
+                        UsuarioId = UsuarioId,
+                        Notas = $"Salida al confirmar pedido {pedido.NumeroPedido ?? pedido.Id.ToString()}"
+                    }, ct);
+
+                    await _uow.Trazabilidades.AddAsync(new Trazabilidad
+                    {
+                        EmpresaId = EmpresaId,
+                        LoteId = lote.LoteId,
+                        ProductoId = linea.ProductoId,
+                        ClienteId = pedido.ClienteId,
+                        Cantidad = lote.Cantidad,
+                        TipoOperacion = "venta_pedido",
+                        FechaOperacion = DateTime.UtcNow,
+                        UsuarioId = UsuarioId,
+                        DatosAdicionales = JsonSerializer.Serialize(new
+                        {
+                            pedidoId = pedido.Id,
+                            pedidoNumero = pedido.NumeroPedido,
+                            codigoLote = lote.CodigoLote
+                        })
+                    }, ct);
                 }
             }
 
@@ -453,7 +498,7 @@ public class PedidosController : ControllerBase
             await _uow.SaveChangesAsync(ct);
             await _uow.CommitTransactionAsync(ct);
 
-            return Ok(ApiResponse<string>.Ok("OK", "Pedido confirmado y stock reservado"));
+            return Ok(ApiResponse<string>.Ok("OK", "Pedido confirmado y stock descontado"));
         }
         catch
         {
@@ -463,7 +508,7 @@ public class PedidosController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/pedidos/{id}/cancelar — Cancelar pedido y liberar reservas de stock
+    /// POST /api/pedidos/{id}/cancelar — Cancelar pedido y devolver stock si ya se descontó al confirmar
     /// </summary>
     [HttpPost("{id:int}/cancelar")]
     [Authorize(Policy = "ObradorOrAdmin")]
@@ -478,7 +523,14 @@ public class PedidosController : ControllerBase
         await _uow.BeginTransactionAsync(ct);
         try
         {
-            // Liberar reservas de stock asignadas al confirmar
+            var ventasPedido = await _uow.MovimientosStock.GetQueryable()
+                .Where(m => m.EmpresaId == EmpresaId
+                    && m.ReferenciaTipo == "pedido_confirmado"
+                    && m.ReferenciaId == pedido.Id
+                    && m.Tipo == TipoMovimientoStock.Venta)
+                .ToListAsync(ct);
+
+            // Revertir el consumo del pedido confirmado o liberar reservas legacy.
             foreach (var linea in pedido.Lineas.Where(l => l.ReservaLotesJson != null))
             {
                 var reserva = JsonSerializer.Deserialize<List<ReservaLoteItem>>(linea.ReservaLotesJson!);
@@ -489,8 +541,32 @@ public class PedidosController : ControllerBase
                     var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, linea.ProductoId, item.LoteId, ct);
                     if (stock != null)
                     {
-                        stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - item.Cantidad);
+                        var huboVentaEnConfirmacion = ventasPedido.Any(m => m.ProductoId == linea.ProductoId && m.LoteId == item.LoteId);
+                        if (huboVentaEnConfirmacion)
+                        {
+                            var cantidadAntes = stock.CantidadDisponible;
+                            stock.CantidadDisponible += item.Cantidad;
+                            stock.UpdatedAt = DateTime.UtcNow;
+                            await _uow.Stock.UpdateAsync(stock, ct);
+
+                            await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                            {
+                                EmpresaId = EmpresaId,
+                                ProductoId = linea.ProductoId,
+                                LoteId = item.LoteId,
+                                Tipo = TipoMovimientoStock.Devolucion,
+                                Cantidad = item.Cantidad,
+                                CantidadAntes = cantidadAntes,
+                                CantidadDespues = stock.CantidadDisponible,
+                                ReferenciaTipo = "cancelacion_pedido",
+                                ReferenciaId = pedido.Id,
+                                UsuarioId = UsuarioId,
+                                Notas = $"Reposición por cancelación del pedido {pedido.NumeroPedido ?? pedido.Id.ToString()}"
+                            }, ct);
+                        }
+
                         stock.UpdatedAt = DateTime.UtcNow;
+                        stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - item.Cantidad);
                         await _uow.Stock.UpdateAsync(stock, ct);
                     }
                 }
@@ -502,7 +578,7 @@ public class PedidosController : ControllerBase
             await _uow.SaveChangesAsync(ct);
             await _uow.CommitTransactionAsync(ct);
 
-            return Ok(ApiResponse<string>.Ok("OK", "Pedido cancelado y reservas de stock liberadas"));
+            return Ok(ApiResponse<string>.Ok("OK", "Pedido cancelado y stock revertido"));
         }
         catch
         {
@@ -700,9 +776,11 @@ public class PedidosController : ControllerBase
         {
             EmpresaId = EmpresaId,
             ClienteId = pedido.ClienteId,
+            PedidoId = pedido.Id,
             SerieId = request.SerieId,
             FechaFactura = request.FechaFactura ?? DateOnly.FromDateTime(DateTime.Today),
             EsSimplificada = request.EsSimplificada,
+            ConsumirStock = false,
             UsuarioId = UsuarioId,
             Notas = pedido.Notas,
             Items = pedido.Lineas.Select(l => new LineaFacturaRequest
