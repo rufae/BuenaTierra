@@ -24,7 +24,7 @@ namespace BuenaTierra.Infrastructure.Services;
 /// 3. Crear una FacturaLinea por cada lote asignado (pueden ser varias por producto)
 /// 4. Calcular totales
 /// 5. Persistir en transacción ACID
-/// 6. Descontar stock por cada lote
+/// 6. Descontar stock por cada lote cuando la factura no nace de un pedido ya confirmado
 /// 7. Registrar trazabilidad
 /// 8. Generar PDF en background
 /// </summary>
@@ -119,6 +119,7 @@ public class FacturaService : IFacturaService
             {
                 EmpresaId     = request.EmpresaId,
                 ClienteId     = request.ClienteId,
+                PedidoId      = request.PedidoId,
                 SerieId       = request.SerieId,
                 UsuarioId     = request.UsuarioId,
                 NumeroFactura = numeroFactura,
@@ -179,37 +180,44 @@ public class FacturaService : IFacturaService
             await _uow.Facturas.AddAsync(factura, ct);
             await _uow.SaveChangesAsync(ct);
 
-            // Descontar stock y registrar trazabilidad para cada línea con lote
+            // Si la factura nace de un pedido confirmado, el stock ya se consumió al confirmar.
+            // Aquí solo se libera una posible reserva legacy y se documenta la factura en trazabilidad.
             foreach (var (item, producto, lotes) in lineasConLotes)
             {
                 foreach (var lote in lotes.Where(l => l.LoteId > 0))
                 {
-                    // Descontar stock
                     var stock = await _uow.Stock.GetByProductoLoteAsync(
                         request.EmpresaId, item.ProductoId, lote.LoteId, ct)
                         ?? throw new DomainException($"Stock no encontrado: empresa={request.EmpresaId}, producto={item.ProductoId}, lote={lote.LoteId}");
 
-                    decimal cantidadAntes = stock.CantidadDisponible;
-                    stock.CantidadDisponible -= lote.Cantidad;
-                    // Liberar la reserva que se creó al confirmar el pedido (si existía)
-                    stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - lote.Cantidad);
-                    stock.UpdatedAt = DateTime.UtcNow;
-                    await _uow.Stock.UpdateAsync(stock, ct);
-
-                    // Movimiento de stock
-                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    if (request.ConsumirStock)
                     {
-                        EmpresaId = request.EmpresaId,
-                        ProductoId = item.ProductoId,
-                        LoteId = lote.LoteId,
-                        Tipo = TipoMovimientoStock.Venta,
-                        Cantidad = lote.Cantidad,
-                        CantidadAntes = cantidadAntes,
-                        CantidadDespues = stock.CantidadDisponible,
-                        ReferenciaTipo = "factura",
-                        ReferenciaId = factura.Id,
-                        UsuarioId = request.UsuarioId
-                    }, ct);
+                        decimal cantidadAntes = stock.CantidadDisponible;
+                        stock.CantidadDisponible -= lote.Cantidad;
+                        stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - lote.Cantidad);
+                        stock.UpdatedAt = DateTime.UtcNow;
+                        await _uow.Stock.UpdateAsync(stock, ct);
+
+                        await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                        {
+                            EmpresaId = request.EmpresaId,
+                            ProductoId = item.ProductoId,
+                            LoteId = lote.LoteId,
+                            Tipo = TipoMovimientoStock.Venta,
+                            Cantidad = lote.Cantidad,
+                            CantidadAntes = cantidadAntes,
+                            CantidadDespues = stock.CantidadDisponible,
+                            ReferenciaTipo = "factura",
+                            ReferenciaId = factura.Id,
+                            UsuarioId = request.UsuarioId
+                        }, ct);
+                    }
+                    else if (stock.CantidadReservada > 0)
+                    {
+                        stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - lote.Cantidad);
+                        stock.UpdatedAt = DateTime.UtcNow;
+                        await _uow.Stock.UpdateAsync(stock, ct);
+                    }
 
                     // Trazabilidad
                     await _uow.Trazabilidades.AddAsync(new Trazabilidad
@@ -220,7 +228,7 @@ public class FacturaService : IFacturaService
                         ClienteId = request.ClienteId,
                         FacturaId = factura.Id,
                         Cantidad = lote.Cantidad,
-                        TipoOperacion = "venta_factura",
+                        TipoOperacion = request.ConsumirStock ? "venta_factura" : "factura_desde_pedido",
                         FechaOperacion = DateTime.UtcNow,
                         UsuarioId = request.UsuarioId
                     }, ct);

@@ -73,9 +73,11 @@ public class CrearFacturaRequest
 {
     public int EmpresaId { get; set; }
     public int ClienteId { get; set; }
+    public int? PedidoId { get; set; }
     public int SerieId { get; set; }
     public DateOnly FechaFactura { get; set; } = DateOnly.FromDateTime(DateTime.Today);
     public bool EsSimplificada { get; set; } = false;
+    public bool ConsumirStock { get; set; } = true;
     public int UsuarioId { get; set; }
     public string? Notas { get; set; }
     public List<LineaFacturaRequest> Items { get; set; } = new();
