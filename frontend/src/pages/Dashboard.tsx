@@ -100,7 +100,7 @@ export default function Dashboard() {
   const isRepartidor = user?.rol === 'Repartidor'
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="page-shell space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>

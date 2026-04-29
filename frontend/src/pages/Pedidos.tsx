@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
-import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, Producto, SerieFacturacion } from '../types'
+import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, ClienteCondicionEspecial, Producto, SerieFacturacion } from '../types'
 import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin, Search, Trash2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
@@ -19,6 +19,110 @@ const ESTADO_COLOR: Record<string, string> = {
 }
 
 interface ItemForm { productoId: number; cantidad: number }
+
+interface PreviewPricing {
+  precioUnitario: number
+  descuento: number
+  origenPrecio: string
+  origenDescuento: string
+}
+
+function normalizeCode(value?: string | null) {
+  return value?.trim().toUpperCase() ?? ''
+}
+
+function isGlobalCodigo(value?: string | null) {
+  if (!value || !value.trim()) return true
+  const normalized = value.trim().toUpperCase()
+  return normalized === '*' || normalized === 'TODOS' || normalized === 'ALL'
+}
+
+function getSpecificity(codigo: string | null | undefined, producto: Producto) {
+  if (isGlobalCodigo(codigo)) return 1
+
+  const normalized = normalizeCode(codigo)
+  const keys = [producto.codigo, producto.referencia, String(producto.id)].map(normalizeCode)
+  return keys.includes(normalized) ? 2 : 0
+}
+
+function findBestCondicion(
+  condiciones: ClienteCondicionEspecial[] | undefined,
+  producto: Producto,
+  type: 'Precio' | 'Descuento'
+) {
+  if (!condiciones?.length) return null
+
+  const filtered = condiciones
+    .filter(c => c.articuloFamilia !== 'Familia')
+    .filter(c => type === 'Precio'
+      ? (c.tipo === 'Precio' || c.tipo === 'PrecioEspecial')
+      : c.tipo === 'Descuento')
+    .map(c => ({ condicion: c, specificity: getSpecificity(c.codigo, producto) }))
+    .filter(x => x.specificity > 0)
+    .sort((a, b) => {
+      if (b.specificity !== a.specificity) return b.specificity - a.specificity
+      return b.condicion.id - a.condicion.id
+    })
+
+  return filtered[0]?.condicion ?? null
+}
+
+function resolvePreviewPricing(
+  cliente: Cliente | null,
+  producto: Producto,
+  condiciones: ClienteCondicionEspecial[] | undefined
+): PreviewPricing {
+  const condicionPrecio = findBestCondicion(condiciones, producto, 'Precio')
+  const condicionDescuento = findBestCondicion(condiciones, producto, 'Descuento')
+
+  const precioUnitario = condicionPrecio && condicionPrecio.precio > 0
+    ? condicionPrecio.precio
+    : producto.precioVenta
+
+  const origenPrecio = condicionPrecio && condicionPrecio.precio > 0
+    ? 'Condición especial'
+    : 'Precio base'
+
+  let descuento = 0
+  let origenDescuento = 'Sin descuento'
+
+  if (condicionDescuento && condicionDescuento.descuento > 0) {
+    descuento = condicionDescuento.descuento
+    origenDescuento = 'Condición especial'
+  } else if ((cliente?.descuentoGeneral ?? 0) > 0) {
+    descuento = cliente?.descuentoGeneral ?? 0
+    origenDescuento = 'Cliente'
+  } else if ((producto.descuentoPorDefecto ?? 0) > 0) {
+    descuento = producto.descuentoPorDefecto ?? 0
+    origenDescuento = 'Producto'
+  }
+
+  return { precioUnitario, descuento, origenPrecio, origenDescuento }
+}
+
+function getIvaPorcentaje(cliente: Cliente | null, producto: Producto) {
+  if (!cliente) return producto.ivaPorcentaje ?? 0
+
+  switch (cliente.tipoImpuesto) {
+    case 'Exento':
+      return 0
+    case 'IGIC':
+      return 7
+    default:
+      return cliente.aplicarImpuesto ? (producto.ivaPorcentaje ?? 0) : 0
+  }
+}
+
+function getRecargoEquivalenciaPorcentaje(cliente: Cliente | null, ivaPorcentaje: number) {
+  const aplicaRE = cliente?.tipoImpuesto === 'RecargoEquivalencia' || cliente?.recargoEquivalencia
+  if (!aplicaRE) return 0
+  switch (ivaPorcentaje) {
+    case 21: return 5.2
+    case 10: return 1.4
+    case 4: return 0.5
+    default: return 0
+  }
+}
 
 export default function Pedidos() {
   const qc = useQueryClient()
@@ -81,6 +185,17 @@ export default function Pedidos() {
   const { data: productos } = useQuery({
     queryKey: ['productos'],
     queryFn: async () => (await api.get<{ data: Producto[] }>('/productos')).data.data,
+  })
+
+  const selectedCliente = useMemo(
+    () => (clientes ?? []).find(c => c.id === Number(clienteId)) ?? null,
+    [clientes, clienteId]
+  )
+
+  const { data: clienteCondiciones } = useQuery({
+    queryKey: ['cliente-condiciones-pedido', clienteId],
+    queryFn: async () => (await api.get<{ data: ClienteCondicionEspecial[] }>(`/clientes/${clienteId}/condiciones`)).data.data,
+    enabled: !!clienteId,
   })
 
   const { data: series } = useQuery({
@@ -208,15 +323,64 @@ export default function Pedidos() {
   const pendientes = (pedidos ?? []).filter(p => p.estado === 'Pendiente').length
   const totalImporte = (pedidos ?? []).reduce((s, p) => s + p.total, 0)
 
+  const previewLineas = useMemo(() => {
+    if (!selectedCliente || !productos?.length) return []
+
+    return items
+      .map((item, index) => {
+        const producto = productos.find(p => p.id === item.productoId)
+        if (!producto || item.cantidad <= 0) return null
+
+        const pricing = resolvePreviewPricing(selectedCliente, producto, clienteCondiciones)
+        const subtotal = item.cantidad * pricing.precioUnitario * (1 - pricing.descuento / 100)
+        const ivaPorcentaje = getIvaPorcentaje(selectedCliente, producto)
+        const recargoPorcentaje = getRecargoEquivalenciaPorcentaje(selectedCliente, ivaPorcentaje)
+        const ivaImporte = subtotal * ivaPorcentaje / 100
+        const recargoImporte = subtotal * recargoPorcentaje / 100
+
+        return {
+          key: `${index}-${producto.id}`,
+          productoNombre: producto.nombre,
+          cantidad: item.cantidad,
+          precioUnitario: pricing.precioUnitario,
+          descuento: pricing.descuento,
+          origenPrecio: pricing.origenPrecio,
+          origenDescuento: pricing.origenDescuento,
+          subtotal,
+          ivaImporte,
+          recargoImporte,
+        }
+      })
+      .filter((linea): linea is NonNullable<typeof linea> => linea !== null)
+  }, [clienteCondiciones, items, productos, selectedCliente])
+
+  const previewTotales = useMemo(() => {
+    const subtotal = previewLineas.reduce((acc, linea) => acc + linea.subtotal, 0)
+    const ivaTotal = previewLineas.reduce((acc, linea) => acc + linea.ivaImporte, 0)
+    const recargoTotal = previewLineas.reduce((acc, linea) => acc + linea.recargoImporte, 0)
+    const retencionPorcentaje = selectedCliente && !selectedCliente.noAplicarRetenciones
+      ? selectedCliente.porcentajeRetencion
+      : 0
+    const retencionTotal = subtotal * retencionPorcentaje / 100
+
+    return {
+      subtotal,
+      ivaTotal,
+      recargoTotal,
+      retencionTotal,
+      total: subtotal + ivaTotal + recargoTotal - retencionTotal,
+    }
+  }, [previewLineas, selectedCliente])
+
   return (
-    <div className="p-6 space-y-5">
+    <div className="page-shell space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Pedidos</h1>
           <p className="text-sm text-gray-500 mt-0.5">Gestión de pedidos de clientes · conversión a albaranes</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={downloadExcel}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700"
@@ -230,7 +394,7 @@ export default function Pedidos() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           { label: 'Total pedidos', value: (pedidos ?? []).length, fmt: false },
           { label: 'Pendientes', value: pendientes, fmt: false },
@@ -277,6 +441,7 @@ export default function Pedidos() {
           )}
           <span className="text-xs text-gray-400">{filteredPedidos.length} de {(pedidos ?? []).length}</span>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -373,6 +538,7 @@ export default function Pedidos() {
                           <thead>
                             <tr className="text-gray-500">
                               <th className="text-left pb-1 pr-4">Producto</th>
+                              <th className="text-left pb-1 pr-4">Lote</th>
                               <th className="text-right pb-1 pr-4">Cantidad</th>
                               <th className="text-right pb-1 pr-4">Precio</th>
                               <th className="text-right pb-1 pr-4">Descuento</th>
@@ -383,6 +549,13 @@ export default function Pedidos() {
                             {(detalle.lineas ?? []).map((l, i) => (
                               <tr key={i} className="border-t border-blue-100">
                                 <td className="py-1 pr-4 font-medium">{l.productoNombre}</td>
+                                <td className="py-1 pr-4">
+                                  {l.codigoLote ? (
+                                    <span className="font-mono text-[11px] text-gray-700">{l.codigoLote}</span>
+                                  ) : (
+                                    <span className="text-gray-400">Sin asignar</span>
+                                  )}
+                                </td>
                                 <td className="py-1 pr-4 text-right">{l.cantidad}</td>
                                 <td className="py-1 pr-4 text-right">{l.precioUnitario.toFixed(2)} €</td>
                                 <td className="py-1 pr-4 text-right">{l.descuento}%</td>
@@ -410,11 +583,12 @@ export default function Pedidos() {
               ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Modal: Nuevo pedido */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-5">
@@ -422,7 +596,7 @@ export default function Pedidos() {
                 <button onClick={resetForm}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
               </div>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Cliente *</label>
                     <select value={clienteId} onChange={e => setClienteId(e.target.value)}
@@ -441,6 +615,16 @@ export default function Pedidos() {
                   <input value={notas} onChange={e => setNotas(e.target.value)} placeholder="Notas opcionales…"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
                 </div>
+                {selectedCliente && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 space-y-1">
+                    <p className="font-semibold">El pedido tendrá en cuenta automáticamente la política comercial del cliente.</p>
+                    <p>
+                      Descuento general: <b>{selectedCliente.descuentoGeneral.toFixed(2)}%</b>
+                      {clienteCondiciones && clienteCondiciones.length > 0 ? ` · ${clienteCondiciones.length} condición(es) especial(es) activas` : ' · sin condiciones especiales'}
+                    </p>
+                    <p>La precedencia aplicada es: condición especial de producto &gt; descuento general del cliente &gt; descuento por defecto del producto.</p>
+                  </div>
+                )}
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-medium text-gray-700">Artículos *</label>
@@ -448,7 +632,7 @@ export default function Pedidos() {
                   </div>
                   <div className="space-y-2">
                     {items.map((item, i) => (
-                      <div key={i} className="flex gap-2 items-center">
+                      <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
                         <select value={item.productoId} onChange={e => updateItem(i, 'productoId', +e.target.value)}
                           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                           <option value={0}>Seleccionar producto…</option>
@@ -463,6 +647,36 @@ export default function Pedidos() {
                     ))}
                   </div>
                 </div>
+                {selectedCliente && previewLineas.length > 0 && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                    <div>
+                      <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">Previsualización comercial del pedido</h3>
+                      <p className="text-xs text-slate-500 mt-1">Estos importes se calculan antes de guardar con las condiciones del cliente seleccionado.</p>
+                    </div>
+                    <div className="space-y-2">
+                      {previewLineas.map(linea => (
+                        <div key={linea.key} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-slate-900">{linea.productoNombre}</p>
+                              <p className="text-xs text-slate-500">
+                                {linea.cantidad} x {linea.precioUnitario.toFixed(2)} € · Precio: {linea.origenPrecio} · Dto: {linea.descuento.toFixed(2)}% ({linea.origenDescuento})
+                              </p>
+                            </div>
+                            <p className="text-sm font-semibold text-slate-900">{(linea.subtotal + linea.ivaImporte + linea.recargoImporte).toFixed(2)} €</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-4 border-t border-slate-200 pt-3 text-xs text-slate-700">
+                      <span>Base: <b>{previewTotales.subtotal.toFixed(2)} €</b></span>
+                      <span>IVA: <b>{previewTotales.ivaTotal.toFixed(2)} €</b></span>
+                      {previewTotales.recargoTotal > 0 && <span>R.Eq.: <b>{previewTotales.recargoTotal.toFixed(2)} €</b></span>}
+                      {previewTotales.retencionTotal > 0 && <span className="text-red-700">Retención: <b>-{previewTotales.retencionTotal.toFixed(2)} €</b></span>}
+                      <span className="text-brand-700">Total estimado: <b>{previewTotales.total.toFixed(2)} €</b></span>
+                    </div>
+                  </div>
+                )}
                 <div className="flex justify-end gap-3 pt-2">
                   <button type="button" onClick={resetForm} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
                   <button type="submit" disabled={crearMutation.isPending}
@@ -478,7 +692,7 @@ export default function Pedidos() {
       )}
       {/* Modal: Crear factura desde pedido */}
       {showFacturaPedido !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <h2 className="text-base font-bold text-gray-900 mb-1">Generar factura desde pedido</h2>
             <p className="text-xs text-gray-500 mb-4">Se asignarán lotes FIFO automáticamente.</p>

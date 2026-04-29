@@ -8,6 +8,7 @@ import {
   FileText, LogOut, Layers, Truck, ClipboardList,
   Activity, Zap, BarChart2, Leaf, Shield, Menu, X,
   Wifi, WifiOff, UserCog, BookOpen, Tag, Bot, Mail,
+  Wallet,
 } from 'lucide-react'
 
 // ── Badge de estado del servidor ──────────────────────────────────────────────
@@ -70,6 +71,7 @@ const NAV_OBRADOR: NavItem[] = [
   { to: '/ingredientes',icon: <Leaf className="w-[18px] h-[18px]" />,            label: 'Ingredientes' },
   { to: '/trazabilidad',icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad', separator: true },
   { to: '/reportes',    icon: <BarChart2 className="w-[18px] h-[18px]" />,       label: 'Informes',    separator: true },
+  { to: '/balance',     icon: <Wallet className="w-[18px] h-[18px]" />,          label: 'Balance' },
   { to: '/correos',     icon: <Mail className="w-[18px] h-[18px]" />,            label: 'Correo' },
   { to: '/buenatierr-ai', icon: <Bot className="w-[18px] h-[18px]" />,            label: 'BuenaTierrAI' },
   { to: '/etiquetas',   icon: <Tag className="w-[18px] h-[18px]" />,             label: 'Etiquetas' },
@@ -81,6 +83,7 @@ const NAV_REPARTIDOR: NavItem[] = [
   { to: '/facturacion-rapida', icon: <Zap className="w-[18px] h-[18px]" />,             label: 'Facturación rápida' },
   { to: '/clientes',           icon: <Users className="w-[18px] h-[18px]" />,           label: 'Mis clientes', separator: true },
   { to: '/trazabilidad',       icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad' },
+  { to: '/balance',            icon: <Wallet className="w-[18px] h-[18px]" />,          label: 'Balance' },
   { to: '/buenatierr-ai',      icon: <Bot className="w-[18px] h-[18px]" />,             label: 'BuenaTierrAI' },
   { to: '/ajustes',            icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',       separator: true },
 ]

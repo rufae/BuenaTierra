@@ -4,6 +4,7 @@ using BuenaTierra.Domain.Entities;
 using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
+using BuenaTierra.Domain.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -226,7 +227,8 @@ public class PedidosController : ControllerBase
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<PedidoDetalle>.Fail("Pedido no encontrado"));
 
-        return Ok(ApiResponse<PedidoDetalle>.Ok(MapToDetalle(pedido)));
+        var lotesPorLinea = await BuildLotesFallbackPorLineaAsync(pedido, ct);
+        return Ok(ApiResponse<PedidoDetalle>.Ok(MapToDetalle(pedido, lotesPorLinea)));
     }
 
     /// <summary>POST /api/pedidos/crear — Crear nuevo pedido con lógica fiscal completa</summary>
@@ -276,22 +278,9 @@ public class PedidosController : ControllerBase
                 return BadRequest(ApiResponse<PedidoCreado>.Fail(
                     $"Stock insuficiente para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}"));
 
-            var condicion = ResolveCondicionEspecial(cliente, producto);
-
-            // Precedencia comercial unificada: línea > condición especial > base producto.
-            decimal precio = item.PrecioUnitario
-                ?? (condicion?.Tipo is TipoCondicionEspecial.Precio or TipoCondicionEspecial.PrecioEspecial
-                    ? condicion.Precio
-                    : producto.PrecioVenta);
-
-            // Precedencia comercial unificada: línea > condición especial > descuento cliente > descuento producto.
-            decimal descuento = item.Descuento > 0
-                ? item.Descuento
-                : condicion?.Tipo == TipoCondicionEspecial.Descuento
-                    ? condicion.Descuento
-                    : cliente.DescuentoGeneral > 0
-                        ? cliente.DescuentoGeneral
-                        : (producto.DescuentoPorDefecto ?? 0m);
+            var pricing = ComercialPricingPolicy.Resolve(cliente, producto, item.PrecioUnitario, item.Descuento);
+            decimal precio = pricing.PrecioUnitario;
+            decimal descuento = pricing.Descuento;
 
             decimal ivaPorc = GetIvaPorcentaje(cliente, producto);
             decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m;
@@ -354,54 +343,6 @@ public class PedidosController : ControllerBase
             return 0m;
 
         return ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
-    }
-
-    private static ClienteCondicionEspecial? ResolveCondicionEspecial(Cliente cliente, Producto producto)
-    {
-        if (cliente.CondicionesEspeciales == null || cliente.CondicionesEspeciales.Count == 0)
-            return null;
-
-        string[] clavesProducto =
-        [
-            producto.Codigo?.Trim().ToUpperInvariant() ?? string.Empty,
-            producto.Referencia?.Trim().ToUpperInvariant() ?? string.Empty,
-            producto.Id.ToString()
-        ];
-
-        string categoriaId = producto.CategoriaId?.ToString() ?? string.Empty;
-
-        bool EsGlobal(string? codigo)
-            => string.IsNullOrWhiteSpace(codigo)
-            || codigo.Trim() == "*"
-            || codigo.Trim().Equals("TODOS", StringComparison.OrdinalIgnoreCase)
-            || codigo.Trim().Equals("ALL", StringComparison.OrdinalIgnoreCase);
-
-        bool MatchCodigoProducto(string? codigo)
-        {
-            if (EsGlobal(codigo)) return true;
-            var key = codigo!.Trim().ToUpperInvariant();
-            return clavesProducto.Any(c => !string.IsNullOrEmpty(c) && c == key);
-        }
-
-        bool MatchFamilia(string? codigo)
-        {
-            if (EsGlobal(codigo)) return true;
-            var key = codigo!.Trim();
-            return !string.IsNullOrEmpty(categoriaId)
-                && string.Equals(categoriaId, key, StringComparison.OrdinalIgnoreCase);
-        }
-
-        var exactaArticulo = cliente.CondicionesEspeciales
-            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Articulo)
-            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchCodigoProducto(c.Codigo));
-        if (exactaArticulo != null) return exactaArticulo;
-
-        var exactaFamilia = cliente.CondicionesEspeciales
-            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Familia)
-            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchFamilia(c.Codigo));
-        if (exactaFamilia != null) return exactaFamilia;
-
-        return cliente.CondicionesEspeciales.FirstOrDefault(c => EsGlobal(c.Codigo));
     }
 
     /// <summary>
@@ -1013,7 +954,100 @@ public class PedidosController : ControllerBase
         return Ok(ApiResponse<string>.Ok("OK", "Pedido eliminado"));
     }
 
-    private static PedidoDetalle MapToDetalle(Pedido p) => new(
+    private async Task<Dictionary<int, string?>> BuildLotesFallbackPorLineaAsync(Pedido pedido, CancellationToken ct)
+    {
+        var result = new Dictionary<int, string?>();
+        var sinLote = new List<PedidoLinea>();
+
+        foreach (var linea in pedido.Lineas)
+        {
+            var codigoLote = BuildCodigoLoteResumen(linea.ReservaLotesJson) ?? ExtractLoteFromDescripcion(linea.Descripcion);
+            if (!string.IsNullOrWhiteSpace(codigoLote))
+            {
+                result[linea.Id] = codigoLote;
+            }
+            else
+            {
+                sinLote.Add(linea);
+            }
+        }
+
+        if (sinLote.Count == 0)
+            return result;
+
+        var albaranLineas = await _uow.Albaranes.GetQueryable()
+            .Where(a => a.EmpresaId == EmpresaId && a.PedidoId == pedido.Id)
+            .SelectMany(a => a.Lineas.Select(l => new
+            {
+                l.ProductoId,
+                l.Cantidad,
+                CodigoLote = l.Lote != null ? l.Lote.CodigoLote : null
+            }))
+            .ToListAsync(ct);
+
+        var poolPorProducto = albaranLineas
+            .Where(x => !string.IsNullOrWhiteSpace(x.CodigoLote))
+            .GroupBy(x => x.ProductoId)
+            .ToDictionary(g => g.Key, g => g.Select(x => (x.Cantidad, CodigoLote: x.CodigoLote!.Trim())).ToList());
+
+        var movimientosPedido = await _uow.MovimientosStock.GetQueryable()
+            .Where(m => m.EmpresaId == EmpresaId
+                && m.ReferenciaTipo == "pedido_confirmado"
+                && m.ReferenciaId == pedido.Id
+                && m.Tipo == TipoMovimientoStock.Venta
+                && m.LoteId > 0)
+            .Select(m => new
+            {
+                m.ProductoId,
+                m.Cantidad,
+                CodigoLote = m.Lote != null ? m.Lote.CodigoLote : null
+            })
+            .ToListAsync(ct);
+
+        var poolMovimientosPorProducto = movimientosPedido
+            .Where(x => !string.IsNullOrWhiteSpace(x.CodigoLote))
+            .GroupBy(x => x.ProductoId)
+            .ToDictionary(g => g.Key, g => g.Select(x => (x.Cantidad, CodigoLote: x.CodigoLote!.Trim())).ToList());
+
+        foreach (var linea in sinLote.OrderBy(l => l.Orden))
+        {
+            if (TryTakeLoteFromPool(poolPorProducto, linea, out var loteAlbaran))
+            {
+                result[linea.Id] = loteAlbaran;
+                continue;
+            }
+
+            if (TryTakeLoteFromPool(poolMovimientosPorProducto, linea, out var loteMovimiento))
+            {
+                result[linea.Id] = loteMovimiento;
+            }
+        }
+
+        return result;
+    }
+
+    private static bool TryTakeLoteFromPool(
+        Dictionary<int, List<(decimal Cantidad, string CodigoLote)>> poolPorProducto,
+        PedidoLinea linea,
+        out string codigoLote)
+    {
+        codigoLote = string.Empty;
+        if (!poolPorProducto.TryGetValue(linea.ProductoId, out var pool) || pool.Count == 0)
+            return false;
+
+        var idxMatchCantidad = pool.FindIndex(x => x.Cantidad == linea.Cantidad);
+        var idx = idxMatchCantidad >= 0 ? idxMatchCantidad : 0;
+        var lote = pool[idx].CodigoLote;
+        pool.RemoveAt(idx);
+
+        if (string.IsNullOrWhiteSpace(lote))
+            return false;
+
+        codigoLote = lote;
+        return true;
+    }
+
+    private static PedidoDetalle MapToDetalle(Pedido p, IReadOnlyDictionary<int, string?>? lotesPorLinea = null) => new(
         p.Id,
         p.NumeroPedido ?? $"PED-{p.Id}",
         p.FechaPedido.ToString("yyyy-MM-dd"),
@@ -1026,10 +1060,66 @@ public class PedidosController : ControllerBase
             l.Producto?.Nombre ?? l.Descripcion ?? "",
             l.Cantidad, l.PrecioUnitario, l.Descuento,
             l.IvaPorcentaje, l.RecargoEquivalenciaPorcentaje,
-            l.Subtotal, l.IvaImporte, l.RecargoEquivalenciaImporte
+            l.Subtotal, l.IvaImporte, l.RecargoEquivalenciaImporte,
+            ResolveCodigoLote(l, lotesPorLinea)
         )).ToList(),
         p.Cliente?.NoRealizarFacturas ?? false
     );
+
+    private static string? ResolveCodigoLote(PedidoLinea linea, IReadOnlyDictionary<int, string?>? lotesPorLinea)
+    {
+        if (lotesPorLinea != null && lotesPorLinea.TryGetValue(linea.Id, out var lote) && !string.IsNullOrWhiteSpace(lote))
+            return lote;
+
+        return BuildCodigoLoteResumen(linea.ReservaLotesJson) ?? ExtractLoteFromDescripcion(linea.Descripcion);
+    }
+
+    private static string? BuildCodigoLoteResumen(string? reservaLotesJson)
+    {
+        if (string.IsNullOrWhiteSpace(reservaLotesJson))
+            return null;
+
+        try
+        {
+            var reservas = JsonSerializer.Deserialize<List<ReservaLoteItem>>(reservaLotesJson, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            if (reservas == null || reservas.Count == 0)
+                return null;
+
+            var lotes = reservas
+                .Where(r => !string.IsNullOrWhiteSpace(r.CodigoLote))
+                .Select(r => r.CodigoLote.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return lotes.Count == 0 ? null : string.Join(", ", lotes);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractLoteFromDescripcion(string? descripcion)
+    {
+        if (string.IsNullOrWhiteSpace(descripcion))
+            return null;
+
+        var marker = "(Lote:";
+        var start = descripcion.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+            return null;
+
+        start += marker.Length;
+        var end = descripcion.IndexOf(')', start);
+        if (end < 0)
+            end = descripcion.Length;
+
+        var lote = descripcion[start..end].Trim();
+        return string.IsNullOrWhiteSpace(lote) ? null : lote;
+    }
 }
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -1053,7 +1143,8 @@ public record PedidoLineaDto(
     int ProductoId, string ProductoNombre,
     decimal Cantidad, decimal PrecioUnitario, decimal Descuento,
     decimal IvaPorcentaje, decimal RecargoEquivalenciaPorcentaje,
-    decimal Subtotal, decimal IvaImporte, decimal RecargoEquivalenciaImporte);
+    decimal Subtotal, decimal IvaImporte, decimal RecargoEquivalenciaImporte,
+    string? CodigoLote = null);
 
 public class CrearPedidoRequest
 {

@@ -385,6 +385,7 @@ export interface PedidoResumen {
 export interface PedidoLinea {
   productoId: number
   productoNombre: string
+  codigoLote?: string | null
   cantidad: number
   precioUnitario: number
   descuento: number
