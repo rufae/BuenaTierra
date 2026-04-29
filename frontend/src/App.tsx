@@ -23,6 +23,7 @@ import SeriesFacturacion from './pages/SeriesFacturacion'
 import Etiquetas from './pages/Etiquetas'
 import BuenaTierrAI from './pages/BuenaTierrAI'
 import Correos from './pages/Correos'
+import Balance from './pages/Balance'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import ShortcutsModal from './components/ShortcutsModal'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -82,6 +83,7 @@ function AppRoutes() {
         <Route path="trazabilidad" element={<ErrorBoundary><Trazabilidad /></ErrorBoundary>} />
         <Route path="facturacion-rapida" element={<ErrorBoundary><FacturacionRapida /></ErrorBoundary>} />
         <Route path="reportes" element={<ErrorBoundary><Reportes /></ErrorBoundary>} />
+        <Route path="balance" element={<ErrorBoundary><Balance /></ErrorBoundary>} />
         <Route path="ingredientes" element={<RoleGuard allowed={['Admin', 'Obrador']}><ErrorBoundary><Ingredientes /></ErrorBoundary></RoleGuard>} />
         <Route path="usuarios" element={<RoleGuard allowed={['Admin']}><ErrorBoundary><Usuarios /></ErrorBoundary></RoleGuard>} />
         <Route path="ajustes" element={<RoleGuard allowed={['Admin', 'Obrador', 'Repartidor']}><ErrorBoundary><Ajustes /></ErrorBoundary></RoleGuard>} />

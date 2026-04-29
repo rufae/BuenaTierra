@@ -169,9 +169,9 @@ export default function Albaranes() {
   const pendientes = (albaranes ?? []).filter(a => a.estado === 'Pendiente').length
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="page-shell space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Albaranes</h1>
           <p className="text-sm text-gray-500 mt-0.5">Notas de entrega con asignación FIFO automática de lotes</p>
@@ -182,7 +182,7 @@ export default function Albaranes() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           { label: 'Total albaranes', value: (albaranes ?? []).length, fmt: false },
           { label: 'Pendientes de entrega', value: pendientes, fmt: false },
@@ -229,6 +229,7 @@ export default function Albaranes() {
           )}
           <span className="text-xs text-gray-400">{filteredAlbaranes.length} de {(albaranes ?? []).length}</span>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -345,11 +346,12 @@ export default function Albaranes() {
               ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Modal: Nuevo albarán */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-5">
@@ -379,7 +381,7 @@ export default function Albaranes() {
                   </div>
                   <div className="space-y-2">
                     {items.map((item, i) => (
-                      <div key={`${item.productoId || 'nuevo'}-${i}`} className="flex gap-2 items-center">
+                      <div key={`${item.productoId || 'nuevo'}-${i}`} className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
                         <select value={item.productoId} onChange={e => updateItem(i, 'productoId', +e.target.value)}
                           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                           <option value={0}>Seleccionar…</option>
@@ -413,7 +415,7 @@ export default function Albaranes() {
 
       {/* Modal: Instrucción de picking */}
       {pickingOpen !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-gray-100">
               <div className="flex items-center justify-between">
@@ -500,7 +502,7 @@ export default function Albaranes() {
 
       {/* Modal: Convertir a factura */}
       {showConvertir !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <h2 className="text-base font-bold text-gray-900 mb-4">Convertir albarán a factura</h2>
             <div className="space-y-4">

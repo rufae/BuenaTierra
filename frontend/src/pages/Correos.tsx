@@ -37,7 +37,8 @@ interface ComposeState {
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
-  return (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback
+  const resp = (error as { response?: { data?: { message?: string; errors?: string[] } } })?.response?.data
+  return resp?.message ?? resp?.errors?.[0] ?? fallback
 }
 
 const EMPTY_COMPOSE: ComposeState = {

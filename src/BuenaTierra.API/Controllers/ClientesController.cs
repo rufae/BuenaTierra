@@ -297,6 +297,9 @@ public class ClientesController : ControllerBase
     public async Task<ActionResult<ApiResponse<ClienteCondicionEspecial>>> AddCondicion(
         int id, [FromBody] UpsertCondicionEspecialDto dto, CancellationToken ct)
     {
+        if (dto.ArticuloFamilia == TipoArticuloFamilia.Familia)
+            return BadRequest(ApiResponse<ClienteCondicionEspecial>.Fail("No se admite alcance por familia/categoría. Use producto específico o '*' para todos los productos."));
+
         var condicion = new ClienteCondicionEspecial
         {
             ClienteId = id,
@@ -316,6 +319,9 @@ public class ClientesController : ControllerBase
     public async Task<ActionResult<ApiResponse<ClienteCondicionEspecial>>> UpdateCondicion(
         int id, int condicionId, [FromBody] UpsertCondicionEspecialDto dto, CancellationToken ct)
     {
+        if (dto.ArticuloFamilia == TipoArticuloFamilia.Familia)
+            return BadRequest(ApiResponse<ClienteCondicionEspecial>.Fail("No se admite alcance por familia/categoría. Use producto específico o '*' para todos los productos."));
+
         var condicion = await _db.ClienteCondicionesEspeciales
             .FirstOrDefaultAsync(c => c.Id == condicionId && c.ClienteId == id, ct)
             ?? throw new EntidadNotFoundException(nameof(ClienteCondicionEspecial), condicionId);

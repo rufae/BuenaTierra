@@ -5,7 +5,7 @@ import api from '../lib/api'
 import type {
   Cliente, ClienteCondicionEspecial, UpsertCondicionEspecialDto,
   TipoCliente, FormaPago, TipoImpuesto, EstadoCliente, EstadoSincronizacion,
-  TipoCondicionEspecial, TipoArticuloFamilia, Producto, Categoria,
+  TipoCondicionEspecial, Producto,
 } from '../types'
 import { Plus, Pencil, X, Loader2, Trash2, AlertCircle, Search, ChevronUp, ChevronDown, ChevronsUpDown, FilterX, History, Download, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -326,12 +326,6 @@ export default function Clientes() {
     queryFn: async () => (await api.get<{ data: Producto[] }>('/productos?soloActivos=true')).data.data,
   })
 
-  const { data: categoriasLista = [] } = useQuery({
-    queryKey: ['categorias-para-condiciones'],
-    enabled: !!editing?.id && tab === 'condiciones',
-    queryFn: async () => (await api.get<{ data: Categoria[] }>('/productos/categorias')).data.data,
-  })
-
   const { data: histFacturas = [] } = useQuery<{
     id: number; numeroFactura: string; fechaFactura: string;
     fechaVencimiento: string | null; estado: string; total: number; esSimplificada: boolean
@@ -518,7 +512,7 @@ export default function Clientes() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-5">
+    <div className="page-shell space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1001,11 +995,11 @@ export default function Clientes() {
             {tab === 'condiciones' && (
               /* ── CONDICIONES ESPECIALES TAB ── */
               <div className="px-6 py-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500">Descuentos o precios especiales que se aplicarán automáticamente en facturas, albaranes y pedidos.</p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-gray-500 max-w-2xl">Descuentos y precios especiales que se aplicarán automáticamente en pedidos, albaranes y facturas nuevas. Precedencia: precio manual línea &gt; condición especial &gt; precio base. Descuento manual línea &gt; condición especial &gt; descuento general cliente &gt; descuento por defecto del producto.</p>
                   <button
                     onClick={() => { setCondicionForm({ ...EMPTY_CONDICION }); setEditingCondicion(null); setShowCondicionForm(true) }}
-                    className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
+                    className="flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold px-3 py-2 rounded-lg w-full sm:w-auto"
                   >
                     <Plus className="w-3.5 h-3.5" />Añadir condición
                   </button>
@@ -1013,7 +1007,7 @@ export default function Clientes() {
 
                 {showCondicionForm && (
                   <form onSubmit={handleCondicionSubmit} className="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-200">
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                       {/* Tipo condición */}
                       <Select label="Tipo de condición" value={condicionForm.tipo} onChange={v => {
                         setCondicionForm(p => ({
@@ -1023,58 +1017,45 @@ export default function Clientes() {
                         }))
                       }} options={TIPO_CONDICION} />
 
-                      {/* Alcance: Artículo individual o Todos */}
+                      {/* Alcance: Producto individual o todos */}
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">Aplicar a</label>
                         <select
-                          value={condicionForm.codigo === '*' ? 'Todos' : condicionForm.articuloFamilia}
+                          value={condicionForm.codigo === '*' ? 'Todos' : 'Articulo'}
                           onChange={e => {
                             const val = e.target.value
                             if (val === 'Todos') {
                               setCondicionForm(p => ({ ...p, articuloFamilia: 'Articulo', codigo: '*', descripcion: 'Todos los productos' }))
                             } else {
-                              setCondicionForm(p => ({ ...p, articuloFamilia: val as TipoArticuloFamilia, codigo: '', descripcion: '' }))
+                              setCondicionForm(p => ({ ...p, articuloFamilia: 'Articulo', codigo: '', descripcion: '' }))
                             }
                           }}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                         >
                           <option value="Todos">Todos los productos</option>
                           <option value="Articulo">Producto específico</option>
-                          <option value="Familia">Categoría / Familia</option>
                         </select>
                       </div>
 
-                      {/* Selector de producto / categoría */}
+                      {/* Selector de producto */}
                       {condicionForm.codigo !== '*' && (
                         <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            {condicionForm.articuloFamilia === 'Articulo' ? 'Producto' : 'Categoría'} *
-                          </label>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Producto *</label>
                           <select
                             value={condicionForm.codigo}
                             onChange={e => {
                               const code = e.target.value
-                              if (condicionForm.articuloFamilia === 'Articulo') {
-                                const prod = productosLista.find(p => String(p.id) === code)
-                                setCondicionForm(p => ({ ...p, codigo: code, descripcion: prod?.nombre ?? '' }))
-                              } else {
-                                const cat = categoriasLista.find(c => String(c.id) === code)
-                                setCondicionForm(p => ({ ...p, codigo: code, descripcion: cat?.nombre ?? '' }))
-                              }
+                              const prod = productosLista.find(p => String(p.id) === code)
+                              setCondicionForm(p => ({ ...p, codigo: code, descripcion: prod?.nombre ?? '' }))
                             }}
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 max-h-60"
                           >
                             <option value="">— Seleccionar —</option>
-                            {condicionForm.articuloFamilia === 'Articulo'
-                              ? productosLista.map(p => (
-                                <option key={p.id} value={String(p.id)}>
-                                  {p.nombre}{p.codigo ? ` (${p.codigo})` : ''} — {p.precioVenta.toFixed(2)} €
-                                </option>
-                              ))
-                              : categoriasLista.map(c => (
-                                <option key={c.id} value={String(c.id)}>{c.nombre}</option>
-                              ))
-                            }
+                            {productosLista.map(p => (
+                              <option key={p.id} value={String(p.id)}>
+                                {p.nombre}{p.codigo ? ` (${p.codigo})` : ''} — {p.precioVenta.toFixed(2)} €
+                              </option>
+                            ))}
                           </select>
                         </div>
                       )}
@@ -1117,11 +1098,12 @@ export default function Clientes() {
                   </form>
                 )}
 
-                <table className="w-full text-sm">
-                  <thead>
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead className="sticky top-0 z-10">
                     <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
                       <th className="px-3 py-2 text-left">Aplica a</th>
-                      <th className="px-3 py-2 text-left">Producto / Categoría</th>
+                      <th className="px-3 py-2 text-left">Producto</th>
                       <th className="px-3 py-2 text-left">Tipo</th>
                       <th className="px-3 py-2 text-right">Precio</th>
                       <th className="px-3 py-2 text-right">Dto%</th>
@@ -1137,7 +1119,7 @@ export default function Clientes() {
                           {c.codigo === '*' ? (
                             <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">Todos</span>
                           ) : (
-                            <span className="text-xs">{c.articuloFamilia === 'Articulo' ? 'Producto' : 'Categoría'}</span>
+                            <span className="text-xs">Producto</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-gray-700 font-medium">{c.codigo === '*' ? 'Todos los productos' : c.descripcion || c.codigo}</td>
@@ -1162,6 +1144,7 @@ export default function Clientes() {
                     ))}
                   </tbody>
                 </table>
+                </div>
 
                 <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
                   <button type="button" onClick={closeForm} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg transition-colors">

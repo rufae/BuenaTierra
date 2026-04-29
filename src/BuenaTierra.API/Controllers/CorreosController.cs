@@ -248,6 +248,7 @@ public class CorreosController : ControllerBase
             try
             {
                 using var client = new ImapClient();
+                client.Timeout = 30000;
                 var primaryOpts = imapCfg.UseSsl
                     ? MailKit.Security.SecureSocketOptions.SslOnConnect
                     : MailKit.Security.SecureSocketOptions.StartTlsWhenAvailable;
@@ -255,34 +256,40 @@ public class CorreosController : ControllerBase
                     ? MailKit.Security.SecureSocketOptions.StartTlsWhenAvailable
                     : MailKit.Security.SecureSocketOptions.SslOnConnect;
 
-                // Timeout de 10 segundos para evitar cuelgues indefinidos
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(10));
-
                 try
                 {
-                    await client.ConnectAsync(imapCfg.Host, imapCfg.Port, primaryOpts, cts.Token);
-                    await client.AuthenticateAsync(imapCfg.User, imapCfg.Password, cts.Token);
+                    using var authCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    authCts.CancelAfter(TimeSpan.FromSeconds(30));
+                    await client.ConnectAsync(imapCfg.Host, imapCfg.Port, primaryOpts, authCts.Token);
+                    await client.AuthenticateAsync(imapCfg.User, imapCfg.Password, authCts.Token);
                 }
                 catch
                 {
                     if (client.IsConnected)
-                        await client.DisconnectAsync(true, cts.Token);
+                    {
+                        using var disconnectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        disconnectCts.CancelAfter(TimeSpan.FromSeconds(10));
+                        await client.DisconnectAsync(true, disconnectCts.Token);
+                    }
 
-                    await client.ConnectAsync(imapCfg.Host, imapCfg.Port, fallbackOpts, cts.Token);
-                    await client.AuthenticateAsync(imapCfg.User, imapCfg.Password, cts.Token);
+                    using var fallbackAuthCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    fallbackAuthCts.CancelAfter(TimeSpan.FromSeconds(30));
+                    await client.ConnectAsync(imapCfg.Host, imapCfg.Port, fallbackOpts, fallbackAuthCts.Token);
+                    await client.AuthenticateAsync(imapCfg.User, imapCfg.Password, fallbackAuthCts.Token);
                 }
 
                 var inbox = client.Inbox;
-                await inbox.OpenAsync(FolderAccess.ReadOnly, cts.Token);
+                using var inboxCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                inboxCts.CancelAfter(TimeSpan.FromSeconds(30));
+                await inbox.OpenAsync(FolderAccess.ReadOnly, inboxCts.Token);
 
                 var knownUids = await _ctx.CorreosMensajes
                     .Where(c => c.EmpresaId == EmpresaId && c.UsuarioId == UsuarioId
                              && c.Folder == "Inbox" && c.UidImap != null)
                     .Select(c => c.UidImap!.Value)
-                    .ToHashSetAsync(cts.Token);
+                    .ToHashSetAsync(inboxCts.Token);
 
-                var uids = await inbox.SearchAsync(SearchQuery.All, cts.Token);
+                var uids = await inbox.SearchAsync(SearchQuery.All, inboxCts.Token);
                 var toFetch = uids.Skip(Math.Max(0, uids.Count - 100)).ToList();
 
                 foreach (var uid in toFetch)
@@ -290,7 +297,9 @@ public class CorreosController : ControllerBase
                     if (knownUids.Contains(uid.Id)) continue;
                     try
                     {
-                        var message = await inbox.GetMessageAsync(uid, cts.Token);
+                        using var messageCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        messageCts.CancelAfter(TimeSpan.FromSeconds(20));
+                        var message = await inbox.GetMessageAsync(uid, messageCts.Token);
                         var de = message.From.OfType<MailboxAddress>().FirstOrDefault()?.Address ?? "";
                         var para = string.Join("; ", message.To.OfType<MailboxAddress>().Select(a => a.Address));
                         var cuerpo = message.HtmlBody ?? message.TextBody ?? "";
@@ -333,10 +342,19 @@ public class CorreosController : ControllerBase
                     catch { errores++; }
                 }
                 await _ctx.SaveChangesAsync(ct);
-                await client.DisconnectAsync(true, cts.Token);
+                using var finalDisconnectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                finalDisconnectCts.CancelAfter(TimeSpan.FromSeconds(10));
+                await client.DisconnectAsync(true, finalDisconnectCts.Token);
+            }
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Timeout IMAP al sincronizar. host={Host} port={Port} user={User}", imapCfg.Host, imapCfg.Port, imapCfg.User);
+                return BadRequest(ApiResponse<SincronizarResultDto>.Fail(
+                    $"Error IMAP ({imapCfg.Host}:{imapCfg.Port}, usuario {imapCfg.User}): tiempo de espera agotado al conectar o leer la bandeja. Revisa host/puerto, SSL/TLS y conectividad de red."));
             }
             catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Error IMAP al sincronizar. host={Host} port={Port} user={User}", imapCfg.Host, imapCfg.Port, imapCfg.User);
                 var hint = string.Empty;
                 if (ex.Message.Contains("AUTH", StringComparison.OrdinalIgnoreCase)
                     || ex.Message.Contains("LOGIN", StringComparison.OrdinalIgnoreCase)

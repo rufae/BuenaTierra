@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { Fragment, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -588,9 +588,8 @@ export default function Reportes() {
                     {stockQ.data.items.map(p => {
                       const isExpanded = expandedStockRows.has(p.productoId)
                       return (
-                        <>
+                        <Fragment key={p.productoId}>
                           <tr
-                            key={p.productoId}
                             onClick={() => toggleStockRow(p.productoId)}
                             className={`cursor-pointer select-none hover:bg-amber-50/60 transition-colors ${p.conAlertas ? 'bg-red-50/40' : ''}`}
                           >
@@ -653,7 +652,7 @@ export default function Reportes() {
                               </td>
                             </tr>
                           ))}
-                        </>
+                        </Fragment>
                       )
                     })}
                     {stockQ.data.items.length === 0 && (

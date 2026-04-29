@@ -4,6 +4,7 @@ using BuenaTierra.Domain.Entities;
 using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
+using BuenaTierra.Domain.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -153,24 +154,14 @@ public class AlbaranesController : ControllerBase
             short orden = 0;
             foreach (var (item, producto, lotes) in lineasConLotes)
             {
-                var condicion = ResolveCondicionEspecial(cliente, producto);
-
-                decimal precio = item.PrecioUnitario
-                    ?? (condicion?.Tipo is TipoCondicionEspecial.Precio or TipoCondicionEspecial.PrecioEspecial
-                        ? condicion.Precio
-                        : producto.PrecioVenta);
+                var pricing = ComercialPricingPolicy.Resolve(cliente, producto, item.PrecioUnitario, item.Descuento);
+                decimal precio = pricing.PrecioUnitario;
 
                 decimal ivaPorc = GetIvaPorcentaje(cliente, producto);
                 decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m;
 
                 // Precedencia comercial: línea > condición especial > descuento cliente > descuento producto.
-                decimal descuentoEfectivo = item.Descuento > 0
-                    ? item.Descuento
-                    : condicion?.Tipo == TipoCondicionEspecial.Descuento
-                        ? condicion.Descuento
-                        : cliente.DescuentoGeneral > 0
-                            ? cliente.DescuentoGeneral
-                            : (producto.DescuentoPorDefecto ?? 0m);
+                decimal descuentoEfectivo = pricing.Descuento;
 
                 foreach (var lote in lotes)
                 {
@@ -851,54 +842,6 @@ public class AlbaranesController : ControllerBase
             return 0m;
 
         return ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
-    }
-
-    private static ClienteCondicionEspecial? ResolveCondicionEspecial(Cliente cliente, Producto producto)
-    {
-        if (cliente.CondicionesEspeciales == null || cliente.CondicionesEspeciales.Count == 0)
-            return null;
-
-        string[] clavesProducto =
-        [
-            producto.Codigo?.Trim().ToUpperInvariant() ?? string.Empty,
-            producto.Referencia?.Trim().ToUpperInvariant() ?? string.Empty,
-            producto.Id.ToString()
-        ];
-
-        string categoriaId = producto.CategoriaId?.ToString() ?? string.Empty;
-
-        bool EsGlobal(string? codigo)
-            => string.IsNullOrWhiteSpace(codigo)
-            || codigo.Trim() == "*"
-            || codigo.Trim().Equals("TODOS", StringComparison.OrdinalIgnoreCase)
-            || codigo.Trim().Equals("ALL", StringComparison.OrdinalIgnoreCase);
-
-        bool MatchCodigoProducto(string? codigo)
-        {
-            if (EsGlobal(codigo)) return true;
-            var key = codigo!.Trim().ToUpperInvariant();
-            return clavesProducto.Any(c => !string.IsNullOrEmpty(c) && c == key);
-        }
-
-        bool MatchFamilia(string? codigo)
-        {
-            if (EsGlobal(codigo)) return true;
-            var key = codigo!.Trim();
-            return !string.IsNullOrEmpty(categoriaId)
-                && string.Equals(categoriaId, key, StringComparison.OrdinalIgnoreCase);
-        }
-
-        var exactaArticulo = cliente.CondicionesEspeciales
-            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Articulo)
-            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchCodigoProducto(c.Codigo));
-        if (exactaArticulo != null) return exactaArticulo;
-
-        var exactaFamilia = cliente.CondicionesEspeciales
-            .Where(c => c.ArticuloFamilia == TipoArticuloFamilia.Familia)
-            .FirstOrDefault(c => !EsGlobal(c.Codigo) && MatchFamilia(c.Codigo));
-        if (exactaFamilia != null) return exactaFamilia;
-
-        return cliente.CondicionesEspeciales.FirstOrDefault(c => EsGlobal(c.Codigo));
     }
 
     private static AlbaranDetalle MapToDetalle(Albaran a) => new(
