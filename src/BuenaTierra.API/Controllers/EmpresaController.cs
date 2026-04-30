@@ -24,6 +24,22 @@ public class EmpresaController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════
+    // GET /api/empresa/lista — Listado público para selector de login (sin auth)
+    // ═══════════════════════════════════════════════════════
+
+    [HttpGet("lista")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ListarParaLogin(CancellationToken ct)
+    {
+        var empresas = await _uow.Empresas.FindAsync(e => e.Activa, ct);
+        var resultado = empresas
+            .OrderBy(e => e.Nombre)
+            .Select(e => new { e.Id, e.Nombre })
+            .ToList();
+        return Ok(ApiResponse<object>.Ok(resultado));
+    }
+
+    // ═══════════════════════════════════════════════════════
     // GET /api/empresa — Datos de la empresa del usuario actual
     // ═══════════════════════════════════════════════════════
 

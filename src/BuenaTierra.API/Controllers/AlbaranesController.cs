@@ -74,7 +74,7 @@ public class AlbaranesController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ApiResponse<AlbaranDetalle>>> Get(int id, CancellationToken ct)
     {
-        var albaran = await _uow.Albaranes.GetConLineasAsync(id, ct);
+        var albaran = await _uow.Albaranes.GetConLineasAsync(EmpresaId, id, ct);
         if (albaran == null || albaran.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<AlbaranDetalle>.Fail("Albarán no encontrado"));
 
@@ -212,7 +212,7 @@ public class AlbaranesController : ControllerBase
     public async Task<ActionResult<ApiResponse<FacturaCreada>>> ConvertirAFactura(
         int id, [FromBody] ConvertirAlbaranRequest request, CancellationToken ct)
     {
-        var albaran = await _uow.Albaranes.GetConLineasAsync(id, ct);
+        var albaran = await _uow.Albaranes.GetConLineasAsync(EmpresaId, id, ct);
         if (albaran == null || albaran.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<FacturaCreada>.Fail("Albarán no encontrado"));
 
@@ -400,7 +400,7 @@ public class AlbaranesController : ControllerBase
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<string>>> Cancelar(int id, CancellationToken ct)
     {
-        var albaran = await _uow.Albaranes.GetConLineasAsync(id, ct);
+        var albaran = await _uow.Albaranes.GetConLineasAsync(EmpresaId, id, ct);
         if (albaran == null || albaran.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Albarán no encontrado"));
         if (albaran.Estado == EstadoAlbaran.Facturado)
@@ -469,7 +469,7 @@ public class AlbaranesController : ControllerBase
     {
         QuestPDF.Settings.License = LicenseType.Community;
 
-        var albaran = await _uow.Albaranes.GetConLineasAsync(id, ct);
+        var albaran = await _uow.Albaranes.GetConLineasAsync(EmpresaId, id, ct);
         if (albaran == null || albaran.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Albarán no encontrado"));
 
@@ -668,7 +668,7 @@ public class AlbaranesController : ControllerBase
     {
         ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
 
-        var albaran = await _uow.Albaranes.GetConLineasAsync(id, ct);
+        var albaran = await _uow.Albaranes.GetConLineasAsync(EmpresaId, id, ct);
         if (albaran == null || albaran.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Albarán no encontrado"));
 

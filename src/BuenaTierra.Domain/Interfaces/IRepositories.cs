@@ -27,7 +27,7 @@ public interface IProductoRepository : IRepository<Producto>
     Task<IEnumerable<Producto>> GetByEmpresaAsync(int empresaId, bool soloActivos = true, CancellationToken ct = default);
     Task<Producto?> GetByCodigoAsync(int empresaId, string codigo, CancellationToken ct = default);
     Task<IEnumerable<Producto>> SearchAsync(int empresaId, string termino, CancellationToken ct = default);
-    Task<Producto?> GetConIngredientesYAlergenosAsync(int id, CancellationToken ct = default);
+    Task<Producto?> GetConIngredientesYAlergenosAsync(int empresaId, int id, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -67,7 +67,7 @@ public interface IStockRepository : IRepository<Stock>
 /// </summary>
 public interface IFacturaRepository : IRepository<Factura>
 {
-    Task<Factura?> GetConLineasAsync(int id, CancellationToken ct = default);
+    Task<Factura?> GetConLineasAsync(int empresaId, int id, CancellationToken ct = default);
     Task<IEnumerable<Factura>> GetByEmpresaAsync(int empresaId, DateOnly? desde = null, DateOnly? hasta = null, CancellationToken ct = default);
     Task<IEnumerable<Factura>> GetByClienteAsync(int clienteId, CancellationToken ct = default);
     Task<bool> ExisteNumeroAsync(int empresaId, string numero, CancellationToken ct = default);
@@ -78,7 +78,7 @@ public interface IFacturaRepository : IRepository<Factura>
 /// </summary>
 public interface IAlbaranRepository : IRepository<Albaran>
 {
-    Task<Albaran?> GetConLineasAsync(int id, CancellationToken ct = default);
+    Task<Albaran?> GetConLineasAsync(int empresaId, int id, CancellationToken ct = default);
     Task<IEnumerable<Albaran>> GetByEmpresaAsync(int empresaId, DateOnly? desde = null, DateOnly? hasta = null, CancellationToken ct = default);
 }
 
@@ -87,7 +87,7 @@ public interface IAlbaranRepository : IRepository<Albaran>
 /// </summary>
 public interface IPedidoRepository : IRepository<Pedido>
 {
-    Task<Pedido?> GetConLineasAsync(int id, CancellationToken ct = default);
+    Task<Pedido?> GetConLineasAsync(int empresaId, int id, CancellationToken ct = default);
     Task<IEnumerable<Pedido>> GetByEmpresaAsync(int empresaId, CancellationToken ct = default);
 }
 
