@@ -2,6 +2,7 @@ using BuenaTierra.Application.Common;
 using BuenaTierra.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -236,6 +237,86 @@ public class EmpresaController : ControllerBase
         };
 
         return PhysicalFile(filePath, contentType);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // GET /api/empresa/{id}/relaciones — Contar relaciones antes de borrar (Admin)
+    // ═══════════════════════════════════════════════════════
+
+    [HttpGet("{id:int}/relaciones")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> ContarRelaciones(int id, CancellationToken ct)
+    {
+        var empresa = await _uow.Empresas.GetByIdAsync(id, ct);
+        if (empresa is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
+
+        var relaciones = new Dictionary<string, int>
+        {
+            ["clientes"]          = await _uow.Clientes.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+            ["productos"]         = await _uow.Productos.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+            ["pedidos"]           = await _uow.Pedidos.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+            ["facturas"]          = await _uow.Facturas.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+            ["albaranes"]         = await _uow.Albaranes.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+            ["lotes"]             = await _uow.Lotes.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+            ["stock"]             = await _uow.Stock.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+            ["series_facturacion"]= await _uow.SeriesFacturacion.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+            ["usuarios"]          = await _uow.Usuarios.GetQueryable().CountAsync(x => x.EmpresaId == id, ct),
+        };
+
+        int total = relaciones.Values.Sum();
+        bool puedeEliminar = total == 0;
+
+        return Ok(ApiResponse<object>.Ok(new
+        {
+            empresaId = id,
+            nombre    = empresa.Nombre,
+            puedeEliminar,
+            totalRelaciones = total,
+            detalle = relaciones,
+            mensaje = puedeEliminar
+                ? "La empresa no tiene datos relacionados y puede eliminarse de forma segura."
+                : $"La empresa tiene {total} registros relacionados. No se puede eliminar hasta que se vacíen o reasignen.",
+        }));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // DELETE /api/empresa/{id} — Borrado seguro con pre-check (Admin)
+    // ═══════════════════════════════════════════════════════
+
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> Eliminar(int id, CancellationToken ct)
+    {
+        // No se puede eliminar la empresa propia del usuario autenticado
+        if (id == EmpresaId)
+            return UnprocessableEntity(ApiResponse<string>.Fail(
+                "No puedes eliminar la empresa en la que estás autenticado."));
+
+        var empresa = await _uow.Empresas.GetByIdAsync(id, ct);
+        if (empresa is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
+
+        // Pre-check de relaciones — bloqueo si hay datos asociados
+        var tieneRelaciones =
+            await _uow.Clientes.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct) ||
+            await _uow.Productos.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct) ||
+            await _uow.Pedidos.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct) ||
+            await _uow.Facturas.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct) ||
+            await _uow.Albaranes.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct) ||
+            await _uow.Lotes.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct) ||
+            await _uow.Stock.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct) ||
+            await _uow.SeriesFacturacion.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct) ||
+            await _uow.Usuarios.GetQueryable().AnyAsync(x => x.EmpresaId == id, ct);
+
+        if (tieneRelaciones)
+            return UnprocessableEntity(ApiResponse<string>.Fail(
+                $"La empresa '{empresa.Nombre}' tiene datos asociados y no puede eliminarse. " +
+                "Consulte GET /api/empresa/{id}/relaciones para ver el detalle."));
+
+        await _uow.Empresas.DeleteAsync(empresa, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<string>.Ok("OK",
+            $"Empresa '{empresa.Nombre}' eliminada correctamente."));
     }
 }
 
