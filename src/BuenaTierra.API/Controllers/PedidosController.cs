@@ -256,6 +256,7 @@ public class PedidosController : ControllerBase
 
         short orden = 0;
         decimal subtotal = 0m;
+        decimal descuentoTotal = 0m;
         decimal ivaTotal = 0m;
         decimal recargoTotal = 0m;
 
@@ -285,6 +286,7 @@ public class PedidosController : ControllerBase
             decimal ivaPorc = GetIvaPorcentaje(cliente, producto);
             decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m;
 
+            decimal linBruto = Math.Round(item.Cantidad * precio, 2, MidpointRounding.AwayFromZero);
             decimal linSubtotal = Math.Round(item.Cantidad * precio * (1 - descuento / 100), 2, MidpointRounding.AwayFromZero);
             decimal linIva = Math.Round(linSubtotal * ivaPorc / 100, 2, MidpointRounding.AwayFromZero);
             decimal linRe = Math.Round(linSubtotal * rePorc / 100, 2, MidpointRounding.AwayFromZero);
@@ -302,6 +304,7 @@ public class PedidosController : ControllerBase
             });
 
             subtotal += linSubtotal;
+            descuentoTotal += linBruto - linSubtotal;
             ivaTotal += linIva;
             recargoTotal += linRe;
         }
@@ -312,6 +315,7 @@ public class PedidosController : ControllerBase
         decimal retencionTotal = Math.Round(subtotal * retencionPorc / 100, 2, MidpointRounding.AwayFromZero);
 
         pedido.Subtotal                  = subtotal;
+        pedido.DescuentoTotal            = descuentoTotal;
         pedido.IvaTotal                  = ivaTotal;
         pedido.RecargoEquivalenciaTotal  = recargoTotal;
         pedido.RetencionTotal            = retencionTotal;
@@ -862,6 +866,8 @@ public class PedidosController : ControllerBase
 
                     col.Item().PaddingTop(12).AlignRight().Table(totales =>
                     {
+                        decimal baseBruta = pedido.Subtotal + pedido.DescuentoTotal;
+
                         totales.ColumnsDefinition(c =>
                         {
                             c.ConstantColumn(130);
@@ -872,6 +878,15 @@ public class PedidosController : ControllerBase
                         IContainer TotalValue(IContainer c) => c.Background("#FFFFFF").Padding(4).AlignRight().BorderLeft(0.5f, Unit.Point).BorderColor("#DDDDDD");
                         IContainer TotalLabelBold(IContainer c) => c.Background("#27AE60").Padding(4).AlignRight();
                         IContainer TotalValueBold(IContainer c) => c.Background("#27AE60").Padding(4).AlignRight();
+
+                        if (pedido.DescuentoTotal > 0)
+                        {
+                            totales.Cell().Element(TotalLabel).Text("Base bruta:").FontSize(9);
+                            totales.Cell().Element(TotalValue).Text($"{baseBruta:N2} €").FontSize(9);
+
+                            totales.Cell().Element(TotalLabel).Text("Descuento (-):").FontSize(9);
+                            totales.Cell().Element(TotalValue).Text($"-{pedido.DescuentoTotal:N2} €").FontSize(9).FontColor("#1E8449");
+                        }
 
                         totales.Cell().Element(TotalLabel).Text("Base Imponible:").FontSize(9);
                         totales.Cell().Element(TotalValue).Text($"{pedido.Subtotal:N2} €").FontSize(9);
@@ -1054,7 +1069,7 @@ public class PedidosController : ControllerBase
         p.FechaEntrega?.ToString("yyyy-MM-dd"),
         p.Estado.ToString(),
         new ClienteResumen(p.Cliente?.Id ?? 0, p.Cliente?.NombreCompleto ?? "", p.Cliente?.Nif),
-        p.Subtotal, p.IvaTotal, p.RecargoEquivalenciaTotal, p.RetencionTotal, p.Total, p.Notas,
+        p.Subtotal, p.DescuentoTotal, p.IvaTotal, p.RecargoEquivalenciaTotal, p.RetencionTotal, p.Total, p.Notas,
         p.Lineas.OrderBy(l => l.Orden).Select(l => new PedidoLineaDto(
             l.ProductoId,
             l.Producto?.Nombre ?? l.Descripcion ?? "",
@@ -1134,7 +1149,7 @@ public record PedidoCreado(int Id, string NumeroPedido, decimal Total);
 public record PedidoDetalle(
     int Id, string NumeroPedido, string Fecha, string? FechaEntrega, string Estado,
     ClienteResumen Cliente,
-    decimal Subtotal, decimal IvaTotal, decimal RecargoEquivalenciaTotal,
+    decimal Subtotal, decimal DescuentoTotal, decimal IvaTotal, decimal RecargoEquivalenciaTotal,
     decimal RetencionTotal, decimal Total,
     string? Notas, List<PedidoLineaDto> Lineas,
     bool NoRealizarFacturas = false);
