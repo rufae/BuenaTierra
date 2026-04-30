@@ -18,6 +18,11 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 1000,
   },
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+  },
   server: {
     port: 5173,
     strictPort: false, // Permite fallback a 5174, 5175... si puerto ocupado
