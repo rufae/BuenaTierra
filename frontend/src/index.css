@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── CSS Custom Properties — tema dinámico por empresa ─────────────
+   Valores por defecto: paleta BuenaTierra (terracota + trigo).
+   useTheme() los sobreescribe en tiempo real según la empresa activa.
+   ──────────────────────────────────────────────────────────────────── */
+:root {
+  --brand-primary:         #c4541a;
+  --brand-primary-dark:    #a84115;
+  --brand-primary-darker:  #8b3213;
+  --brand-primary-pale:    #fdf5ed;
+  --brand-primary-light:   #fae6cc;
+  --brand-secondary:       #e0b355;
+  --brand-secondary-dark:  #c49340;
+}
+
 /* ─── Base reset & tipografía global ───────────────────────────────── */
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
@@ -181,5 +195,66 @@
     max-height: calc(100dvh - 1.5rem) !important;
     border-radius: 1rem !important;
   }
+}
+
+/* ─── Overrides de tema dinámico ───────────────────────────────────────
+   Estos bloques sobreescriben las clases Tailwind estáticas de marca
+   usando las CSS custom properties definidas en :root.
+   Se actualizan automáticamente cuando useTheme() cambia las variables.
+   ──────────────────────────────────────────────────────────────────── */
+
+/* Botón primario */
+.btn-primary {
+  background-color: var(--brand-primary) !important;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--brand-primary-dark) !important;
+}
+.btn-primary:active:not(:disabled) {
+  background-color: var(--brand-primary-darker) !important;
+}
+
+/* Gradiente de cabecera */
+.bg-brand-gradient {
+  background: linear-gradient(
+    135deg,
+    var(--brand-primary-darker) 0%,
+    var(--brand-primary)        50%,
+    var(--brand-primary-dark)   100%
+  ) !important;
+}
+
+/* Sidebar */
+.sidebar-bg {
+  background: linear-gradient(180deg, var(--brand-primary-pale) 0%, #fdf5ed 100%) !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar-thumb {
+  background-color: var(--brand-primary-light) !important;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--brand-primary) !important;
+}
+
+/* Tab activa en Ajustes / navegación */
+.tab-brand-active {
+  background-color: var(--brand-primary-pale) !important;
+  color:            var(--brand-primary-dark) !important;
+  border-bottom-color: var(--brand-primary) !important;
+}
+
+/* Badge de marca */
+.badge-brand {
+  background-color: var(--brand-primary-pale) !important;
+  color:            var(--brand-primary-dark) !important;
+  border-color:     var(--brand-primary-light) !important;
+}
+
+/* Checkbox y radio con color de marca */
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  background-color: var(--brand-primary) !important;
+  border-color:     var(--brand-primary) !important;
 }
 
