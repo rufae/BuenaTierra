@@ -26,13 +26,13 @@ public class ProductoRepository : Repository<Producto>, IProductoRepository
              (p.Codigo != null && EF.Functions.ILike(p.Codigo, $"%{termino}%"))))
             .OrderBy(p => p.Nombre).Take(50).ToListAsync(ct);
 
-    public async Task<Producto?> GetConIngredientesYAlergenosAsync(int id, CancellationToken ct = default)
+    public async Task<Producto?> GetConIngredientesYAlergenosAsync(int empresaId, int id, CancellationToken ct = default)
         => await _set
             .Include(p => p.ProductoIngredientes)
                 .ThenInclude(pi => pi.Ingrediente)
                     .ThenInclude(i => i.IngredienteAlergenos)
                         .ThenInclude(ia => ia.Alergeno)
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
+            .FirstOrDefaultAsync(p => p.Id == id && p.EmpresaId == empresaId, ct);
 }
 
 public class ClienteRepository : Repository<Cliente>, IClienteRepository
@@ -142,13 +142,13 @@ public class FacturaRepository : Repository<Factura>, IFacturaRepository
 {
     public FacturaRepository(AppDbContext ctx) : base(ctx) { }
 
-    public async Task<Factura?> GetConLineasAsync(int id, CancellationToken ct = default)
+    public async Task<Factura?> GetConLineasAsync(int empresaId, int id, CancellationToken ct = default)
         => await _set
             .Include(f => f.Lineas).ThenInclude(l => l.Producto)
             .Include(f => f.Lineas).ThenInclude(l => l.Lote)
             .Include(f => f.Cliente)
             .Include(f => f.Serie)
-            .FirstOrDefaultAsync(f => f.Id == id, ct);
+            .FirstOrDefaultAsync(f => f.Id == id && f.EmpresaId == empresaId, ct);
 
     public async Task<IEnumerable<Factura>> GetByEmpresaAsync(int empresaId, DateOnly? desde = null, DateOnly? hasta = null, CancellationToken ct = default)
     {
@@ -243,12 +243,12 @@ public class AlbaranRepository : Repository<Albaran>, IAlbaranRepository
 {
     public AlbaranRepository(AppDbContext ctx) : base(ctx) { }
 
-    public async Task<Albaran?> GetConLineasAsync(int id, CancellationToken ct = default)
+    public async Task<Albaran?> GetConLineasAsync(int empresaId, int id, CancellationToken ct = default)
         => await _set
             .Include(a => a.Lineas).ThenInclude(l => l.Producto)
             .Include(a => a.Lineas).ThenInclude(l => l.Lote)
             .Include(a => a.Cliente)
-            .FirstOrDefaultAsync(a => a.Id == id, ct);
+            .FirstOrDefaultAsync(a => a.Id == id && a.EmpresaId == empresaId, ct);
 
     public async Task<IEnumerable<Albaran>> GetByEmpresaAsync(int empresaId, DateOnly? desde = null, DateOnly? hasta = null, CancellationToken ct = default)
     {
@@ -263,11 +263,11 @@ public class PedidoRepository : Repository<Pedido>, IPedidoRepository
 {
     public PedidoRepository(AppDbContext ctx) : base(ctx) { }
 
-    public async Task<Pedido?> GetConLineasAsync(int id, CancellationToken ct = default)
+    public async Task<Pedido?> GetConLineasAsync(int empresaId, int id, CancellationToken ct = default)
         => await _set
             .Include(p => p.Lineas).ThenInclude(l => l.Producto)
             .Include(p => p.Cliente)
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
+            .FirstOrDefaultAsync(p => p.Id == id && p.EmpresaId == empresaId, ct);
 
     public async Task<IEnumerable<Pedido>> GetByEmpresaAsync(int empresaId, CancellationToken ct = default)
         => await _set.Where(p => p.EmpresaId == empresaId)

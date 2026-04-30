@@ -223,7 +223,7 @@ public class PedidosController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ApiResponse<PedidoDetalle>>> Get(int id, CancellationToken ct)
     {
-        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<PedidoDetalle>.Fail("Pedido no encontrado"));
 
@@ -357,7 +357,7 @@ public class PedidosController : ControllerBase
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<string>>> Confirmar(int id, CancellationToken ct)
     {
-        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
         if (pedido.Estado != EstadoPedido.Pendiente)
@@ -459,7 +459,7 @@ public class PedidosController : ControllerBase
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<string>>> Cancelar(int id, CancellationToken ct)
     {
-        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
         if (pedido.Estado == EstadoPedido.Cancelado)
@@ -597,7 +597,7 @@ public class PedidosController : ControllerBase
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<AlbaranCreado>>> CrearAlbaran(int id, CancellationToken ct)
     {
-        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<AlbaranCreado>.Fail("Pedido no encontrado"));
 
@@ -704,7 +704,7 @@ public class PedidosController : ControllerBase
     public async Task<ActionResult<ApiResponse<FacturaCreada>>> CrearFactura(
         int id, [FromBody] CrearFacturaDesdePedidoRequest request, CancellationToken ct)
     {
-        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<FacturaCreada>.Fail("Pedido no encontrado"));
 
@@ -754,7 +754,7 @@ public class PedidosController : ControllerBase
     {
         QuestPDF.Settings.License = LicenseType.Community;
 
-        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
 
@@ -952,7 +952,7 @@ public class PedidosController : ControllerBase
     [Authorize(Policy = "ObradorOrAdmin")]
     public async Task<ActionResult<ApiResponse<string>>> Eliminar(int id, CancellationToken ct)
     {
-        var pedido = await _uow.Pedidos.GetConLineasAsync(id, ct);
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
         if (pedido == null || pedido.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
 

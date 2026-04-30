@@ -1,8 +1,9 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/authStore'
-import { Loader2, Eye, EyeOff } from 'lucide-react'
+import { Loader2, Eye, EyeOff, Building2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import api from '../lib/api'
 
 // Insignias flotantes del panel de marca
 const BADGES = [
@@ -19,8 +20,22 @@ export default function Login() {
   const [email, setEmail]               = useState('admin@buenatierra.com')
   const [password, setPassword]         = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [empresaId]                     = useState(1)
+  const [empresaId, setEmpresaId]       = useState<number>(1)
+  const [empresas, setEmpresas]         = useState<{ id: number; nombre: string }[]>([])
   const [loading, setLoading]           = useState(false)
+
+  // Cargar lista de empresas activas para el selector
+  useEffect(() => {
+    api.get('/empresa/lista')
+      .then(res => {
+        const lista = res.data.data as { id: number; nombre: string }[]
+        setEmpresas(lista)
+        if (lista.length === 1) setEmpresaId(lista[0].id)
+      })
+      .catch(() => {
+        // Si falla, se usa el valor por defecto (1)
+      })
+  }, [])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -222,6 +237,32 @@ export default function Login() {
                 </button>
               </div>
             </div>
+
+            {/* Empresa — solo visible si hay más de una */}
+            {empresas.length > 1 && (
+              <div>
+                <label className="block text-sm font-semibold text-earth-700 mb-1.5">
+                  <Building2 className="inline w-3.5 h-3.5 mr-1 text-earth-400" />
+                  Empresa
+                </label>
+                <select
+                  value={empresaId}
+                  onChange={e => setEmpresaId(Number(e.target.value))}
+                  required
+                  className="
+                    w-full border border-cream-300 rounded-xl
+                    px-4 py-3 text-sm text-earth-800
+                    bg-white
+                    focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400
+                    transition-all duration-150 shadow-warm-sm
+                  "
+                >
+                  {empresas.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.nombre}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Botón de acceso */}
             <button
