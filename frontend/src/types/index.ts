@@ -404,6 +404,7 @@ export interface PedidoDetalle {
   estado: string
   cliente: { id: number; nombre: string; nif: string | null }
   subtotal: number
+  descuentoTotal: number
   ivaTotal: number
   recargoEquivalenciaTotal: number
   retencionTotal: number

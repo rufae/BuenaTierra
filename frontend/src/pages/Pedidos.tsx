@@ -566,6 +566,9 @@ export default function Pedidos() {
                         </table>
                         <div className="flex justify-end gap-6 mt-2 pt-2 border-t border-blue-200 text-xs">
                           <span>Base: <b>{detalle.subtotal.toFixed(2)} €</b></span>
+                          {(detalle.descuentoTotal ?? 0) > 0 && (
+                            <span className="text-emerald-700">Descuento: <b>-{detalle.descuentoTotal.toFixed(2)} €</b></span>
+                          )}
                           <span>IVA: <b>{detalle.ivaTotal.toFixed(2)} €</b></span>
                           {(detalle.recargoEquivalenciaTotal ?? 0) > 0 && (
                             <span>R.Eq.: <b>{detalle.recargoEquivalenciaTotal.toFixed(2)} €</b></span>
