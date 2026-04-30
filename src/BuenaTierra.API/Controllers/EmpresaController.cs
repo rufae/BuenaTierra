@@ -127,9 +127,53 @@ public class EmpresaController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════
-    // PUT /api/empresa/configuracion/ia — Guardar solo configuración IA (Admin/Obrador)
+    // PUT /api/empresa/configuracion/tema — Guardar colores de la empresa (Admin)
     // ═══════════════════════════════════════════════════════
 
+    [HttpPut("configuracion/tema")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateConfiguracionTema([FromBody] UpdateConfiguracionTemaRequest req, CancellationToken ct)
+    {
+        // Validar formato hex #RRGGBB
+        var hexRegex = new System.Text.RegularExpressions.Regex(@"^#[0-9a-fA-F]{6}$");
+        if (!hexRegex.IsMatch(req.ColorPrimario ?? ""))
+            return BadRequest(ApiResponse<string>.Fail("colorPrimario debe ser un color hexadecimal válido (#RRGGBB)"));
+        if (!hexRegex.IsMatch(req.ColorSecundario ?? ""))
+            return BadRequest(ApiResponse<string>.Fail("colorSecundario debe ser un color hexadecimal válido (#RRGGBB)"));
+
+        var e = await _uow.Empresas.GetByIdAsync(EmpresaId, ct);
+        if (e is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
+
+        JsonObject root;
+        try
+        {
+            root = string.IsNullOrWhiteSpace(e.Configuracion)
+                ? new JsonObject()
+                : JsonNode.Parse(e.Configuracion)?.AsObject() ?? new JsonObject();
+        }
+        catch
+        {
+            root = new JsonObject();
+        }
+
+        root["colorPrimario"]   = req.ColorPrimario;
+        root["colorSecundario"] = req.ColorSecundario;
+
+        e.Configuracion = root.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+
+        await _uow.Empresas.UpdateAsync(e, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<object>.Ok(new
+        {
+            colorPrimario   = req.ColorPrimario,
+            colorSecundario = req.ColorSecundario,
+        }, "Colores de empresa actualizados"));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // PUT /api/empresa/configuracion/ia — Guardar solo configuración IA (Admin/Obrador)
+    // ═══════════════════════════════════════════════════════
     [HttpPut("configuracion/ia")]
     [Authorize(Roles = "Admin,Obrador")]
     public async Task<IActionResult> UpdateConfiguracionIa([FromBody] UpdateConfiguracionIaRequest req, CancellationToken ct)
@@ -312,8 +356,27 @@ public class EmpresaController : ControllerBase
                 $"La empresa '{empresa.Nombre}' tiene datos asociados y no puede eliminarse. " +
                 "Consulte GET /api/empresa/{id}/relaciones para ver el detalle."));
 
+        // Capturar datos antes del borrado para auditoría
+        var datosAntes = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            empresa.Id, empresa.Nombre, empresa.Nif, empresa.RazonSocial, empresa.Activa
+        });
+
         await _uow.Empresas.DeleteAsync(empresa, ct);
         await _uow.SaveChangesAsync(ct);
+
+        // Registrar en log de auditoría (after commit, best-effort)
+        var ipCliente = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var usuarioId = int.TryParse(User.FindFirstValue("sub"), out var uid) ? uid : (int?)null;
+        await _uow.RegistrarAuditoriaAsync(
+            tabla: "empresas",
+            operacion: "DELETE",
+            registroId: id,
+            usuarioId: usuarioId,
+            ipCliente: ipCliente,
+            datosAntes: datosAntes,
+            datosDespues: null,
+            ct: ct);
 
         return Ok(ApiResponse<string>.Ok("OK",
             $"Empresa '{empresa.Nombre}' eliminada correctamente."));
@@ -338,6 +401,11 @@ public record UpdateEmpresaRequest(
 );
 
 public record UpdateConfiguracionRequest(string? Configuracion);
+
+public record UpdateConfiguracionTemaRequest(
+    string? ColorPrimario,
+    string? ColorSecundario
+);
 
 public record UpdateConfiguracionIaRequest(
     bool Enabled,
