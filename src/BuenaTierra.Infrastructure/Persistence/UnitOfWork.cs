@@ -2,6 +2,7 @@ using BuenaTierra.Domain.Entities;
 using BuenaTierra.Domain.Interfaces;
 using BuenaTierra.Infrastructure.Persistence;
 using BuenaTierra.Infrastructure.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace BuenaTierra.Infrastructure.Persistence;
@@ -95,5 +96,28 @@ public class UnitOfWork : IUnitOfWork
     {
         _transaction?.Dispose();
         _context.Dispose();
+    }
+
+    public async Task RegistrarAuditoriaAsync(
+        string tabla, string operacion, int registroId,
+        int? usuarioId, string? ipCliente,
+        string? datosAntes, string? datosDespues,
+        CancellationToken ct = default)
+    {
+        const string sql =
+            "INSERT INTO auditoria (tabla_nombre, operacion, registro_id, usuario_id, ip_cliente, datos_antes, datos_despues, created_at) " +
+            "VALUES ({0}, {1}, {2}, {3}, {4}, {5}::jsonb, {6}::jsonb, now())";
+
+        await _context.Database.ExecuteSqlRawAsync(
+            sql,
+            new object[]
+            {
+                tabla, operacion, registroId,
+                (object?)usuarioId ?? DBNull.Value,
+                (object?)ipCliente ?? DBNull.Value,
+                (object?)datosAntes ?? DBNull.Value,
+                (object?)datosDespues ?? DBNull.Value,
+            },
+            ct);
     }
 }

@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/authStore'
 import { useQuery } from '@tanstack/react-query'
 import { getApiOrigin } from '../lib/api'
+import api from '../lib/api'
 import {
   LayoutDashboard, Package, Users, Factory,
   FileText, LogOut, Layers, Truck, ClipboardList,
@@ -93,6 +94,14 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  const { data: empresaData } = useQuery<{ nombre?: string }>({
+    queryKey: ['empresa-layout', user?.empresaId],
+    enabled: !!user,
+    queryFn: async () => (await api.get('/empresa')).data.data,
+    staleTime: 60_000,
+  })
+  const empresaNombre = empresaData?.nombre || 'Mi empresa'
+
   const isRepartidor = user?.rol === 'Repartidor'
   const isAdmin      = user?.rol === 'Admin'
   const adminItems: NavItem[] = isAdmin
@@ -144,7 +153,7 @@ export default function Layout() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-display text-base font-bold text-white leading-tight tracking-wide truncate">
-              BuenaTierra
+              {empresaNombre}
             </p>
             <p className="text-xs text-white/75 leading-tight truncate font-sans">
               {user?.nombre}{user?.apellidos ? ` ${user.apellidos}` : ''}
@@ -242,7 +251,7 @@ export default function Layout() {
             <div className="w-7 h-7 bg-brand-gradient rounded-lg flex items-center justify-center text-sm shadow-warm-sm">
               🌾
             </div>
-            <span className="font-display text-sm font-bold text-earth-900">BuenaTierra</span>
+            <span className="font-display text-sm font-bold text-earth-900">{empresaNombre}</span>
           </div>
         </div>
 

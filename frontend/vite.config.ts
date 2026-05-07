@@ -1,5 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import type { InlineConfig } from 'vitest/node'
+
+declare module 'vite' {
+  interface UserConfig {
+    test?: InlineConfig
+  }
+}
 
 /**
  * CONFIGURACIÓN DE PUERTOS PARA DESARROLLO
@@ -17,6 +24,11 @@ export default defineConfig({
   base: process.env.ELECTRON_BUILD ? './' : '/',
   build: {
     chunkSizeWarningLimit: 1000,
+  },
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
   server: {
     port: 5173,
