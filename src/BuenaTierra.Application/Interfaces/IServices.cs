@@ -6,7 +6,7 @@ namespace BuenaTierra.Application.Interfaces;
 
 public interface IAuthService
 {
-    Task<AuthResult> LoginAsync(string email, string password, int empresaId, CancellationToken ct = default);
+    Task<AuthResult> LoginAsync(string email, string password, int? empresaId = null, CancellationToken ct = default);
     Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default);
     Task LogoutAsync(int usuarioId, CancellationToken ct = default);
 }
