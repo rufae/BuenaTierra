@@ -4,14 +4,14 @@
  * Persiste el tema activo en localStorage para evitar flash en el arranque.
  */
 
-export const THEME_DEFAULTS = {
-  colorPrimario:   '#c4541a',   // terracota BuenaTierra
-  colorSecundario: '#e0b355',   // trigo BuenaTierra
-} as const
-
 export interface ThemeConfig {
   colorPrimario:   string
   colorSecundario: string
+}
+
+export const THEME_DEFAULTS: ThemeConfig = {
+  colorPrimario:   '#c4541a',   // terracota BuenaTierra
+  colorSecundario: '#e0b355',   // trigo BuenaTierra
 }
 
 const STORAGE_KEY = 'bt_theme'

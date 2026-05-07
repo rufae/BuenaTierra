@@ -2,7 +2,7 @@
  * Tests unitarios para el motor de temas dinámicos (lib/theme.ts).
  * Sin dependencias externas — lógica pura de colores y parseo.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   hexToRgb,
   darken,
