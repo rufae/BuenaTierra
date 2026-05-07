@@ -24,15 +24,35 @@ public class AuthService : IAuthService
         _logger = logger;
     }
 
-    public async Task<AuthResult> LoginAsync(string email, string password, int empresaId, CancellationToken ct = default)
+    public async Task<AuthResult> LoginAsync(string email, string password, int? empresaId = null, CancellationToken ct = default)
     {
-        var usuario = (await _uow.Usuarios.FindAsync(
-            u => u.Email == email.ToLower() && u.EmpresaId == empresaId && u.Activo, ct))
-            .FirstOrDefault();
+        var emailNormalizado = email.Trim().ToLower();
+        Domain.Entities.Usuario? usuario;
+
+        if (empresaId.HasValue)
+        {
+            usuario = (await _uow.Usuarios.FindAsync(
+                u => u.Email == emailNormalizado && u.EmpresaId == empresaId.Value && u.Activo, ct))
+                .FirstOrDefault();
+        }
+        else
+        {
+            var candidatos = (await _uow.Usuarios.FindAsync(
+                u => u.Email == emailNormalizado && u.Activo, ct))
+                .ToList();
+
+            if (candidatos.Count > 1)
+            {
+                _logger.LogWarning("Login ambiguo bloqueado: email={Email} encontrado en múltiples empresas", emailNormalizado);
+                return new AuthResult(false, null, null, null, "Usuario duplicado en múltiples empresas. Contacte con administración.");
+            }
+
+            usuario = candidatos.FirstOrDefault();
+        }
 
         if (usuario == null || !BCrypt.Net.BCrypt.Verify(password, usuario.PasswordHash))
         {
-            _logger.LogWarning("Intento de login fallido: email={Email}, empresa={EmpresaId}", email, empresaId);
+            _logger.LogWarning("Intento de login fallido: email={Email}, empresa={EmpresaId}", emailNormalizado, empresaId);
             return new AuthResult(false, null, null, null, "Credenciales inválidas");
         }
 
@@ -47,7 +67,7 @@ public class AuthService : IAuthService
         await _uow.Usuarios.UpdateAsync(usuario, ct);
         await _uow.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Login exitoso: usuario={UsuarioId}, empresa={EmpresaId}", usuario.Id, empresaId);
+        _logger.LogInformation("Login exitoso: usuario={UsuarioId}, empresa={EmpresaId}", usuario.Id, usuario.EmpresaId);
 
         int expiresMinutes = int.Parse(_config["Jwt:ExpiresInMinutes"] ?? "480");
         return new AuthResult(true, token, refreshToken, DateTime.UtcNow.AddMinutes(expiresMinutes));

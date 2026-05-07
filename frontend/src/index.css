@@ -197,6 +197,27 @@
   }
 }
 
+/* ─── Login: Blob glow animations ─────────────────────────────────── */
+@keyframes blob {
+  0%, 100% { transform: translate(0,    0)    scale(1);    }
+  33%       { transform: translate(30px, -50px) scale(1.1); }
+  66%       { transform: translate(-20px, 22px) scale(0.93); }
+}
+@keyframes shimmer {
+  0%   { background-position: -300% center; }
+  100% { background-position:  300% center; }
+}
+@keyframes border-spin {
+  0%   { --angle: 0deg; }
+  100% { --angle: 360deg; }
+}
+.animate-blob        { animation: blob 9s ease-in-out infinite; }
+.delay-1s            { animation-delay: 1s; }
+.delay-2s            { animation-delay: 2s; }
+.delay-3s            { animation-delay: 3s; }
+.delay-4s            { animation-delay: 4s; }
+.animate-shimmer     { animation: shimmer 3s linear infinite; background-size: 300% auto; }
+
 /* ─── Overrides de tema dinámico ───────────────────────────────────────
    Estos bloques sobreescriben las clases Tailwind estáticas de marca
    usando las CSS custom properties definidas en :root.
