@@ -142,6 +142,20 @@ public interface IUnitOfWork : IDisposable
     Task BeginTransactionAsync(CancellationToken ct = default);
     Task CommitTransactionAsync(CancellationToken ct = default);
     Task RollbackTransactionAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Registra una entrada de auditoría directamente en la tabla auditoria.
+    /// No requiere SaveChangesAsync — escribe inmediatamente.
+    /// </summary>
+    Task RegistrarAuditoriaAsync(
+        string tabla,
+        string operacion,
+        int registroId,
+        int? usuarioId,
+        string? ipCliente,
+        string? datosAntes,
+        string? datosDespues,
+        CancellationToken ct = default);
 }
 
 public record StockDetalle(

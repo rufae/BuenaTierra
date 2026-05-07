@@ -23,6 +23,7 @@ export default function Login() {
   const [empresaId, setEmpresaId]       = useState<number>(1)
   const [empresas, setEmpresas]         = useState<{ id: number; nombre: string }[]>([])
   const [loading, setLoading]           = useState(false)
+  const empresaSeleccionada = empresas.find(e => e.id === empresaId)?.nombre ?? 'Tu empresa'
 
   // Cargar lista de empresas activas para el selector
   useEffect(() => {
@@ -117,7 +118,7 @@ export default function Login() {
 
           {/* Nombre de marca */}
           <h1 className="font-display text-5xl sm:text-6xl font-bold text-white text-shadow-warm leading-none mb-2">
-            Buena<span className="text-wheat-300 italic">Tierra</span>
+            {empresaSeleccionada}
           </h1>
 
           {/* Tagline */}
@@ -167,7 +168,7 @@ export default function Login() {
               <span className="text-lg">🌾</span>
             </div>
             <div>
-              <p className="text-sm font-bold text-earth-900">BuenaTierra</p>
+              <p className="text-sm font-bold text-earth-900">{empresaSeleccionada}</p>
               <p className="text-xs text-earth-400">Gestión del Obrador</p>
             </div>
           </div>
@@ -285,7 +286,7 @@ export default function Login() {
 
           {/* Pie de página */}
           <p className="mt-10 text-center text-xs text-earth-300 leading-relaxed">
-            BuenaTierra · Sistema de Gestión Artesanal<br />
+            {empresaSeleccionada} · Sistema de Gestión Artesanal<br />
             <span className="text-earth-200">© {new Date().getFullYear()} · Todos los derechos reservados</span>
           </p>
         </div>

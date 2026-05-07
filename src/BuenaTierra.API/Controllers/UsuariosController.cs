@@ -4,6 +4,7 @@ using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace BuenaTierra.API.Controllers;
@@ -26,20 +27,27 @@ public class UsuariosController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<IEnumerable<object>>>> GetAll(CancellationToken ct)
     {
-        var usuarios = await _uow.Usuarios.FindAsync(u => u.EmpresaId == EmpresaId, ct);
-        var result = usuarios.Select(u => new
-        {
-            u.Id,
-            u.Nombre,
-            u.Apellidos,
-            u.Email,
-            u.Telefono,
-            Rol = u.Rol.ToString(),
-            u.Activo,
-            u.UltimoAcceso,
-            NombreCompleto = u.NombreCompleto,
-            u.ClienteId,
-        });
+        var result = await (
+            from u in _uow.Usuarios.GetQueryable()
+            join e in _uow.Empresas.GetQueryable() on u.EmpresaId equals e.Id
+            orderby e.Nombre, u.Nombre
+            select new
+            {
+                u.Id,
+                u.EmpresaId,
+                EmpresaNombre = e.Nombre,
+                u.Nombre,
+                u.Apellidos,
+                u.Email,
+                u.Telefono,
+                Rol = u.Rol.ToString(),
+                u.Activo,
+                u.UltimoAcceso,
+                NombreCompleto = u.NombreCompleto,
+                u.ClienteId,
+            }
+        ).ToListAsync(ct);
+
         return Ok(ApiResponse<IEnumerable<object>>.Ok(result));
     }
 
@@ -50,12 +58,17 @@ public class UsuariosController : ControllerBase
     public async Task<ActionResult<ApiResponse<object>>> GetById(int id, CancellationToken ct)
     {
         var u = await _uow.Usuarios.GetByIdAsync(id, ct);
-        if (u is null || u.EmpresaId != EmpresaId)
+        if (u is null)
             return NotFound(ApiResponse<object>.Fail("Usuario no encontrado"));
+
+        var empresaNombre = await _uow.Empresas.GetQueryable()
+            .Where(x => x.Id == u.EmpresaId)
+            .Select(x => x.Nombre)
+            .FirstOrDefaultAsync(ct);
 
         return Ok(ApiResponse<object>.Ok(new
         {
-            u.Id, u.Nombre, u.Apellidos, u.Email, u.Telefono,
+            u.Id, u.EmpresaId, EmpresaNombre = empresaNombre, u.Nombre, u.Apellidos, u.Email, u.Telefono,
             Rol = u.Rol.ToString(), u.Activo, u.UltimoAcceso, NombreCompleto = u.NombreCompleto,
             u.ClienteId,
         }));
@@ -68,18 +81,32 @@ public class UsuariosController : ControllerBase
     public async Task<ActionResult<ApiResponse<object>>> Create(
         [FromBody] CreateUsuarioRequest req, CancellationToken ct)
     {
+        var empresaObjetivoId = req.EmpresaId ?? EmpresaId;
+
+        var empresaObjetivo = await _uow.Empresas.GetByIdAsync(empresaObjetivoId, ct);
+        if (empresaObjetivo is null || !empresaObjetivo.Activa)
+            return BadRequest(ApiResponse<object>.Fail("La empresa seleccionada no existe o está inactiva"));
+
         // Check email unique within empresa
         var existe = await _uow.Usuarios.ExistsAsync(
-            u => u.EmpresaId == EmpresaId && u.Email == req.Email.Trim().ToLower(), ct);
+            u => u.EmpresaId == empresaObjetivoId && u.Email == req.Email.Trim().ToLower(), ct);
         if (existe)
             return Conflict(ApiResponse<object>.Fail("Ya existe un usuario con ese email"));
 
         if (!Enum.TryParse<RolUsuario>(req.Rol, out var rol))
             return BadRequest(ApiResponse<object>.Fail("Rol no válido. Use: Admin, Obrador, Repartidor"));
 
+        if (rol == RolUsuario.Repartidor && req.ClienteId.HasValue)
+        {
+            var clienteValido = await _uow.Clientes.ExistsAsync(
+                c => c.Id == req.ClienteId.Value && c.EmpresaId == empresaObjetivoId && c.Activo, ct);
+            if (!clienteValido)
+                return BadRequest(ApiResponse<object>.Fail("Cliente vinculado no válido para la empresa seleccionada"));
+        }
+
         var nuevo = new Usuario
         {
-            EmpresaId  = EmpresaId,
+            EmpresaId  = empresaObjetivoId,
             Nombre     = req.Nombre.Trim(),
             Apellidos  = req.Apellidos?.Trim(),
             Email      = req.Email.Trim().ToLower(),
@@ -95,7 +122,7 @@ public class UsuariosController : ControllerBase
 
         return CreatedAtAction(nameof(GetById), new { id = creado.Id }, ApiResponse<object>.Ok(new
         {
-            creado.Id, creado.Nombre, creado.Apellidos, creado.Email,
+            creado.Id, creado.EmpresaId, EmpresaNombre = empresaObjetivo.Nombre, creado.Nombre, creado.Apellidos, creado.Email,
             Rol = creado.Rol.ToString(), creado.Activo, creado.ClienteId,
         }));
     }
@@ -108,33 +135,53 @@ public class UsuariosController : ControllerBase
         int id, [FromBody] UpdateUsuarioRequest req, CancellationToken ct)
     {
         var u = await _uow.Usuarios.GetByIdAsync(id, ct);
-        if (u is null || u.EmpresaId != EmpresaId)
+        if (u is null)
             return NotFound(ApiResponse<object>.Fail("Usuario no encontrado"));
 
+        if (!Enum.TryParse<RolUsuario>(req.Rol, out var rol))
+            return BadRequest(ApiResponse<object>.Fail("Rol no válido"));
+
+        var empresaObjetivoId = req.EmpresaId ?? u.EmpresaId;
+        var empresaObjetivo = await _uow.Empresas.GetByIdAsync(empresaObjetivoId, ct);
+        if (empresaObjetivo is null || !empresaObjetivo.Activa)
+            return BadRequest(ApiResponse<object>.Fail("La empresa seleccionada no existe o está inactiva"));
+
         // Prevent demoting the last admin
-        if (u.Rol == RolUsuario.Admin && req.Rol != "Admin")
+        var dejaDeSerAdminActivo =
+            u.Rol == RolUsuario.Admin && (rol != RolUsuario.Admin || !req.Activo || empresaObjetivoId != u.EmpresaId);
+
+        if (dejaDeSerAdminActivo)
         {
             var admins = await _uow.Usuarios.CountAsync(
-                x => x.EmpresaId == EmpresaId && x.Rol == RolUsuario.Admin && x.Activo, ct);
+                x => x.EmpresaId == u.EmpresaId && x.Rol == RolUsuario.Admin && x.Activo, ct);
             if (admins <= 1)
                 return BadRequest(ApiResponse<object>.Fail("No puedes cambiar el rol del único administrador activo"));
         }
 
         // Email uniqueness check (if changed)
-        if (!string.Equals(u.Email, req.Email.Trim().ToLower(), StringComparison.OrdinalIgnoreCase))
+        var emailNuevo = req.Email.Trim().ToLower();
+        var cambiaEmail = !string.Equals(u.Email, emailNuevo, StringComparison.OrdinalIgnoreCase);
+        var cambiaEmpresa = empresaObjetivoId != u.EmpresaId;
+        if (cambiaEmail || cambiaEmpresa)
         {
             var existe = await _uow.Usuarios.ExistsAsync(
-                x => x.EmpresaId == EmpresaId && x.Email == req.Email.Trim().ToLower() && x.Id != id, ct);
+                x => x.EmpresaId == empresaObjetivoId && x.Email == emailNuevo && x.Id != id, ct);
             if (existe)
                 return Conflict(ApiResponse<object>.Fail("Ya existe un usuario con ese email"));
         }
 
-        if (!Enum.TryParse<RolUsuario>(req.Rol, out var rol))
-            return BadRequest(ApiResponse<object>.Fail("Rol no válido"));
+        if (rol == RolUsuario.Repartidor && req.ClienteId.HasValue)
+        {
+            var clienteValido = await _uow.Clientes.ExistsAsync(
+                c => c.Id == req.ClienteId.Value && c.EmpresaId == empresaObjetivoId && c.Activo, ct);
+            if (!clienteValido)
+                return BadRequest(ApiResponse<object>.Fail("Cliente vinculado no válido para la empresa seleccionada"));
+        }
 
+        u.EmpresaId = empresaObjetivoId;
         u.Nombre   = req.Nombre.Trim();
         u.Apellidos = req.Apellidos?.Trim();
-        u.Email    = req.Email.Trim().ToLower();
+        u.Email    = emailNuevo;
         u.Telefono = req.Telefono?.Trim();
         u.Rol      = rol;
         u.Activo   = req.Activo;
@@ -145,7 +192,7 @@ public class UsuariosController : ControllerBase
 
         return Ok(ApiResponse<object>.Ok(new
         {
-            u.Id, u.Nombre, u.Apellidos, u.Email,
+            u.Id, u.EmpresaId, EmpresaNombre = empresaObjetivo.Nombre, u.Nombre, u.Apellidos, u.Email,
             Rol = u.Rol.ToString(), u.Activo, u.ClienteId,
         }));
     }
@@ -158,7 +205,7 @@ public class UsuariosController : ControllerBase
         int id, [FromBody] CambiarPasswordRequest req, CancellationToken ct)
     {
         var u = await _uow.Usuarios.GetByIdAsync(id, ct);
-        if (u is null || u.EmpresaId != EmpresaId)
+        if (u is null)
             return NotFound(ApiResponse<string>.Fail("Usuario no encontrado"));
 
         if (string.IsNullOrWhiteSpace(req.NuevaPassword) || req.NuevaPassword.Length < 8)
@@ -178,7 +225,7 @@ public class UsuariosController : ControllerBase
     public async Task<ActionResult<ApiResponse<string>>> Delete(int id, CancellationToken ct)
     {
         var u = await _uow.Usuarios.GetByIdAsync(id, ct);
-        if (u is null || u.EmpresaId != EmpresaId)
+        if (u is null)
             return NotFound(ApiResponse<string>.Fail("Usuario no encontrado"));
 
         if (u.Id == UsuarioActualId)
@@ -188,7 +235,7 @@ public class UsuariosController : ControllerBase
         if (u.Rol == RolUsuario.Admin)
         {
             var admins = await _uow.Usuarios.CountAsync(
-                x => x.EmpresaId == EmpresaId && x.Rol == RolUsuario.Admin && x.Activo, ct);
+                x => x.EmpresaId == u.EmpresaId && x.Rol == RolUsuario.Admin && x.Activo, ct);
             if (admins <= 1)
                 return BadRequest(ApiResponse<string>.Fail("No puedes eliminar el único administrador activo"));
         }
@@ -215,6 +262,30 @@ public class UsuariosController : ControllerBase
             Rol = u.Rol.ToString(), u.Activo, u.UltimoAcceso,
             NombreCompleto = u.NombreCompleto,
         }));
+    }
+
+    // ── GET /api/usuarios/admin/empresas/{empresaId}/clientes ────────────────
+
+    [HttpGet("admin/empresas/{empresaId:int}/clientes")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<object>>>> GetClientesPorEmpresa(int empresaId, CancellationToken ct)
+    {
+        var empresa = await _uow.Empresas.GetByIdAsync(empresaId, ct);
+        if (empresa is null)
+            return NotFound(ApiResponse<IEnumerable<object>>.Fail("Empresa no encontrada"));
+
+        var clientes = await _uow.Clientes.GetQueryable()
+            .Where(c => c.EmpresaId == empresaId && c.Activo)
+            .OrderBy(c => c.Nombre)
+            .Select(c => new
+            {
+                c.Id,
+                c.Nombre,
+                Tipo = c.Tipo.ToString(),
+            })
+            .ToListAsync(ct);
+
+        return Ok(ApiResponse<IEnumerable<object>>.Ok(clientes));
     }
     /// <summary>PUT /api/usuarios/me — El usuario actualiza sus propios datos (nombre, apellidos, teléfono)</summary>
     [HttpPut("me")]
@@ -320,7 +391,8 @@ public record CreateUsuarioRequest(
     string? Telefono,
     string Rol,
     string Password,
-    int? ClienteId
+    int? ClienteId,
+    int? EmpresaId
 );
 
 public record UpdateUsuarioRequest(
@@ -330,7 +402,8 @@ public record UpdateUsuarioRequest(
     string? Telefono,
     string Rol,
     bool Activo,
-    int? ClienteId
+    int? ClienteId,
+    int? EmpresaId
 );
 
 public record UpdateMeRequest(string Nombre, string? Apellidos, string? Telefono, string? Email);
