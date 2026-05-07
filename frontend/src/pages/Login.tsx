@@ -1,294 +1,180 @@
-import { useState, useEffect, FormEvent } from 'react'
+﻿import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/authStore'
-import { Loader2, Eye, EyeOff, Building2 } from 'lucide-react'
+import { Loader2, Eye, EyeOff, ArrowRight, ShieldCheck, Layers, BarChart3, LayoutGrid } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api from '../lib/api'
 
-// Insignias flotantes del panel de marca
-const BADGES = [
-  { emoji: '🥐', label: 'Palmeras',    cls: 'top-[12%] right-[10%] animate-float-slow' },
-  { emoji: '🧁', label: 'Magdalenas',  cls: 'top-[28%] left-[7%]  animate-float-medium' },
-  { emoji: '🥧', label: 'Milhojas',    cls: 'bottom-[30%] right-[8%] animate-float-fast' },
-  { emoji: '🍫', label: '',            cls: 'bottom-[46%] left-[9%] animate-float-medium' },
-  { emoji: '🎂', label: 'Bizcochadas', cls: 'top-[52%] right-[14%] animate-float-slow' },
+const FEATURES = [
+  { icon: ShieldCheck, label: 'Trazabilidad legal' },
+  { icon: Layers,      label: 'Gestión de lotes' },
+  { icon: BarChart3,   label: 'Facturación ágil' },
 ]
 
 export default function Login() {
-  const { login }   = useAuth()
-  const navigate    = useNavigate()
-  const [email, setEmail]               = useState('admin@buenatierra.com')
-  const [password, setPassword]         = useState('')
+  const { login } = useAuth()
+  const navigate = useNavigate()
+  const [email,        setEmail]        = useState('')
+  const [password,     setPassword]     = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [empresaId, setEmpresaId]       = useState<number>(1)
-  const [empresas, setEmpresas]         = useState<{ id: number; nombre: string }[]>([])
-  const [loading, setLoading]           = useState(false)
-  const empresaSeleccionada = empresas.find(e => e.id === empresaId)?.nombre ?? 'Tu empresa'
-
-  // Cargar lista de empresas activas para el selector
-  useEffect(() => {
-    api.get('/empresa/lista')
-      .then(res => {
-        const lista = res.data.data as { id: number; nombre: string }[]
-        setEmpresas(lista)
-        if (lista.length === 1) setEmpresaId(lista[0].id)
-      })
-      .catch(() => {
-        // Si falla, se usa el valor por defecto (1)
-      })
-  }, [])
+  const [loading,      setLoading]      = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setLoading(true)
     try {
-      await login(email, password, empresaId)
+      await login(email, password)
       navigate('/dashboard', { replace: true })
-    } catch {
-      toast.error('Email o contraseña incorrectos')
+    } catch (err: any) {
+      const backendMsg = err?.response?.data?.errors?.[0]
+      toast.error(backendMsg || 'Credenciales incorrectas')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden"
+         style={{ background: 'linear-gradient(145deg, #f0f6ff 0%, #e8f0fb 35%, #edf4ff 65%, #f5f8ff 100%)' }}>
 
-      {/* ══════════════════════════════════════════════
-           PANEL IZQUIERDO — identidad de marca
-          ══════════════════════════════════════════════ */}
-      <div className="
-        relative overflow-hidden
-        lg:w-[52%] lg:min-h-screen
-        flex flex-col items-center justify-center
-        py-14 lg:py-0 px-8
-        bg-brand-gradient
-      ">
-        {/* Ruido de textura */}
-        <div className="absolute inset-0 noise-overlay" />
+      <div className="animate-blob delay-0s pointer-events-none absolute -top-40 -left-32 w-[650px] h-[650px] rounded-full opacity-30"
+           style={{ background: 'radial-gradient(circle, #3b82f6 0%, transparent 70%)', filter: 'blur(90px)' }} />
+      <div className="animate-blob delay-2s pointer-events-none absolute -bottom-48 -right-40 w-[600px] h-[600px] rounded-full opacity-25"
+           style={{ background: 'radial-gradient(circle, #6366f1 0%, transparent 70%)', filter: 'blur(100px)' }} />
+      <div className="animate-blob delay-4s pointer-events-none absolute top-1/2 -translate-y-1/2 right-0 w-[450px] h-[450px] rounded-full opacity-20"
+           style={{ background: 'radial-gradient(circle, #1d4ed8 0%, transparent 70%)', filter: 'blur(80px)' }} />
+      <div className="animate-blob delay-3s pointer-events-none absolute bottom-10 left-1/4 w-[350px] h-[350px] rounded-full opacity-15"
+           style={{ background: 'radial-gradient(circle, #60a5fa 0%, transparent 70%)', filter: 'blur(70px)' }} />
 
-        {/* Círculos difuminados de profundidad */}
-        <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full bg-brand-400/20 blur-3xl pointer-events-none" />
-        <div className="absolute top-1/3 -left-24  w-72 h-72 rounded-full bg-wheat-400/10  blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 right-0  w-96 h-96 rounded-full bg-earth-900/40  blur-3xl pointer-events-none" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.03]"
+           style={{ backgroundImage: 'linear-gradient(rgba(30,60,120,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(30,60,120,0.6) 1px, transparent 1px)', backgroundSize: '52px 52px' }} />
+      <div className="noise-overlay pointer-events-none absolute inset-0 opacity-20" />
 
-        {/* Ola decorativa inferior */}
-        <svg
-          className="absolute bottom-0 left-0 right-0 w-full"
-          viewBox="0 0 1440 60" fill="none" preserveAspectRatio="none"
-        >
-          <path d="M0,30 C480,65 960,0 1440,35 L1440,60 L0,60 Z" fill="rgba(253,248,238,0.07)" />
-        </svg>
+      <div className="relative z-10 w-full max-w-[460px]">
+        <div className="absolute -inset-[1px] rounded-[32px] opacity-60"
+             style={{ background: 'linear-gradient(135deg, #3b82f655, #6366f140, #1d4ed840, #3b82f644)', filter: 'blur(0.5px)' }} />
 
-        {/* Líneas decorativas de fondo estilo etiqueta */}
-        <div className="absolute inset-x-6 top-6 h-px bg-white/10" />
-        <div className="absolute inset-x-6 bottom-6 h-px bg-white/10" />
+        <div className="relative rounded-[31px] overflow-hidden border border-black/[0.05]"
+             style={{ background: 'rgba(248, 252, 255, 0.85)', backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', boxShadow: '0 24px 64px rgba(59,130,246,0.10), 0 4px 16px rgba(30,60,120,0.05)' }}>
 
-        {/* Insignias flotantes — solo en pantallas lg+ */}
-        {BADGES.map((b) => (
-          <div key={b.label + b.emoji} className={`absolute hidden lg:block ${b.cls}`}>
-            <div className="
-              bg-white/10 backdrop-blur-md
-              border border-white/20
-              rounded-2xl px-3 py-2
-              flex items-center gap-2
-              shadow-warm
-            ">
-              <span className="text-xl drop-shadow">{b.emoji}</span>
-              {b.label && (
-                <span className="text-white/85 text-xs font-semibold tracking-wide">{b.label}</span>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {/* Contenido central */}
-        <div className="relative z-10 text-center max-w-xs">
-
-          {/* Logo */}
-          <div className="
-            w-20 h-20 mx-auto mb-7
-            bg-white/12 backdrop-blur-sm
-            border border-white/25
-            rounded-3xl shadow-warm-lg
-            flex items-center justify-center
-          ">
-            <span className="text-4xl drop-shadow-md">🌾</span>
-          </div>
-
-          {/* Nombre de marca */}
-          <h1 className="font-display text-5xl sm:text-6xl font-bold text-white text-shadow-warm leading-none mb-2">
-            {empresaSeleccionada}
-          </h1>
-
-          {/* Tagline */}
-          <p className="text-cream-200/75 text-sm font-light tracking-wide leading-relaxed mt-3 mb-7">
-            Calidad artesana en cada elaboración
-          </p>
-
-          {/* Separador estilo etiqueta */}
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <div className="flex-1 h-px bg-white/15" />
-            <span className="text-white/35 text-xs font-semibold tracking-[0.2em] uppercase">Sevilla · España</span>
-            <div className="flex-1 h-px bg-white/15" />
-          </div>
-
-          {/* Píldoras de características */}
-          <div className="flex flex-wrap justify-center gap-2">
-            {[
-              { dot: 'bg-sage-400',  text: 'Trazabilidad CE 1169/2011' },
-              { dot: 'bg-wheat-400', text: 'Lotes FIFO automáticos' },
-              { dot: 'bg-brand-300', text: 'Multi-usuario · Multi-rol' },
-            ].map((p) => (
-              <div
-                key={p.text}
-                className="bg-white/10 border border-white/15 rounded-full px-3 py-1.5 flex items-center gap-1.5"
-              >
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.dot}`} />
-                <span className="text-white/65 text-xs">{p.text}</span>
+          <div className="px-10 pt-10 pb-8 text-center">
+            <div className="relative inline-flex items-center justify-center mb-6">
+              <div className="absolute inset-0 rounded-2xl animate-pulse opacity-50"
+                   style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.5) 0%, transparent 70%)', filter: 'blur(14px)' }} />
+              <div className="relative w-16 h-16 rounded-2xl flex items-center justify-center border border-white/20"
+                   style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', boxShadow: '0 8px 24px rgba(59,130,246,0.40), inset 0 1px 0 rgba(255,255,255,0.15)' }}>
+                <LayoutGrid strokeWidth={1.5} className="w-8 h-8 text-cream-100" />
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════════
-           PANEL DERECHO — formulario de acceso
-          ══════════════════════════════════════════════ */}
-      <div className="
-        flex-1 flex items-center justify-center
-        bg-cream-100
-        px-6 py-10 sm:px-10 lg:px-16 xl:px-20
-      ">
-        <div className="w-full max-w-md">
-
-          {/* Logo compacto — solo mobile (no se ve el panel izq) */}
-          <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <div className="w-10 h-10 bg-brand-gradient rounded-2xl flex items-center justify-center shadow-warm">
-              <span className="text-lg">🌾</span>
             </div>
-            <div>
-              <p className="text-sm font-bold text-earth-900">{empresaSeleccionada}</p>
-              <p className="text-xs text-earth-400">Gestión del Obrador</p>
-            </div>
-          </div>
 
-          {/* Encabezado */}
-          <div className="mb-8">
-            <h2 className="font-display text-3xl sm:text-4xl font-bold text-earth-900 mb-2">
-              Bienvenido
-            </h2>
-            <p className="text-earth-500 text-sm leading-relaxed">
-              Accede al sistema de gestión del obrador artesano.
+            <h1 className="font-display text-[2rem] font-bold leading-tight tracking-tight"
+                style={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #1d4ed8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              Plataforma de Gestión
+            </h1>
+            <p className="mt-2 text-sm tracking-wide" style={{ color: '#475569' }}>
+              Introduce tus credenciales para continuar
             </p>
+
+            <div className="flex items-center justify-center gap-2 mt-6 flex-wrap">
+              {FEATURES.map(({ icon: Icon, label }) => (
+                <span key={label}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-medium rounded-full px-3 py-1.5 border"
+                      style={{ color: '#1d4ed8', background: 'rgba(59,130,246,0.07)', borderColor: 'rgba(59,130,246,0.22)' }}>
+                  <Icon className="w-3 h-3" />
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
 
-          {/* Formulario */}
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="mx-10 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(59,130,246,0.12), transparent)' }} />
 
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-semibold text-earth-700 mb-1.5">
-                Correo electrónico
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoFocus
-                placeholder="tu@correo.es"
-                className="
-                  w-full border border-cream-300 rounded-xl
-                  px-4 py-3 text-sm text-earth-800
-                  bg-white placeholder-earth-300
-                  focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400
-                  transition-all duration-150 shadow-warm-sm
-                "
-              />
-            </div>
-
-            {/* Contraseña */}
-            <div>
-              <label className="block text-sm font-semibold text-earth-700 mb-1.5">
-                Contraseña
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  placeholder="••••••••"
-                  className="
-                    w-full border border-cream-300 rounded-xl
-                    px-4 py-3 pr-11 text-sm text-earth-800
-                    bg-white placeholder-earth-300
-                    focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400
-                    transition-all duration-150 shadow-warm-sm
-                  "
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-earth-300 hover:text-earth-600 transition-colors"
-                  aria-label="Mostrar u ocultar contraseña"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Empresa — solo visible si hay más de una */}
-            {empresas.length > 1 && (
-              <div>
-                <label className="block text-sm font-semibold text-earth-700 mb-1.5">
-                  <Building2 className="inline w-3.5 h-3.5 mr-1 text-earth-400" />
-                  Empresa
+          <div className="px-10 py-8">
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.12em]"
+                       style={{ color: '#334155' }}>
+                  Correo electrónico
                 </label>
-                <select
-                  value={empresaId}
-                  onChange={e => setEmpresaId(Number(e.target.value))}
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="
-                    w-full border border-cream-300 rounded-xl
-                    px-4 py-3 text-sm text-earth-800
-                    bg-white
-                    focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400
-                    transition-all duration-150 shadow-warm-sm
-                  "
-                >
-                  {empresas.map(emp => (
-                    <option key={emp.id} value={emp.id}>{emp.nombre}</option>
-                  ))}
-                </select>
+                  autoFocus
+                  placeholder="usuario@empresa.com"
+                  className="w-full rounded-xl px-4 py-3.5 text-sm outline-none transition-all duration-200"
+                  style={{ background: 'rgba(255,255,255,0.85)', border: '1px solid rgba(59,130,246,0.20)', color: '#0f172a' }}
+                  onFocus={e => { e.currentTarget.style.border = '1px solid rgba(59,130,246,0.55)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.10)' }}
+                  onBlur={e  => { e.currentTarget.style.border = '1px solid rgba(59,130,246,0.20)'; e.currentTarget.style.boxShadow = 'none' }}
+                />
               </div>
-            )}
 
-            {/* Botón de acceso */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="
-                w-full flex items-center justify-center gap-2.5 mt-2
-                bg-brand-gradient
-                hover:opacity-90 active:opacity-100 active:scale-[0.99]
-                disabled:opacity-50 disabled:cursor-not-allowed
-                text-white font-bold text-sm tracking-wide
-                py-3.5 rounded-xl shadow-warm hover:shadow-warm-lg
-                transition-all duration-200
-              "
-            >
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {loading ? 'Comprobando acceso...' : 'Iniciar sesión'}
-            </button>
-          </form>
+              <div className="space-y-2">
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.12em]"
+                       style={{ color: '#334155' }}>
+                  Contraseña
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    placeholder="••••••••"
+                    className="w-full rounded-xl px-4 py-3.5 pr-12 text-sm outline-none transition-all duration-200 tracking-widest"
+                    style={{ background: 'rgba(255,255,255,0.85)', border: '1px solid rgba(59,130,246,0.20)', color: '#0f172a' }}
+                    onFocus={e => { e.currentTarget.style.border = '1px solid rgba(59,130,246,0.55)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.10)' }}
+                    onBlur={e  => { e.currentTarget.style.border = '1px solid rgba(59,130,246,0.20)'; e.currentTarget.style.boxShadow = 'none' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-colors"
+                    style={{ color: '#94a3b8' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#2563eb')}
+                    onMouseLeave={e => (e.currentTarget.style.color = '#94a3b8')}
+                    aria-label="Mostrar u ocultar contraseña"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
 
-          {/* Pie de página */}
-          <p className="mt-10 text-center text-xs text-earth-300 leading-relaxed">
-            {empresaSeleccionada} · Sistema de Gestión Artesanal<br />
-            <span className="text-earth-200">© {new Date().getFullYear()} · Todos los derechos reservados</span>
-          </p>
+              <div className="pt-1">
+                <div className="relative group">
+                  <div className="absolute -inset-[2px] rounded-xl opacity-40 group-hover:opacity-70 transition-opacity duration-300 blur-sm"
+                       style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1, #3b82f6)' }} />
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="relative w-full flex items-center justify-center gap-2.5 rounded-xl py-3.5 font-semibold text-sm tracking-wide transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%)', color: '#ffffff', boxShadow: '0 4px 20px rgba(59,130,246,0.35), inset 0 1px 0 rgba(255,255,255,0.15)' }}
+                  >
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Acceder al sistema</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-200" />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <div className="h-px mx-10" style={{ background: 'linear-gradient(90deg, transparent, rgba(59,130,246,0.10), transparent)' }} />
+          <div className="px-10 py-5 flex items-center justify-between text-[11px]" style={{ color: '#94a3b8' }}>
+            <span>© {new Date().getFullYear()} · Plataforma de gestión</span>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span>Sistema activo</span>
+            </div>
+          </div>
+
+          <div className="h-px w-full"
+               style={{ background: 'linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.30) 50%, transparent 100%)' }} />
         </div>
       </div>
     </div>
