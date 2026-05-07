@@ -4,7 +4,7 @@ import api from '../lib/api'
 
 interface AuthContextValue {
   user: AuthUser | null
-  login: (email: string, password: string, empresaId: number) => Promise<void>
+  login: (email: string, password: string) => Promise<void>
   logout: () => void
   updateUser: (patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email'>>) => void
   isAuthenticated: boolean
@@ -30,9 +30,9 @@ function loadStored(): AuthUser | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(loadStored)
 
-  const login = useCallback(async (email: string, password: string, empresaId: number) => {
+  const login = useCallback(async (email: string, password: string) => {
     // 1. Obtener el token
-    const loginRes = await api.post('/auth/login', { email, password, empresaId })
+    const loginRes = await api.post('/auth/login', { email, password })
     const { token, refreshToken, expira } = loginRes.data.data as {
       token: string; refreshToken: string; expira: string
     }

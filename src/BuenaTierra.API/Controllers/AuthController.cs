@@ -68,6 +68,6 @@ public class AuthController : ControllerBase
     }
 }
 
-public record LoginRequest(string Email, string Password, int EmpresaId);
+public record LoginRequest(string Email, string Password, int? EmpresaId = null);
 public record RefreshRequest(string RefreshToken);
 public record LoginResponse(string Token, string RefreshToken, DateTime Expira);

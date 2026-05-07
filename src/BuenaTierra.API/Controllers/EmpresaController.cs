@@ -25,11 +25,11 @@ public class EmpresaController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════
-    // GET /api/empresa/lista — Listado público para selector de login (sin auth)
+    // GET /api/empresa/lista — Listado de empresas (solo Admin)
     // ═══════════════════════════════════════════════════════
 
     [HttpGet("lista")]
-    [AllowAnonymous]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> ListarParaLogin(CancellationToken ct)
     {
         var empresas = await _uow.Empresas.FindAsync(e => e.Activa, ct);

@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Package, Users, Factory,
   FileText, LogOut, Layers, Truck, ClipboardList,
   Activity, Zap, BarChart2, Leaf, Shield, Menu, X,
-  Wifi, WifiOff, UserCog, BookOpen, Tag, Bot, Mail,
+  Wifi, WifiOff, UserCog, Tag, Bot, Mail,
   Wallet,
 } from 'lucide-react'
 
@@ -89,6 +89,11 @@ const NAV_REPARTIDOR: NavItem[] = [
   { to: '/ajustes',            icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',       separator: true },
 ]
 
+const NAV_ADMIN: NavItem[] = [
+  { to: '/usuarios', icon: <Shield className="w-[18px] h-[18px]" />, label: 'Administración' },
+  { to: '/ajustes',  icon: <UserCog className="w-[18px] h-[18px]" />, label: 'Ajustes', separator: true },
+]
+
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -104,13 +109,7 @@ export default function Layout() {
 
   const isRepartidor = user?.rol === 'Repartidor'
   const isAdmin      = user?.rol === 'Admin'
-  const adminItems: NavItem[] = isAdmin
-    ? [
-        { to: '/usuarios', icon: <Shield   className="w-[18px] h-[18px]" />, label: 'Usuarios', separator: true },
-        { to: '/series',   icon: <BookOpen className="w-[18px] h-[18px]" />, label: 'Series'   },
-      ]
-    : []
-  const navItems = [...(isRepartidor ? NAV_REPARTIDOR : NAV_OBRADOR), ...adminItems]
+  const navItems = isAdmin ? NAV_ADMIN : (isRepartidor ? NAV_REPARTIDOR : NAV_OBRADOR)
 
   function handleLogout() {
     logout()
