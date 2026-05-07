@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './store/authStore'
+import { applyStoredTheme } from './lib/theme'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -27,6 +28,9 @@ import Balance from './pages/Balance'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import ShortcutsModal from './components/ShortcutsModal'
 import { ErrorBoundary } from './components/ErrorBoundary'
+
+// Aplicar tema guardado antes del primer render para evitar flash de colores
+applyStoredTheme()
 
 const queryClient = new QueryClient({
   defaultOptions: {

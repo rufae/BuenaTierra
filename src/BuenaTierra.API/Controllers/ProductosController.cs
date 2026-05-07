@@ -39,8 +39,8 @@ public class ProductosController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ApiResponse<Producto>>> Get(int id, CancellationToken ct)
     {
-        var producto = await _uow.Productos.GetConIngredientesYAlergenosAsync(id, ct)
-            ?? throw new EntidadNotFoundException(nameof(Producto), id);
+        var producto = await _uow.Productos.GetConIngredientesYAlergenosAsync(EmpresaId, id, ct);
+        if (producto == null) return NotFound(ApiResponse<Producto>.Fail("Producto no encontrado"));
         return Ok(ApiResponse<Producto>.Ok(producto));
     }
 

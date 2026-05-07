@@ -319,7 +319,7 @@ public class FacturaService : IFacturaService
         => Math.Abs(a - b) <= 0.001m;
 
     public async Task<FacturaDto> GetFacturaAsync(int id, int empresaId, CancellationToken ct = default)    {
-        var factura = await _uow.Facturas.GetConLineasAsync(id, ct)
+        var factura = await _uow.Facturas.GetConLineasAsync(empresaId, id, ct)
             ?? throw new EntidadNotFoundException(nameof(Factura), id);
 
         if (factura.EmpresaId != empresaId)
@@ -342,7 +342,7 @@ public class FacturaService : IFacturaService
     {
         QuestPDF.Settings.License = LicenseType.Community;
 
-        var factura = await _uow.Facturas.GetConLineasAsync(facturaId, ct)
+        var factura = await _uow.Facturas.GetConLineasAsync(empresaId, facturaId, ct)
             ?? throw new EntidadNotFoundException(nameof(Factura), facturaId);
 
         if (factura.EmpresaId != empresaId)
@@ -641,7 +641,7 @@ public class FacturaService : IFacturaService
     {
         ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
 
-        var factura = await _uow.Facturas.GetConLineasAsync(facturaId, ct)
+        var factura = await _uow.Facturas.GetConLineasAsync(empresaId, facturaId, ct)
             ?? throw new EntidadNotFoundException(nameof(Factura), facturaId);
 
         if (factura.EmpresaId != empresaId)

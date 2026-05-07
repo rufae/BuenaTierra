@@ -4,10 +4,12 @@ import toast from 'react-hot-toast'
 import {
   User, Lock, Loader2, Eye, EyeOff, Phone, Mail, Shield, Building2,
   CheckCircle2, KeyRound, Settings, Percent, Printer, Package, Server,
-  Upload, Trash2, Plus, Pencil, Save, Bot, Inbox, RefreshCw,
+  Upload, Trash2, Plus, Pencil, Save, Bot, Inbox, RefreshCw, Palette,
 } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../store/authStore'
+import { useTheme } from '../hooks/useTheme'
+import { THEME_DEFAULTS, isValidHex, applyTheme, parseThemeFromConfig, resetTheme } from '../lib/theme'
 
 // ── types ──────────────────────────────────────────────────────────────────────
 interface UpdateMeRequest { nombre: string; apellidos: string; telefono: string; email: string }
@@ -64,7 +66,7 @@ interface UserConfiguracion {
   imapUseSsl?: boolean
 }
 
-type Tab = 'perfil' | 'password' | 'empresa' | 'series' | 'iva' | 'stock' | 'smtp' | 'ia' | 'correo'
+type Tab = 'perfil' | 'password' | 'empresa' | 'series' | 'iva' | 'stock' | 'smtp' | 'ia' | 'correo' | 'tema'
 
 const ROL_CONFIG: Record<string, { label: string; color: string }> = {
   Admin:              { label: 'Administrador', color: 'bg-purple-100 text-purple-700 border-purple-200' },
@@ -410,8 +412,7 @@ export default function Ajustes() {
     userConfigMutation.mutate(userConfig)
   }
 
-  function applyAiPreset(preset: 'groq' | 'openai' | 'ollama' | 'custom') {
-    const next = { ...(config.buenatierrAI ?? {}) }
+  function applyAiPreset(preset: 'groq' | 'openai' | 'ollama' | 'custom') {    const next = { ...(config.buenatierrAI ?? {}) }
     if (preset === 'groq') {
       next.providerBaseUrl = 'https://api.groq.com/openai/v1'
       next.model = next.model || 'llama-3.3-70b-versatile'
@@ -429,8 +430,56 @@ export default function Ajustes() {
   }
 
   // ═══════════════════════════════════════════════════════
+  // TEMA DE EMPRESA
+  // ═══════════════════════════════════════════════════════
+
+  // Aplica el tema de la empresa cuando carga la configuración
+  useTheme(empresa?.configuracion)
+
+  const [temaForm, setTemaForm] = useState({
+    colorPrimario:   THEME_DEFAULTS.colorPrimario,
+    colorSecundario: THEME_DEFAULTS.colorSecundario,
+  })
+
+  useEffect(() => {
+    if (empresa?.configuracion) {
+      const parsed = parseThemeFromConfig(empresa.configuracion)
+      setTemaForm({ colorPrimario: parsed.colorPrimario, colorSecundario: parsed.colorSecundario })
+    }
+  }, [empresa?.configuracion])
+
+  const temaMutation = useMutation({
+    mutationFn: (data: { colorPrimario: string; colorSecundario: string }) =>
+      api.put('/empresa/configuracion/tema', data),
+    onSuccess: () => {
+      toast.success('Colores de empresa guardados')
+      qc.invalidateQueries({ queryKey: ['empresa'] })
+    },
+    onError: () => toast.error('Error al guardar los colores'),
+  })
+
+  function handleTemaSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!isValidHex(temaForm.colorPrimario) || !isValidHex(temaForm.colorSecundario)) {
+      toast.error('Introduce colores en formato hexadecimal válido (#RRGGBB)')
+      return
+    }
+    // Aplicar inmediatamente (preview en vivo antes de guardar)
+    applyTheme(temaForm)
+    temaMutation.mutate(temaForm)
+  }
+
+  function handleTemaReset() {
+    const defaults = { colorPrimario: THEME_DEFAULTS.colorPrimario, colorSecundario: THEME_DEFAULTS.colorSecundario }
+    setTemaForm(defaults)
+    resetTheme()
+    temaMutation.mutate(defaults)
+  }
+
+  // ═══════════════════════════════════════════════════════
   // TABS CONFIG
   // ═══════════════════════════════════════════════════════
+
 
   const userTabs = [
     { id: 'perfil'   as Tab, icon: <User className="w-4 h-4" />,     label: 'Mi perfil' },
@@ -444,15 +493,18 @@ export default function Ajustes() {
     { id: 'stock'   as Tab, icon: <Package className="w-4 h-4" />,   label: 'Stock' },
     { id: 'smtp'    as Tab, icon: <Server className="w-4 h-4" />,    label: 'SMTP' },
     { id: 'ia'      as Tab, icon: <Bot className="w-4 h-4" />,       label: 'BuenaTierrAI' },
+    { id: 'tema'    as Tab, icon: <Palette className="w-4 h-4" />,   label: 'Tema' },
   ]
 
   const correoTab = { id: 'correo' as Tab, icon: <Inbox className="w-4 h-4" />, label: 'Correo' }
   const iaTabOnly = [{ id: 'ia' as Tab, icon: <Bot className="w-4 h-4" />, label: 'BuenaTierrAI' }]
+  const temaTab   = { id: 'tema' as Tab, icon: <Palette className="w-4 h-4" />, label: 'Tema' }
+  const canConfigureTema = isAdmin || user?.rol === 'Obrador'
 
   const allTabs = isAdmin
     ? [...userTabs, ...adminTabs, correoTab]
     : canConfigureIa
-      ? [...userTabs, ...iaTabOnly, correoTab]
+      ? [...userTabs, ...iaTabOnly, temaTab, correoTab]
       : [...userTabs, correoTab]
 
   // ── render ─────────────────────────────────────────────────────────────────
@@ -987,8 +1039,186 @@ export default function Ajustes() {
             <div className="flex justify-end pt-2"><SaveBtn loading={iaConfigMutation.isPending} /></div>
           </form>
         )}
+
+        {/* ── TEMA ── */}
+        {tab === 'tema' && canConfigureTema && (
+          <form onSubmit={handleTemaSubmit} className="p-6 space-y-6">
+            <div>
+              <SectionTitle><Palette className="w-4 h-4 text-brand-500" /> Colores de la empresa</SectionTitle>
+              <p className="text-xs text-gray-500 -mt-2">
+                Personaliza los colores primario y secundario de la interfaz. Se aplican en botones, cabeceras, badges y navegación.
+              </p>
+            </div>
+
+            {/* Selectores de color */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {/* Color primario */}
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold text-gray-600">Color primario</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={isValidHex(temaForm.colorPrimario) ? temaForm.colorPrimario : '#c4541a'}
+                    onChange={e => {
+                      setTemaForm(f => ({ ...f, colorPrimario: e.target.value }))
+                      applyTheme({ ...temaForm, colorPrimario: e.target.value })
+                    }}
+                    className="w-14 h-14 rounded-xl border-2 border-gray-200 cursor-pointer p-1 bg-white"
+                    title="Color primario"
+                  />
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={temaForm.colorPrimario}
+                      onChange={e => {
+                        const val = e.target.value.startsWith('#') ? e.target.value : '#' + e.target.value
+                        setTemaForm(f => ({ ...f, colorPrimario: val }))
+                        if (isValidHex(val)) applyTheme({ ...temaForm, colorPrimario: val })
+                      }}
+                      maxLength={7}
+                      placeholder="#c4541a"
+                      className={`w-full border rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 transition-colors ${
+                        isValidHex(temaForm.colorPrimario)
+                          ? 'border-gray-200 focus:ring-gray-300'
+                          : 'border-red-300 bg-red-50 focus:ring-red-400/50'
+                      }`}
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Botones, cabecera, navegación activa</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Color secundario */}
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold text-gray-600">Color secundario</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={isValidHex(temaForm.colorSecundario) ? temaForm.colorSecundario : '#e0b355'}
+                    onChange={e => {
+                      setTemaForm(f => ({ ...f, colorSecundario: e.target.value }))
+                      applyTheme({ ...temaForm, colorSecundario: e.target.value })
+                    }}
+                    className="w-14 h-14 rounded-xl border-2 border-gray-200 cursor-pointer p-1 bg-white"
+                    title="Color secundario"
+                  />
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={temaForm.colorSecundario}
+                      onChange={e => {
+                        const val = e.target.value.startsWith('#') ? e.target.value : '#' + e.target.value
+                        setTemaForm(f => ({ ...f, colorSecundario: val }))
+                        if (isValidHex(val)) applyTheme({ ...temaForm, colorSecundario: val })
+                      }}
+                      maxLength={7}
+                      placeholder="#e0b355"
+                      className={`w-full border rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 transition-colors ${
+                        isValidHex(temaForm.colorSecundario)
+                          ? 'border-gray-200 focus:ring-gray-300'
+                          : 'border-red-300 bg-red-50 focus:ring-red-400/50'
+                      }`}
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Badges, acentos, etiquetas</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Vista previa */}
+            <div className="rounded-2xl border border-gray-100 overflow-hidden">
+              <div
+                className="h-12 flex items-center px-5 gap-3"
+                style={{ background: `linear-gradient(135deg, ${isValidHex(temaForm.colorPrimario) ? temaForm.colorPrimario : '#c4541a'}cc 0%, ${isValidHex(temaForm.colorPrimario) ? temaForm.colorPrimario : '#c4541a'} 100%)` }}
+              >
+                <span className="text-white font-bold text-sm">Vista previa — cabecera</span>
+              </div>
+              <div className="p-5 bg-white space-y-3">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span
+                    className="inline-flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-sm"
+                    style={{ backgroundColor: isValidHex(temaForm.colorPrimario) ? temaForm.colorPrimario : '#c4541a' }}
+                  >
+                    <Save className="w-4 h-4" />
+                    Guardar
+                  </span>
+                  <span className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700">
+                    Cancelar
+                  </span>
+                  <span
+                    className="inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border"
+                    style={{
+                      backgroundColor: (isValidHex(temaForm.colorPrimario) ? temaForm.colorPrimario : '#c4541a') + '18',
+                      color: isValidHex(temaForm.colorPrimario) ? temaForm.colorPrimario : '#c4541a',
+                      borderColor: (isValidHex(temaForm.colorPrimario) ? temaForm.colorPrimario : '#c4541a') + '40',
+                    }}
+                  >
+                    Activo
+                  </span>
+                  <span
+                    className="inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border"
+                    style={{
+                      backgroundColor: (isValidHex(temaForm.colorSecundario) ? temaForm.colorSecundario : '#e0b355') + '22',
+                      color: isValidHex(temaForm.colorSecundario) ? temaForm.colorSecundario : '#e0b355',
+                      borderColor: (isValidHex(temaForm.colorSecundario) ? temaForm.colorSecundario : '#e0b355') + '60',
+                    }}
+                  >
+                    Lote vigente
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400">Los cambios se aplican en tiempo real mientras editas.</p>
+              </div>
+            </div>
+
+            {/* Paletas predefinidas */}
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Paletas predefinidas</p>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { label: 'BuenaTierra',  p: '#c4541a', s: '#e0b355' },
+                  { label: 'Azul marino',  p: '#1e3a8a', s: '#3b82f6' },
+                  { label: 'Esmeralda',    p: '#065f46', s: '#34d399' },
+                  { label: 'Vino',         p: '#7c1d41', s: '#f472b6' },
+                  { label: 'Pizarra',      p: '#1e293b', s: '#64748b' },
+                  { label: 'Índigo',       p: '#4338ca', s: '#818cf8' },
+                  { label: 'Ámbar',        p: '#b45309', s: '#fbbf24' },
+                  { label: 'Rosa',         p: '#9d174d', s: '#ec4899' },
+                ] as const).map(preset => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      setTemaForm({ colorPrimario: preset.p, colorSecundario: preset.s })
+                      applyTheme({ colorPrimario: preset.p, colorSecundario: preset.s })
+                    }}
+                    className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50 transition-colors"
+                  >
+                    <span className="flex gap-0.5">
+                      <span className="w-3 h-3 rounded-full inline-block border border-white/50 shadow-sm" style={{ backgroundColor: preset.p }} />
+                      <span className="w-3 h-3 rounded-full inline-block border border-white/50 shadow-sm" style={{ backgroundColor: preset.s }} />
+                    </span>
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Acciones */}
+            <div className="flex items-center justify-between pt-1 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={handleTemaReset}
+                disabled={temaMutation.isPending}
+                className="text-sm text-gray-500 hover:text-gray-700 font-medium px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Restablecer colores BuenaTierra
+              </button>
+              <SaveBtn loading={temaMutation.isPending} label="Guardar colores" />
+            </div>
+          </form>
+        )}
+
       </div>
     </div>
   )
 }
-
