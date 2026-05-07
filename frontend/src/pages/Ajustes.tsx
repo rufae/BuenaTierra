@@ -498,11 +498,13 @@ export default function Ajustes() {
 
   const correoTab = { id: 'correo' as Tab, icon: <Inbox className="w-4 h-4" />, label: 'Correo' }
   const iaTabOnly = [{ id: 'ia' as Tab, icon: <Bot className="w-4 h-4" />, label: 'BuenaTierrAI' }]
+  const temaTab   = { id: 'tema' as Tab, icon: <Palette className="w-4 h-4" />, label: 'Tema' }
+  const canConfigureTema = isAdmin || user?.rol === 'Obrador'
 
   const allTabs = isAdmin
     ? [...userTabs, ...adminTabs, correoTab]
     : canConfigureIa
-      ? [...userTabs, ...iaTabOnly, correoTab]
+      ? [...userTabs, ...iaTabOnly, temaTab, correoTab]
       : [...userTabs, correoTab]
 
   // ── render ─────────────────────────────────────────────────────────────────
@@ -1039,7 +1041,7 @@ export default function Ajustes() {
         )}
 
         {/* ── TEMA ── */}
-        {tab === 'tema' && isAdmin && (
+        {tab === 'tema' && canConfigureTema && (
           <form onSubmit={handleTemaSubmit} className="p-6 space-y-6">
             <div>
               <SectionTitle><Palette className="w-4 h-4 text-brand-500" /> Colores de la empresa</SectionTitle>

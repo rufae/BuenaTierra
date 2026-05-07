@@ -41,6 +41,132 @@ public class EmpresaController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════
+    // GET /api/empresa/admin/lista — Listado completo para administración global
+    // ═══════════════════════════════════════════════════════
+
+    [HttpGet("admin/lista")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> ListarAdmin(CancellationToken ct)
+    {
+        var empresas = await _uow.Empresas.GetQueryable()
+            .OrderBy(e => e.Nombre)
+            .Select(e => new
+            {
+                e.Id,
+                e.Nombre,
+                e.Nif,
+                e.RazonSocial,
+                e.Telefono,
+                e.Email,
+                e.Activa,
+                e.EsObrador,
+            })
+            .ToListAsync(ct);
+
+        return Ok(ApiResponse<object>.Ok(empresas));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // POST /api/empresa/admin — Crear empresa
+    // ═══════════════════════════════════════════════════════
+
+    [HttpPost("admin")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> CrearAdmin([FromBody] CreateEmpresaRequest req, CancellationToken ct)
+    {
+        var nombre = (req.Nombre ?? string.Empty).Trim();
+        var nif = (req.Nif ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(nombre) || string.IsNullOrWhiteSpace(nif))
+            return BadRequest(ApiResponse<string>.Fail("Nombre y NIF son obligatorios"));
+
+        var existeNif = await _uow.Empresas.ExistsAsync(e => e.Nif == nif, ct);
+        if (existeNif)
+            return Conflict(ApiResponse<string>.Fail("Ya existe una empresa con ese NIF"));
+
+        var nueva = new BuenaTierra.Domain.Entities.Empresa
+        {
+            Nombre = nombre,
+            Nif = nif,
+            RazonSocial = req.RazonSocial?.Trim(),
+            Direccion = req.Direccion?.Trim(),
+            CodigoPostal = req.CodigoPostal?.Trim(),
+            Ciudad = req.Ciudad?.Trim(),
+            Provincia = req.Provincia?.Trim(),
+            Pais = string.IsNullOrWhiteSpace(req.Pais) ? "España" : req.Pais.Trim(),
+            Telefono = req.Telefono?.Trim(),
+            Email = req.Email?.Trim(),
+            Web = req.Web?.Trim(),
+            NumeroRgseaa = req.NumeroRgseaa?.Trim(),
+            Activa = req.Activa,
+            EsObrador = req.EsObrador,
+            EmpresaPadreId = req.EmpresaPadreId,
+            Configuracion = "{}",
+        };
+
+        var creada = await _uow.Empresas.AddAsync(nueva, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<object>.Ok(new
+        {
+            creada.Id,
+            creada.Nombre,
+            creada.Nif,
+            creada.Activa,
+            creada.EsObrador,
+        }, "Empresa creada"));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // PUT /api/empresa/admin/{id} — Editar cualquier empresa
+    // ═══════════════════════════════════════════════════════
+
+    [HttpPut("admin/{id:int}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateAdmin(int id, [FromBody] UpdateEmpresaAdminRequest req, CancellationToken ct)
+    {
+        var e = await _uow.Empresas.GetByIdAsync(id, ct);
+        if (e is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
+
+        var nombre = (req.Nombre ?? e.Nombre).Trim();
+        var nif = (req.Nif ?? e.Nif).Trim();
+        if (string.IsNullOrWhiteSpace(nombre) || string.IsNullOrWhiteSpace(nif))
+            return BadRequest(ApiResponse<string>.Fail("Nombre y NIF son obligatorios"));
+
+        var existeNif = await _uow.Empresas.ExistsAsync(x => x.Nif == nif && x.Id != id, ct);
+        if (existeNif)
+            return Conflict(ApiResponse<string>.Fail("Ya existe otra empresa con ese NIF"));
+
+        e.Nombre = nombre;
+        e.Nif = nif;
+        e.RazonSocial = req.RazonSocial?.Trim();
+        e.Direccion = req.Direccion?.Trim();
+        e.CodigoPostal = req.CodigoPostal?.Trim();
+        e.Ciudad = req.Ciudad?.Trim();
+        e.Provincia = req.Provincia?.Trim();
+        e.Pais = string.IsNullOrWhiteSpace(req.Pais) ? e.Pais : req.Pais.Trim();
+        e.Telefono = req.Telefono?.Trim();
+        e.Email = req.Email?.Trim();
+        e.Web = req.Web?.Trim();
+        e.NumeroRgseaa = req.NumeroRgseaa?.Trim();
+        e.Activa = req.Activa;
+        e.EsObrador = req.EsObrador;
+        e.EmpresaPadreId = req.EmpresaPadreId;
+
+        await _uow.Empresas.UpdateAsync(e, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<object>.Ok(new
+        {
+            e.Id,
+            e.Nombre,
+            e.Nif,
+            e.Activa,
+            e.EsObrador,
+        }, "Empresa actualizada"));
+    }
+
+    // ═══════════════════════════════════════════════════════
     // GET /api/empresa — Datos de la empresa del usuario actual
     // ═══════════════════════════════════════════════════════
 
@@ -127,11 +253,11 @@ public class EmpresaController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════
-    // PUT /api/empresa/configuracion/tema — Guardar colores de la empresa (Admin)
+    // PUT /api/empresa/configuracion/tema — Guardar colores de la empresa (Admin, Obrador)
     // ═══════════════════════════════════════════════════════
 
     [HttpPut("configuracion/tema")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Obrador")]
     public async Task<IActionResult> UpdateConfiguracionTema([FromBody] UpdateConfiguracionTemaRequest req, CancellationToken ct)
     {
         // Validar formato hex #RRGGBB
@@ -412,4 +538,40 @@ public record UpdateConfiguracionIaRequest(
     string? ProviderBaseUrl,
     string? Model,
     string? ApiKey
+);
+
+public record CreateEmpresaRequest(
+    string? Nombre,
+    string? Nif,
+    string? RazonSocial,
+    string? Direccion,
+    string? CodigoPostal,
+    string? Ciudad,
+    string? Provincia,
+    string? Pais,
+    string? Telefono,
+    string? Email,
+    string? Web,
+    string? NumeroRgseaa,
+    bool EsObrador,
+    bool Activa,
+    int? EmpresaPadreId
+);
+
+public record UpdateEmpresaAdminRequest(
+    string? Nombre,
+    string? Nif,
+    string? RazonSocial,
+    string? Direccion,
+    string? CodigoPostal,
+    string? Ciudad,
+    string? Provincia,
+    string? Pais,
+    string? Telefono,
+    string? Email,
+    string? Web,
+    string? NumeroRgseaa,
+    bool EsObrador,
+    bool Activa,
+    int? EmpresaPadreId
 );

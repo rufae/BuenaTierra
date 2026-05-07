@@ -25,6 +25,11 @@ export interface Empresa {
   id: number
   nombre: string
   nif: string
+  razonSocial?: string | null
+  telefono?: string | null
+  email?: string | null
+  activa?: boolean
+  esObrador?: boolean
 }
 
 // ── Categorias ────────────────────────────────────────────────────────────────────
@@ -610,6 +615,7 @@ export interface TrazaIngrediente {
 export interface Usuario {
   id: number
   empresaId: number
+  empresaNombre?: string | null
   nombre: string
   apellidos: string | null
   email: string
