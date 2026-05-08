@@ -15,6 +15,7 @@ import Facturacion from './pages/Facturacion'
 import Lotes from './pages/Lotes'
 import Albaranes from './pages/Albaranes'
 import Pedidos from './pages/Pedidos'
+import Preventa from './pages/Preventa'
 import Trazabilidad from './pages/Trazabilidad'
 import FacturacionRapida from './pages/FacturacionRapida'
 import Reportes from './pages/Reportes'
@@ -109,6 +110,7 @@ function AppRoutes() {
         <Route path="lotes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Lotes /></ErrorBoundary></RoleGuard>} />
         <Route path="albaranes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Albaranes /></ErrorBoundary></RoleGuard>} />
         <Route path="pedidos" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Pedidos /></ErrorBoundary></RoleGuard>} />
+        <Route path="preventa" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Preventa /></ErrorBoundary></RoleGuard>} />
         <Route path="trazabilidad" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><Trazabilidad /></ErrorBoundary></RoleGuard>} />
         <Route path="facturacion-rapida" element={<RoleGuard allowed={['Repartidor']}><ErrorBoundary><FacturacionRapida /></ErrorBoundary></RoleGuard>} />
         <Route path="reportes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Reportes /></ErrorBoundary></RoleGuard>} />
