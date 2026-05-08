@@ -132,7 +132,8 @@ export default function Ajustes() {
   const { user, updateUser } = useAuth()
   const qc = useQueryClient()
   const isAdmin = user?.rol === 'Admin'
-  const canConfigureIa = user?.rol === 'Admin' || user?.rol === 'Obrador'
+  const esEmpresaObrador = user?.empresaEsObrador ?? true
+  const canConfigureIa = user?.rol === 'Admin' || user?.rol === 'Obrador' || !esEmpresaObrador
   const [tab, setTab] = useState<Tab>('perfil')
 
   const initials = [user?.nombre, user?.apellidos]
@@ -492,14 +493,14 @@ export default function Ajustes() {
     { id: 'iva'     as Tab, icon: <Percent className="w-4 h-4" />,   label: 'IVA / RE' },
     { id: 'stock'   as Tab, icon: <Package className="w-4 h-4" />,   label: 'Stock' },
     { id: 'smtp'    as Tab, icon: <Server className="w-4 h-4" />,    label: 'SMTP' },
-    { id: 'ia'      as Tab, icon: <Bot className="w-4 h-4" />,       label: 'BuenaTierrAI' },
+    { id: 'ia'      as Tab, icon: <Bot className="w-4 h-4" />,       label: 'IA' },
     { id: 'tema'    as Tab, icon: <Palette className="w-4 h-4" />,   label: 'Tema' },
   ]
 
   const correoTab = { id: 'correo' as Tab, icon: <Inbox className="w-4 h-4" />, label: 'Correo' }
-  const iaTabOnly = [{ id: 'ia' as Tab, icon: <Bot className="w-4 h-4" />, label: 'BuenaTierrAI' }]
+  const iaTabOnly = [{ id: 'ia' as Tab, icon: <Bot className="w-4 h-4" />, label: 'IA' }]
   const temaTab   = { id: 'tema' as Tab, icon: <Palette className="w-4 h-4" />, label: 'Tema' }
-  const canConfigureTema = isAdmin || user?.rol === 'Obrador'
+  const canConfigureTema = isAdmin || user?.rol === 'Obrador' || !esEmpresaObrador
 
   const allTabs = isAdmin
     ? [...userTabs, ...adminTabs, correoTab]
@@ -960,7 +961,7 @@ export default function Ajustes() {
 
         {tab === 'ia' && canConfigureIa && (
           <form onSubmit={handleIaConfigSave} className="p-6 space-y-5">
-            <SectionTitle><Bot className="w-4 h-4 text-brand-500" /> Configuración BuenaTierrAI</SectionTitle>
+            <SectionTitle><Bot className="w-4 h-4 text-brand-500" /> Configuración IA</SectionTitle>
             <p className="text-xs text-gray-500 -mt-2">
               Estos valores se guardan en la configuración de empresa y tienen prioridad sobre el `.env`.
               Para Ollama local no se requiere API key.
@@ -987,7 +988,7 @@ export default function Ajustes() {
                 }))}
                 className="rounded border-gray-300 text-brand-500 focus:ring-brand-400"
               />
-              <label htmlFor="ia-enabled" className="text-sm text-gray-700">BuenaTierrAI habilitada</label>
+              <label htmlFor="ia-enabled" className="text-sm text-gray-700">IA habilitada</label>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
