@@ -25,9 +25,10 @@ export const SHORTCUTS: ShortcutDef[] = [
 interface UseKeyboardShortcutsOptions {
   onShowHelp: () => void
   enabled?: boolean
+  operationPath?: string
 }
 
-export function useKeyboardShortcuts({ onShowHelp, enabled = true }: UseKeyboardShortcutsOptions) {
+export function useKeyboardShortcuts({ onShowHelp, enabled = true, operationPath = '/produccion' }: UseKeyboardShortcutsOptions) {
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -54,7 +55,7 @@ export function useKeyboardShortcuts({ onShowHelp, enabled = true }: UseKeyboard
           '4': '/lotes',
           '5': '/clientes',
           '6': '/productos',
-          '7': '/produccion',
+          '7': operationPath,
           '8': '/reportes',
           '9': '/trazabilidad',
           '0': '/usuarios',
@@ -68,5 +69,5 @@ export function useKeyboardShortcuts({ onShowHelp, enabled = true }: UseKeyboard
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [enabled, navigate, onShowHelp])
+  }, [enabled, navigate, onShowHelp, operationPath])
 }
