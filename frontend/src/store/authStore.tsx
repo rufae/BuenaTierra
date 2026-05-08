@@ -21,6 +21,9 @@ function loadStored(): AuthUser | null {
     const parsed = JSON.parse(raw)
     // Asegurar que el objeto tiene el campo `rol` (migración datos viejos sin rol)
     if (!parsed?.rol) return null
+    if (typeof parsed.empresaEsObrador !== 'boolean') {
+      parsed.empresaEsObrador = true
+    }
     return parsed
   } catch {
     return null
@@ -45,6 +48,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       id: string; email: string; nombre: string; empresaId: string; rol: string
     }
 
+    // 2.b Capacidad por tipo de empresa (Obrador vs Distribucion)
+    const empresaRes = await api.get<{ data: { esObrador?: boolean } }>('/empresa', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const empresaEsObrador = !!empresaRes.data?.data?.esObrador
+
     // 3. Separar nombre / apellidos: el campo "nombre" del claim contiene NombreCompleto
     const partes = (me.nombre ?? '').trim().split(' ')
     const nombre    = partes[0] ?? ''
@@ -53,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data: AuthUser = {
       usuarioId:  parseInt(me.id, 10),
       empresaId:  parseInt(me.empresaId, 10),
+      empresaEsObrador,
       nombre,
       apellidos,
       email:      me.email,
