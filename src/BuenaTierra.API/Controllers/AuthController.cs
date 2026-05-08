@@ -22,7 +22,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<ApiResponse<LoginResponse>>> Login(
         [FromBody] LoginRequest request, CancellationToken ct)
     {
-        var result = await _authService.LoginAsync(request.Email, request.Password, request.EmpresaId, ct);
+        var result = await _authService.LoginAsync(request.Email, request.Password, ct);
         if (!result.Success)
             return Unauthorized(ApiResponse<LoginResponse>.Fail(result.Error ?? "Credenciales inválidas"));
 
@@ -68,6 +68,6 @@ public class AuthController : ControllerBase
     }
 }
 
-public record LoginRequest(string Email, string Password, int? EmpresaId = null);
+public record LoginRequest(string Email, string Password);
 public record RefreshRequest(string RefreshToken);
 public record LoginResponse(string Token, string RefreshToken, DateTime Expira);

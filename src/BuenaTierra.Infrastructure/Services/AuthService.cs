@@ -24,35 +24,26 @@ public class AuthService : IAuthService
         _logger = logger;
     }
 
-    public async Task<AuthResult> LoginAsync(string email, string password, int? empresaId = null, CancellationToken ct = default)
+    public async Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default)
     {
         var emailNormalizado = email.Trim().ToLower();
         Domain.Entities.Usuario? usuario;
 
-        if (empresaId.HasValue)
-        {
-            usuario = (await _uow.Usuarios.FindAsync(
-                u => u.Email == emailNormalizado && u.EmpresaId == empresaId.Value && u.Activo, ct))
-                .FirstOrDefault();
-        }
-        else
-        {
-            var candidatos = (await _uow.Usuarios.FindAsync(
-                u => u.Email == emailNormalizado && u.Activo, ct))
-                .ToList();
+        var candidatos = (await _uow.Usuarios.FindAsync(
+            u => u.Email == emailNormalizado && u.Activo, ct))
+            .ToList();
 
-            if (candidatos.Count > 1)
-            {
-                _logger.LogWarning("Login ambiguo bloqueado: email={Email} encontrado en múltiples empresas", emailNormalizado);
-                return new AuthResult(false, null, null, null, "Usuario duplicado en múltiples empresas. Contacte con administración.");
-            }
-
-            usuario = candidatos.FirstOrDefault();
+        if (candidatos.Count > 1)
+        {
+            _logger.LogWarning("Login ambiguo bloqueado: email={Email} encontrado en múltiples empresas", emailNormalizado);
+            return new AuthResult(false, null, null, null, "Usuario duplicado en múltiples empresas. Contacte con administración.");
         }
+
+        usuario = candidatos.FirstOrDefault();
 
         if (usuario == null || !BCrypt.Net.BCrypt.Verify(password, usuario.PasswordHash))
         {
-            _logger.LogWarning("Intento de login fallido: email={Email}, empresa={EmpresaId}", emailNormalizado, empresaId);
+            _logger.LogWarning("Intento de login fallido: email={Email}", emailNormalizado);
             return new AuthResult(false, null, null, null, "Credenciales inválidas");
         }
 

@@ -220,7 +220,7 @@ export default function Usuarios() {
                       ? <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">Activa</span>
                       : <span className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">Inactiva</span>}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{e.esObrador ? 'Obrador' : 'Distribuidor'}</td>
+                  <td className="px-4 py-3 text-gray-600">{e.esObrador ? 'Obrador' : 'Distribución'}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
                       <button
@@ -593,7 +593,7 @@ function ModalEmpresa({
     nombre: empresa?.nombre ?? '',
     nif: empresa?.nif ?? '',
     activa: empresa?.activa ?? true,
-    esObrador: empresa?.esObrador ?? true,
+    tipoEmpresa: (empresa?.esObrador ?? true) ? 'Obrador' : 'Distribucion',
   })
   const [loading, setLoading] = useState(false)
 
@@ -608,7 +608,7 @@ function ModalEmpresa({
         nombre: form.nombre,
         nif: form.nif,
         activa: form.activa,
-        esObrador: form.esObrador,
+        esObrador: form.tipoEmpresa === 'Obrador',
       }
       if (empresa?.id) await api.put(`/empresa/admin/${empresa.id}`, payload)
       else await api.post('/empresa/admin', payload)
@@ -650,15 +650,17 @@ function ModalEmpresa({
           />
           <span className="text-gray-700">Empresa activa</span>
         </label>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={form.esObrador}
-            onChange={e => setForm(prev => ({ ...prev, esObrador: e.target.checked }))}
-            className="rounded border-gray-300 text-brand-600"
-          />
-          <span className="text-gray-700">Es obrador</span>
-        </label>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Tipo de empresa</label>
+          <select
+            value={form.tipoEmpresa}
+            onChange={e => setForm(prev => ({ ...prev, tipoEmpresa: e.target.value as 'Obrador' | 'Distribucion' }))}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+          >
+            <option value="Obrador">Obrador</option>
+            <option value="Distribucion">Distribución</option>
+          </select>
+        </div>
       </div>
       <div className="flex justify-end gap-3 mt-6">
         <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg">Cancelar</button>

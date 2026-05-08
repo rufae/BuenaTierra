@@ -2,6 +2,7 @@
 export interface AuthUser {
   usuarioId: number
   empresaId: number
+  empresaEsObrador?: boolean
   nombre: string
   apellidos: string
   email: string
@@ -30,6 +31,7 @@ export interface Empresa {
   email?: string | null
   activa?: boolean
   esObrador?: boolean
+  tipoEmpresa?: 'Obrador' | 'Distribucion'
 }
 
 // ── Categorias ────────────────────────────────────────────────────────────────────
