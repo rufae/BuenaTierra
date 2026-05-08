@@ -436,6 +436,63 @@ export interface CreatePedidoDto {
   items: CreatePedidoItemDto[]
 }
 
+// ── Preventa ─────────────────────────────────────────────────────────────────
+export interface PreventaResumen {
+  id: number
+  fechaPreventa: string
+  estado: string
+  clienteId: number
+  clienteNombre: string
+  totalLineas: number
+  totalCantidad: number
+  alertaConfirmada: boolean
+  pedidoId: number | null
+}
+
+export interface PreventaLinea {
+  id: number
+  productoId: number
+  productoNombre: string
+  fechaObjetivo: string
+  cantidadPrevista: number
+  cantidadFinal: number | null
+  estadoLinea: string
+  editable: boolean
+  pedidoId: number | null
+  motivoBloqueo: string | null
+  observaciones: string | null
+}
+
+export interface PreventaDetalle {
+  id: number
+  clienteId: number
+  clienteNombre: string
+  fechaPreventa: string
+  estado: string
+  version: number
+  alertaConfirmada: boolean
+  notas: string | null
+  lineas: PreventaLinea[]
+}
+
+export interface PreventaLineaInput {
+  id?: number
+  productoId: number
+  fechaObjetivo: string
+  cantidadPrevista: number
+  cantidadFinal?: number | null
+  estadoLinea?: string
+  observaciones?: string | null
+}
+
+export interface ValidacionConversion {
+  esValida: boolean
+  requiereConfirmacion: boolean
+  advertencias: string[]
+  lineasConvertibles: number
+  cantidadTotal: number
+}
+
 // ── Trazabilidad ──────────────────────────────────────────────────────────────
 export interface TrazabilidadItem {
   id: number
