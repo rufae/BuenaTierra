@@ -279,3 +279,28 @@ input[type="radio"]:checked {
   border-color:     var(--brand-primary) !important;
 }
 
+/* Utilidades Tailwind de marca (texto/fondo/borde) mapeadas al tema dinámico */
+.text-brand-50  { color: var(--brand-primary-pale) !important; }
+.text-brand-100 { color: var(--brand-primary-light) !important; }
+.text-brand-200 { color: var(--brand-primary-light) !important; }
+.text-brand-500 { color: var(--brand-primary) !important; }
+.text-brand-600 { color: var(--brand-primary-dark) !important; }
+.text-brand-700 { color: var(--brand-primary-darker) !important; }
+
+.bg-brand-50  { background-color: var(--brand-primary-pale) !important; }
+.bg-brand-100 { background-color: var(--brand-primary-light) !important; }
+.bg-brand-200 { background-color: color-mix(in srgb, var(--brand-primary) 25%, white) !important; }
+.bg-brand-500 { background-color: var(--brand-primary) !important; }
+.bg-brand-600 { background-color: var(--brand-primary-dark) !important; }
+.bg-brand-700 { background-color: var(--brand-primary-darker) !important; }
+
+.border-brand-100 { border-color: var(--brand-primary-light) !important; }
+.border-brand-200 { border-color: color-mix(in srgb, var(--brand-primary) 30%, white) !important; }
+.border-brand-300 { border-color: color-mix(in srgb, var(--brand-primary) 45%, white) !important; }
+.border-brand-400 { border-color: color-mix(in srgb, var(--brand-primary) 60%, white) !important; }
+.border-brand-500 { border-color: var(--brand-primary) !important; }
+
+.hover\:bg-brand-50:hover  { background-color: var(--brand-primary-pale) !important; }
+.hover\:bg-brand-600:hover { background-color: var(--brand-primary-dark) !important; }
+.hover\:text-brand-700:hover { color: var(--brand-primary-darker) !important; }
+

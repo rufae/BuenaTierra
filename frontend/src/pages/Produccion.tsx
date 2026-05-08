@@ -76,10 +76,17 @@ function mkForm(empresaId: number, usuarioId: number, todayIso: string): CrearPr
   return { empresaId, usuarioId, productoId: 0, cantidadProducida: 0, fechaProduccion: todayIso, codigoLoteSugerido: loteCodigo(), fechaCaducidadSugerida: '', notas: '' }
 }
 
-export default function ProduccionPage() {
+interface ProduccionPageProps {
+  modo?: 'produccion' | 'compra'
+}
+
+export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
   const { user } = useAuth()
   const qc = useQueryClient()
   const todayIso = new Date().toISOString().split('T')[0]
+  const esCompra = modo === 'compra'
+  const moduloNombre = esCompra ? 'Compra' : 'Producción'
+  const moduloNombreLower = esCompra ? 'compra' : 'producción'
 
   // ── Filtros ──────────────────────────────────────────────────
   const [busqueda, setBusqueda]     = useState('')
@@ -142,12 +149,12 @@ export default function ProduccionPage() {
       qc.invalidateQueries({ queryKey: ['stock'] })
       const { codigoLote } = res.data.data
       toast.success(codigoLote
-        ? `Producción registrada — Lote ${codigoLote}`
-        : 'Producción registrada (pendiente de finalizar)')
+        ? `${moduloNombre} registrada — Lote ${codigoLote}`
+        : `${moduloNombre} registrada (pendiente de finalizar)`)
       setShowForm(false)
       setForm(mkForm(user!.empresaId, user!.usuarioId, todayIso))
     },
-    onError: () => toast.error('Error al registrar producción'),
+    onError: () => toast.error(`Error al registrar ${moduloNombreLower}`),
   })
 
   const finalizarMutation = useMutation({
@@ -155,7 +162,7 @@ export default function ProduccionPage() {
     onSuccess: () => {
       invalidar()
       qc.invalidateQueries({ queryKey: ['stock'] })
-      toast.success('Producción finalizada. Lote y stock generados.')
+      toast.success(`${moduloNombre} finalizada. Lote y stock generados.`)
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -166,8 +173,8 @@ export default function ProduccionPage() {
 
   const cancelarMutation = useMutation({
     mutationFn: (id: number) => api.post(`/produccion/${id}/cancelar`, { motivo: 'Cancelado por usuario' }),
-    onSuccess: () => { invalidar(); toast.success('Producción cancelada') },
-    onError: () => toast.error('Error al cancelar producción'),
+    onSuccess: () => { invalidar(); toast.success(`${moduloNombre} cancelada`) },
+    onError: () => toast.error(`Error al cancelar ${moduloNombreLower}`),
   })
 
   // ── Submit ───────────────────────────────────────────────────────
@@ -203,7 +210,7 @@ export default function ProduccionPage() {
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Producción')
-    XLSX.writeFile(wb, `produccion_${fechaDesde}_${fechaHasta}.xlsx`)
+    XLSX.writeFile(wb, `${modo}_${fechaDesde}_${fechaHasta}.xlsx`)
     toast.success('Excel exportado')
   }
 
@@ -211,7 +218,7 @@ export default function ProduccionPage() {
     if (!producciones.length) return toast.error('No hay datos para exportar')
     const doc = new jsPDF({ orientation: 'landscape' })
     doc.setFontSize(14)
-    doc.text('Producción', 14, 14)
+    doc.text(moduloNombre, 14, 14)
     doc.setFontSize(9)
     doc.setTextColor(120)
     doc.text(`Período: ${fechaDesde} — ${fechaHasta}`, 14, 21)
@@ -231,7 +238,7 @@ export default function ProduccionPage() {
       alternateRowStyles: { fillColor: [248, 248, 255] },
       styles: { fontSize: 8 },
     })
-    doc.save(`produccion_${fechaDesde}_${fechaHasta}.pdf`)
+    doc.save(`${modo}_${fechaDesde}_${fechaHasta}.pdf`)
     toast.success('PDF exportado')
   }
 
@@ -242,12 +249,16 @@ export default function ProduccionPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Producción</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Registro de producción — lotes y stock automáticos</p>
+          <h1 className="text-2xl font-bold text-gray-900">{moduloNombre}</h1>
+          <p className="text-gray-500 text-sm mt-0.5">
+            {esCompra
+              ? 'Registro de compras por lote — entrada de stock automática'
+              : 'Registro de producción — lotes y stock automáticos'}
+          </p>
         </div>
         <button onClick={() => setShowForm(true)}
           className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-          <Plus className="w-4 h-4" /> Registrar producción
+          <Plus className="w-4 h-4" /> Registrar {moduloNombreLower}
         </button>
       </div>
 
@@ -311,7 +322,7 @@ export default function ProduccionPage() {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
           <Factory className="w-4 h-4 text-brand-600" />
-          <h2 className="font-semibold text-gray-900 text-sm">Producciones</h2>
+          <h2 className="font-semibold text-gray-900 text-sm">{esCompra ? 'Compras' : 'Producciones'}</h2>
           {!isLoading && (
             <span className="ml-1 text-xs text-gray-400">
               {producciones.length} registro{producciones.length !== 1 ? 's' : ''}
@@ -344,7 +355,7 @@ export default function ProduccionPage() {
                 </td></tr>
               ) : !producciones.length ? (
                 <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-400">
-                  No hay producciones para los filtros seleccionados
+                  No hay {esCompra ? 'compras' : 'producciones'} para los filtros seleccionados
                 </td></tr>
               ) : producciones.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
@@ -417,12 +428,12 @@ export default function ProduccionPage() {
         </div>
       </div>
 
-      {/* Modal: Registrar producción */}
+      {/* Modal: Registrar */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="font-semibold text-gray-900">Registrar producción</h2>
+              <h2 className="font-semibold text-gray-900">Registrar {moduloNombreLower}</h2>
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
@@ -445,7 +456,7 @@ export default function ProduccionPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de producción *</label>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de {moduloNombreLower} *</label>
                   <DateInput value={form.fechaProduccion} onChange={handleFechaChange} required className="w-full" />
                 </div>
                 <div>
@@ -467,7 +478,7 @@ export default function ProduccionPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Cantidad producida *</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Cantidad {esCompra ? 'comprada' : 'producida'} *</label>
                 <input type="number" min="1" step="1"
                   value={form.cantidadProducida || ''}
                   onFocus={e => e.currentTarget.select()}
@@ -475,7 +486,7 @@ export default function ProduccionPage() {
                   required placeholder="0"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 <p className="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 mt-1.5">
-                  Si ya existe una producción <strong>pendiente</strong> con mismo producto y lote, la cantidad se acumula en ese registro.
+                  Si ya existe un registro <strong>pendiente</strong> con mismo producto y lote, la cantidad se acumula en ese registro.
                 </p>
               </div>
 
@@ -504,4 +515,8 @@ export default function ProduccionPage() {
       )}
     </div>
   )
+}
+
+export default function ProduccionPageDefault() {
+  return <ProduccionPage modo="produccion" />
 }
