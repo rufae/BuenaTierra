@@ -49,6 +49,25 @@ public enum EstadoProduccion
     Cancelada
 }
 
+public enum EstadoPreventa
+{
+    Borrador,
+    PendienteRevision,
+    Confirmada,
+    Convertida,
+    Cancelada
+}
+
+public enum EstadoPreventaLinea
+{
+    Previsto,
+    PendienteCompra,
+    ListoParaPedido,
+    Convertida,
+    NoServible,
+    Cancelada
+}
+
 public enum TipoCliente
 {
     Empresa,

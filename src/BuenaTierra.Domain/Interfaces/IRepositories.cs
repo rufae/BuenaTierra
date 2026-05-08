@@ -137,6 +137,9 @@ public interface IUnitOfWork : IDisposable
     IRepository<PlantillaEtiqueta> PlantillasEtiqueta { get; }
     IRepository<EtiquetaImportada> EtiquetasImportadas { get; }
     IRepository<TrabajoImpresionEtiqueta> TrabajosImpresion { get; }
+    IRepository<Preventa> Preventas { get; }
+    IRepository<PreventaLinea> PreventaLineas { get; }
+    IRepository<PreventaHistorial> PreventaHistorial { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     Task BeginTransactionAsync(CancellationToken ct = default);
