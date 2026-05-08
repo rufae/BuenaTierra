@@ -10,6 +10,7 @@ import {
   Activity, Zap, BarChart2, Leaf, Shield, Menu, X,
   Wifi, WifiOff, UserCog, Tag, Bot, Mail,
   Wallet, ShoppingCart,
+  CalendarDays,
 } from 'lucide-react'
 
 // ── Badge de estado del servidor ──────────────────────────────────────────────
@@ -65,6 +66,7 @@ const NAV_OBRADOR_BASE: NavItem[] = [
   { to: '/facturacion', icon: <FileText className="w-[18px] h-[18px]" />,        label: 'Facturación' },
   { to: '/albaranes',   icon: <Truck className="w-[18px] h-[18px]" />,           label: 'Albaranes' },
   { to: '/pedidos',     icon: <ClipboardList className="w-[18px] h-[18px]" />,   label: 'Pedidos' },
+  { to: '/preventa',    icon: <CalendarDays className="w-[18px] h-[18px]" />,    label: 'Preventa' },
   { to: '/clientes',    icon: <Users className="w-[18px] h-[18px]" />,           label: 'Clientes',    separator: true },
   { to: '/productos',   icon: <Package className="w-[18px] h-[18px]" />,         label: 'Productos' },
   { to: '/produccion',  icon: <Factory className="w-[18px] h-[18px]" />,         label: 'Producción' },
@@ -82,6 +84,7 @@ const NAV_OBRADOR_BASE: NavItem[] = [
 const NAV_REPARTIDOR: NavItem[] = [
   { to: '/dashboard',          icon: <LayoutDashboard className="w-[18px] h-[18px]" />, label: 'Panel' },
   { to: '/facturacion-rapida', icon: <Zap className="w-[18px] h-[18px]" />,             label: 'Facturación rápida' },
+  { to: '/preventa',           icon: <CalendarDays className="w-[18px] h-[18px]" />,    label: 'Preventa' },
   { to: '/clientes',           icon: <Users className="w-[18px] h-[18px]" />,           label: 'Mis clientes', separator: true },
   { to: '/trazabilidad',       icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad' },
   { to: '/balance',            icon: <Wallet className="w-[18px] h-[18px]" />,          label: 'Balance' },
