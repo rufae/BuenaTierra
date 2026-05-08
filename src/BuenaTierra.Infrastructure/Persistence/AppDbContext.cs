@@ -38,6 +38,9 @@ public class AppDbContext : DbContext
     public DbSet<EtiquetaImportada> EtiquetasImportadas => Set<EtiquetaImportada>();
     public DbSet<TrabajoImpresionEtiqueta> TrabajosImpresion => Set<TrabajoImpresionEtiqueta>();
     public DbSet<CorreoMensaje> CorreosMensajes => Set<CorreoMensaje>();
+    public DbSet<Preventa> Preventas => Set<Preventa>();
+    public DbSet<PreventaLinea> PreventaLineas => Set<PreventaLinea>();
+    public DbSet<PreventaHistorial> PreventaHistorial => Set<PreventaHistorial>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -71,6 +74,9 @@ public class AppDbContext : DbContext
         mb.Entity<EtiquetaImportada>().ToTable("etiquetas_importadas");
         mb.Entity<TrabajoImpresionEtiqueta>().ToTable("trabajos_impresion_etiqueta");
         mb.Entity<CorreoMensaje>().ToTable("correos_mensajes");
+        mb.Entity<Preventa>().ToTable("preventas");
+        mb.Entity<PreventaLinea>().ToTable("preventa_lineas");
+        mb.Entity<PreventaHistorial>().ToTable("preventa_historial");
 
         mb.Entity<Trazabilidad>(e =>
         {
@@ -306,6 +312,39 @@ public class AppDbContext : DbContext
             e.Property(x => x.Descuento).HasPrecision(5, 2);
             e.Property(x => x.IvaPorcentaje).HasPrecision(5, 2);
             e.Property(x => x.RecargoEquivalenciaPorcentaje).HasPrecision(5, 2);
+        });
+
+        // ---- PREVENTA ----
+        mb.Entity<Preventa>(e =>
+        {
+            e.Property(x => x.Estado).HasConversion(new EnumToStringConverter<EstadoPreventa>()).HasMaxLength(30);
+            e.Property(x => x.Notas).HasColumnType("text");
+            e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
+            e.HasOne(x => x.Cliente).WithMany().HasForeignKey(x => x.ClienteId);
+            e.HasOne(x => x.Repartidor).WithMany().HasForeignKey(x => x.RepartidorId).OnDelete(DeleteBehavior.SetNull);
+            e.HasMany(x => x.Lineas).WithOne(x => x.Preventa).HasForeignKey(x => x.PreventaId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        mb.Entity<PreventaLinea>(e =>
+        {
+            e.Property(x => x.CantidadPrevista).HasPrecision(10, 3);
+            e.Property(x => x.CantidadFinal).HasPrecision(10, 3);
+            e.Property(x => x.EstadoLinea).HasConversion(new EnumToStringConverter<EstadoPreventaLinea>()).HasMaxLength(30);
+            e.Property(x => x.MotivoBloqueo).HasColumnType("text");
+            e.Property(x => x.Observaciones).HasColumnType("text");
+            e.HasOne(x => x.Producto).WithMany().HasForeignKey(x => x.ProductoId);
+            e.HasOne(x => x.Pedido).WithMany().HasForeignKey(x => x.PedidoId).OnDelete(DeleteBehavior.SetNull);
+            e.HasMany(x => x.Historial).WithOne(x => x.PreventaLinea).HasForeignKey(x => x.PreventaLineaId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.PreventaId, x.ProductoId, x.FechaObjetivo }).IsUnique();
+        });
+
+        mb.Entity<PreventaHistorial>(e =>
+        {
+            e.Property(x => x.Accion).HasMaxLength(100).IsRequired();
+            e.Property(x => x.CantidadAnterior).HasPrecision(10, 3);
+            e.Property(x => x.CantidadNueva).HasPrecision(10, 3);
+            e.Property(x => x.Detalle).HasColumnType("jsonb").HasDefaultValue("{}");
+            e.HasOne(x => x.Usuario).WithMany().HasForeignKey(x => x.UsuarioId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // ---- ALBARAN ----

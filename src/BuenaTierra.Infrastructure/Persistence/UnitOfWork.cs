@@ -39,6 +39,9 @@ public class UnitOfWork : IUnitOfWork
     private IRepository<PlantillaEtiqueta>? _plantillasEtiqueta;
     private IRepository<EtiquetaImportada>? _etiquetasImportadas;
     private IRepository<TrabajoImpresionEtiqueta>? _trabajosImpresion;
+    private IRepository<Preventa>? _preventas;
+    private IRepository<PreventaLinea>? _preventaLineas;
+    private IRepository<PreventaHistorial>? _preventaHistorial;
 
     public UnitOfWork(AppDbContext context) => _context = context;
 
@@ -65,6 +68,9 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<PlantillaEtiqueta> PlantillasEtiqueta => _plantillasEtiqueta ??= new Repository<PlantillaEtiqueta>(_context);
     public IRepository<EtiquetaImportada> EtiquetasImportadas => _etiquetasImportadas ??= new Repository<EtiquetaImportada>(_context);
     public IRepository<TrabajoImpresionEtiqueta> TrabajosImpresion => _trabajosImpresion ??= new Repository<TrabajoImpresionEtiqueta>(_context);
+    public IRepository<Preventa> Preventas => _preventas ??= new Repository<Preventa>(_context);
+    public IRepository<PreventaLinea> PreventaLineas => _preventaLineas ??= new Repository<PreventaLinea>(_context);
+    public IRepository<PreventaHistorial> PreventaHistorial => _preventaHistorial ??= new Repository<PreventaHistorial>(_context);
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)
         => await _context.SaveChangesAsync(ct);
