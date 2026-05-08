@@ -253,11 +253,11 @@ public class EmpresaController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════
-    // PUT /api/empresa/configuracion/tema — Guardar colores de la empresa (Admin, Obrador)
+    // PUT /api/empresa/configuracion/tema — Guardar colores de la empresa
     // ═══════════════════════════════════════════════════════
 
     [HttpPut("configuracion/tema")]
-    [Authorize(Roles = "Admin,Obrador")]
+    [Authorize(Roles = "Admin,Obrador,Repartidor")]
     public async Task<IActionResult> UpdateConfiguracionTema([FromBody] UpdateConfiguracionTemaRequest req, CancellationToken ct)
     {
         // Validar formato hex #RRGGBB
@@ -269,6 +269,11 @@ public class EmpresaController : ControllerBase
 
         var e = await _uow.Empresas.GetByIdAsync(EmpresaId, ct);
         if (e is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
+
+        // Un usuario Repartidor solo puede configurar tema cuando su empresa es de Distribución.
+        var rol = User.FindFirstValue(ClaimTypes.Role);
+        if (string.Equals(rol, "Repartidor", StringComparison.OrdinalIgnoreCase) && e.EsObrador)
+            return Forbid();
 
         JsonObject root;
         try
@@ -298,14 +303,19 @@ public class EmpresaController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════
-    // PUT /api/empresa/configuracion/ia — Guardar solo configuración IA (Admin/Obrador)
+    // PUT /api/empresa/configuracion/ia — Guardar solo configuración IA
     // ═══════════════════════════════════════════════════════
     [HttpPut("configuracion/ia")]
-    [Authorize(Roles = "Admin,Obrador")]
+    [Authorize(Roles = "Admin,Obrador,Repartidor")]
     public async Task<IActionResult> UpdateConfiguracionIa([FromBody] UpdateConfiguracionIaRequest req, CancellationToken ct)
     {
         var e = await _uow.Empresas.GetByIdAsync(EmpresaId, ct);
         if (e is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
+
+        // Un usuario Repartidor solo puede configurar IA cuando su empresa es de Distribución.
+        var rol = User.FindFirstValue(ClaimTypes.Role);
+        if (string.Equals(rol, "Repartidor", StringComparison.OrdinalIgnoreCase) && e.EsObrador)
+            return Forbid();
 
         JsonObject root;
         try

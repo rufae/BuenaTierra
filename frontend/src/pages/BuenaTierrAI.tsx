@@ -198,7 +198,7 @@ export default function BuenaTierrAI() {
     {
       role: 'assistant',
       content:
-        '¡Hola! Soy BuenaTierrAI, tu asistente del obrador. Puedo ayudarte con:\n\n- **Consultar datos**: ventas, stock, lotes, clientes, productos, ingredientes y alérgenos\n- **Guiarte paso a paso**: crear clientes, hacer facturas, registrar producción\n- **Analizar**: detectar lotes a caducar, alertas de stock, reportes de sanidad\n- **Explicar**: cómo funciona cada sección de la aplicación\n\nPregúntame lo que necesites en lenguaje natural.'
+        '¡Hola! Soy IA, tu asistente de la plataforma. Puedo ayudarte con:\n\n- **Consultar datos**: ventas, stock, lotes, clientes, productos, ingredientes y alérgenos\n- **Guiarte paso a paso**: crear clientes, hacer facturas, registrar compras/producción\n- **Analizar**: detectar lotes a caducar, alertas de stock, reportes de sanidad\n- **Explicar**: cómo funciona cada sección de la aplicación\n\nPregúntame lo que necesites en lenguaje natural.'
     }
   ])
 
@@ -256,7 +256,7 @@ export default function BuenaTierrAI() {
       setContextRefreshing(true)
       await fetchToolContext(showToast)
     } catch (e: unknown) {
-      const msg = getErrorMessage(e, 'No se pudo cargar contexto API para BuenaTierrAI')
+      const msg = getErrorMessage(e, 'No se pudo cargar contexto API para IA')
       toast.error(msg)
     } finally {
       setContextRefreshing(false)
@@ -311,7 +311,7 @@ export default function BuenaTierrAI() {
   async function sendMessage() {
     if (!input.trim()) return
     if (!canChat) {
-      toast.error('BuenaTierrAI no está operativa. Revisa estado/API key.')
+      toast.error('IA no está operativa. Revisa estado/API key.')
       return
     }
 
@@ -337,7 +337,7 @@ export default function BuenaTierrAI() {
 
       setMessages((prev) => [...prev, { role: 'assistant', content: answer, createdAt: res.data.data.timestampUtc }])
     } catch (e: unknown) {
-      const msg = getErrorMessage(e, 'Error al consultar BuenaTierrAI')
+      const msg = getErrorMessage(e, 'Error al consultar IA')
       toast.error(msg)
       setMessages((prev) => [...prev, { role: 'assistant', content: 'No pude responder por un error de integración IA.' }])
     } finally {
@@ -357,7 +357,7 @@ export default function BuenaTierrAI() {
                 <Sparkles className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-earth-900">BuenaTierrAI</h1>
+                <h1 className="text-xl font-bold text-earth-900">IA</h1>
                 <p className="text-sm text-earth-500">Asistente operativo con respuestas limpias y orientadas a acción</p>
               </div>
             </div>

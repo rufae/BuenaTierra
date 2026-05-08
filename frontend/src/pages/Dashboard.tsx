@@ -69,6 +69,9 @@ export default function Dashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [dashTab, setDashTab] = useState<DashTab>('resumen')
+  const esEmpresaObrador = user?.empresaEsObrador ?? true
+  const rutaOperacion = esEmpresaObrador ? '/produccion' : '/compra'
+  const labelOperacion = esEmpresaObrador ? 'producción' : 'compra'
 
   const { data: stats, isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard-stats', user?.empresaId],
@@ -97,7 +100,7 @@ export default function Dashboard() {
     return { fechaLabel: d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }), importe: 0, count: 0 }
   })
 
-  const isRepartidor = user?.rol === 'Repartidor'
+  const isRepartidor = user?.rol === 'Repartidor' && esEmpresaObrador
 
   return (
     <div className="page-shell space-y-6">
@@ -157,9 +160,9 @@ export default function Dashboard() {
               className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 shadow-sm">
               <ClipboardList className="w-4 h-4" /> Nuevo pedido
             </button>
-            <button onClick={() => navigate('/produccion')}
+            <button onClick={() => navigate(rutaOperacion)}
               className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 shadow-sm">
-              <Package className="w-4 h-4" /> Registrar producción
+              <Package className="w-4 h-4" /> Registrar {labelOperacion}
             </button>
           </>
         )}
@@ -195,9 +198,9 @@ export default function Dashboard() {
                 <StatCard title="Lotes a caducar" value={stats?.lotesProximoCaducar ?? 0}
                   sub="Próximos 5 días" icon={<Clock className="w-5 h-5 text-orange-600" />}
                   color="bg-orange-50" alert={(stats?.lotesProximoCaducar ?? 0) > 0} onClick={() => navigate('/lotes')} />
-                <StatCard title="Producción hoy" value={stats?.produccionHoy ?? 0}
+                <StatCard title={esEmpresaObrador ? 'Producción hoy' : 'Compras hoy'} value={stats?.produccionHoy ?? 0}
                   sub="Lotes abiertos" icon={<Package className="w-5 h-5 text-purple-600" />}
-                  color="bg-purple-50" onClick={() => navigate('/produccion')} />
+                  color="bg-purple-50" onClick={() => navigate(rutaOperacion)} />
                 <StatCard title="Facturas del mes" value={stats?.facturasMesCount ?? 0}
                   sub={`Hoy: ${stats?.facturasHoyCount ?? 0}`}
                   icon={<FileText className="w-5 h-5 text-gray-600" />} color="bg-gray-50" onClick={() => navigate('/facturacion')} />
@@ -398,7 +401,7 @@ export default function Dashboard() {
                   empty="Sin pedidos activos"
                 />
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                  <h2 className="font-semibold text-gray-900 text-sm mb-4">Estado de producción</h2>
+                  <h2 className="font-semibold text-gray-900 text-sm mb-4">Estado de {labelOperacion}</h2>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between py-2 border-b border-gray-50">
                       <span className="text-sm text-gray-600">Lotes producidos hoy</span>
@@ -418,10 +421,10 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <button
-                    onClick={() => navigate('/produccion')}
+                    onClick={() => navigate(rutaOperacion)}
                     className="mt-4 w-full py-2 text-xs font-semibold text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors"
                   >
-                    Ir a producción →
+                    Ir a {labelOperacion} →
                   </button>
                 </div>
               </div>

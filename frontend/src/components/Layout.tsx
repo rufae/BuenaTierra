@@ -9,7 +9,7 @@ import {
   FileText, LogOut, Layers, Truck, ClipboardList,
   Activity, Zap, BarChart2, Leaf, Shield, Menu, X,
   Wifi, WifiOff, UserCog, Tag, Bot, Mail,
-  Wallet,
+  Wallet, ShoppingCart,
 } from 'lucide-react'
 
 // ── Badge de estado del servidor ──────────────────────────────────────────────
@@ -60,7 +60,7 @@ interface NavItem {
   separator?: boolean
 }
 
-const NAV_OBRADOR: NavItem[] = [
+const NAV_OBRADOR_BASE: NavItem[] = [
   { to: '/dashboard',   icon: <LayoutDashboard className="w-[18px] h-[18px]" />, label: 'Panel' },
   { to: '/facturacion', icon: <FileText className="w-[18px] h-[18px]" />,        label: 'Facturación' },
   { to: '/albaranes',   icon: <Truck className="w-[18px] h-[18px]" />,           label: 'Albaranes' },
@@ -74,7 +74,7 @@ const NAV_OBRADOR: NavItem[] = [
   { to: '/reportes',    icon: <BarChart2 className="w-[18px] h-[18px]" />,       label: 'Informes',    separator: true },
   { to: '/balance',     icon: <Wallet className="w-[18px] h-[18px]" />,          label: 'Balance' },
   { to: '/correos',     icon: <Mail className="w-[18px] h-[18px]" />,            label: 'Correo' },
-  { to: '/buenatierr-ai', icon: <Bot className="w-[18px] h-[18px]" />,            label: 'BuenaTierrAI' },
+  { to: '/ia',          icon: <Bot className="w-[18px] h-[18px]" />,             label: 'IA' },
   { to: '/etiquetas',   icon: <Tag className="w-[18px] h-[18px]" />,             label: 'Etiquetas' },
   { to: '/ajustes',     icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',     separator: true },
 ]
@@ -85,7 +85,7 @@ const NAV_REPARTIDOR: NavItem[] = [
   { to: '/clientes',           icon: <Users className="w-[18px] h-[18px]" />,           label: 'Mis clientes', separator: true },
   { to: '/trazabilidad',       icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad' },
   { to: '/balance',            icon: <Wallet className="w-[18px] h-[18px]" />,          label: 'Balance' },
-  { to: '/buenatierr-ai',      icon: <Bot className="w-[18px] h-[18px]" />,             label: 'BuenaTierrAI' },
+  { to: '/ia',                 icon: <Bot className="w-[18px] h-[18px]" />,             label: 'IA' },
   { to: '/ajustes',            icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',       separator: true },
 ]
 
@@ -99,17 +99,29 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  const { data: empresaData } = useQuery<{ nombre?: string }>({
+  const { data: empresaData } = useQuery<{ nombre?: string; esObrador?: boolean }>({
     queryKey: ['empresa-layout', user?.empresaId],
     enabled: !!user,
     queryFn: async () => (await api.get('/empresa')).data.data,
     staleTime: 60_000,
   })
   const empresaNombre = empresaData?.nombre || 'Mi empresa'
+  const esEmpresaObrador = empresaData?.esObrador ?? (user?.empresaEsObrador ?? true)
 
   const isRepartidor = user?.rol === 'Repartidor'
   const isAdmin      = user?.rol === 'Admin'
-  const navItems = isAdmin ? NAV_ADMIN : (isRepartidor ? NAV_REPARTIDOR : NAV_OBRADOR)
+  const navObrador = NAV_OBRADOR_BASE
+    .map((item) => {
+      if (item.to !== '/produccion') return item
+      return esEmpresaObrador
+        ? item
+        : { ...item, to: '/compra', icon: <ShoppingCart className="w-[18px] h-[18px]" />, label: 'Compra' }
+    })
+    .filter((item) => esEmpresaObrador || (item.to !== '/ingredientes' && item.to !== '/etiquetas'))
+
+  const navItems = isAdmin
+    ? NAV_ADMIN
+    : (isRepartidor && esEmpresaObrador ? NAV_REPARTIDOR : navObrador)
 
   function handleLogout() {
     logout()
