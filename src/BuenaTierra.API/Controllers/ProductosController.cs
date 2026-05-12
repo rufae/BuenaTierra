@@ -68,7 +68,7 @@ public class ProductosController : ControllerBase
     }
 
     [HttpPost("categorias")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> CreateCategoria([FromBody] CrearCategoriaRequest req, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Nombre))
@@ -88,7 +88,7 @@ public class ProductosController : ControllerBase
     // ── CRUD Productos ────────────────────────────────────────────────────────
 
     [HttpPost]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<Producto>>> Create(
         [FromBody] ProductoRequest req, CancellationToken ct)
     {
@@ -100,7 +100,7 @@ public class ProductosController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<Producto>>> Update(
         int id, [FromBody] ProductoRequest req, CancellationToken ct)
     {
@@ -150,7 +150,7 @@ public class ProductosController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
         var existente = await _uow.Productos.GetByIdAsync(id, ct)
@@ -292,7 +292,7 @@ public class ProductosController : ControllerBase
 
     /// <summary>PUT reemplaza TODOS los ingredientes no-directos del producto.</summary>
     [HttpPut("{id:int}/ingredientes")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> SetIngredientes(
         int id, [FromBody] SetIngredientesRequest req, CancellationToken ct)
     {
@@ -349,7 +349,7 @@ public class ProductosController : ControllerBase
     }
 
     [HttpPut("{id:int}/alergenos-directos")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> SetAlergenosDirectos(
         int id, [FromBody] SetAlergenosDirectosRequest req, CancellationToken ct)
     {
