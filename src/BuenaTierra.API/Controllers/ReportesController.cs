@@ -90,7 +90,7 @@ public class ReportesController : ControllerBase
     public async Task<IActionResult> GetStock(CancellationToken ct = default)
     {
         var stockItems = await _uow.Stock.GetQueryable()
-            .Where(s => s.EmpresaId == EmpresaId)
+            .Where(s => s.EmpresaId == EmpresaId && s.CantidadDisponible > 0)
             .Include(s => s.Producto)
             .Include(s => s.Lote)
             .Select(s => new
