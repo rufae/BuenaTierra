@@ -99,7 +99,7 @@ public class StockRepository : Repository<Stock>, IStockRepository
         => await _set.FirstOrDefaultAsync(s => s.EmpresaId == empresaId && s.ProductoId == productoId && s.LoteId == loteId, ct);
 
     public async Task<IEnumerable<Stock>> GetByProductoAsync(int empresaId, int productoId, CancellationToken ct = default)
-        => await _set.Include(s => s.Lote).Where(s => s.EmpresaId == empresaId && s.ProductoId == productoId).ToListAsync(ct);
+        => await _set.Include(s => s.Lote).Where(s => s.EmpresaId == empresaId && s.ProductoId == productoId && s.CantidadDisponible > 0).ToListAsync(ct);
 
     public async Task<decimal> GetTotalDisponibleAsync(int empresaId, int productoId, CancellationToken ct = default)
     {
