@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.buenatierra.app',
   appName: 'BuenaTierra',
   webDir: 'dist',
-  bundledWebRuntime: false,
   server: {
     androidScheme: 'https'
   }
