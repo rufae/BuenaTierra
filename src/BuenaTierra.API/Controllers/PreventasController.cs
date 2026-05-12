@@ -210,79 +210,86 @@ public class PreventasController : ControllerBase
                 return BadRequest(ApiResponse<PreventaLineasActualizadasDto>.Fail("No se permiten lineas duplicadas por producto y fecha objetivo"));
         }
 
-        var existentes = preventa.Lineas.ToDictionary(l => l.Id);
-        var recibidosIds = new HashSet<int>();
+        // Estrategia robusta: reemplazo completo de líneas editables.
+        // Evita colisiones de UNIQUE(preventa_id, producto_id, fecha_objetivo)
+        // cuando una línea pasa de no existir (0 visual) a existir (>0).
         var historialPendiente = new List<(PreventaLinea linea, string accion, decimal? anterior, decimal? nueva, string detalle)>();
+
+        foreach (var existente in preventa.Lineas.ToList())
+        {
+            if (!existente.Editable)
+                return BadRequest(ApiResponse<PreventaLineasActualizadasDto>.Fail("Una linea no editable no puede modificarse"));
+
+            await _uow.PreventaLineas.DeleteAsync(existente, ct);
+        }
+
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            return BadRequest(ApiResponse<PreventaLineasActualizadasDto>.Fail(
+                "No se pudieron limpiar las lineas actuales de preventa. Intenta de nuevo."));
+        }
 
         foreach (var lineaReq in normalizadas)
         {
-            if (lineaReq.Id.HasValue && existentes.TryGetValue(lineaReq.Id.Value, out var existente))
+            var nuevaLinea = new PreventaLinea
             {
-                if (!existente.Editable)
-                    return BadRequest(ApiResponse<PreventaLineasActualizadasDto>.Fail("Una linea no editable no puede modificarse"));
-
-                recibidosIds.Add(existente.Id);
-                var anterior = existente.CantidadFinal ?? existente.CantidadPrevista;
-
-                existente.ProductoId = lineaReq.ProductoId;
-                existente.FechaObjetivo = lineaReq.FechaObjetivo;
-                existente.CantidadPrevista = lineaReq.CantidadPrevista;
-                existente.CantidadFinal = lineaReq.CantidadFinal;
-                existente.EstadoLinea = lineaReq.EstadoLinea;
-                existente.Observaciones = lineaReq.Observaciones;
-
-                var nueva = existente.CantidadFinal ?? existente.CantidadPrevista;
-                if (anterior != nueva)
-                {
-                    historialPendiente.Add((existente, "CantidadActualizada", anterior, nueva, "{}"));
-                }
-            }
-            else
-            {
-                var nuevaLinea = new PreventaLinea
-                {
-                    PreventaId = preventa.Id,
-                    ProductoId = lineaReq.ProductoId,
-                    FechaObjetivo = lineaReq.FechaObjetivo,
-                    CantidadPrevista = lineaReq.CantidadPrevista,
-                    CantidadFinal = lineaReq.CantidadFinal,
-                    EstadoLinea = lineaReq.EstadoLinea,
-                    Editable = true,
-                    Observaciones = lineaReq.Observaciones,
-                };
-                await _uow.PreventaLineas.AddAsync(nuevaLinea, ct);
-                historialPendiente.Add((nuevaLinea, "LineaCreada", null, nuevaLinea.CantidadFinal ?? nuevaLinea.CantidadPrevista, "{}"));
-            }
-        }
-
-        foreach (var existente in preventa.Lineas.Where(l => !recibidosIds.Contains(l.Id)).ToList())
-        {
-            if (!existente.Editable)
-                return BadRequest(ApiResponse<PreventaLineasActualizadasDto>.Fail("Una linea no editable no puede eliminarse"));
-
-            await _uow.PreventaLineas.DeleteAsync(existente, ct);
+                PreventaId = preventa.Id,
+                ProductoId = lineaReq.ProductoId,
+                FechaObjetivo = lineaReq.FechaObjetivo,
+                CantidadPrevista = lineaReq.CantidadPrevista,
+                CantidadFinal = lineaReq.CantidadFinal,
+                EstadoLinea = lineaReq.EstadoLinea,
+                Editable = true,
+                Observaciones = lineaReq.Observaciones,
+            };
+            await _uow.PreventaLineas.AddAsync(nuevaLinea, ct);
+            historialPendiente.Add((nuevaLinea, "LineaCreada", null, nuevaLinea.CantidadFinal ?? nuevaLinea.CantidadPrevista, "{}"));
         }
 
         preventa.Version += 1;
         preventa.Estado = EstadoPreventa.Borrador;
         preventa.AlertaConfirmada = false;
 
-        await _uow.SaveChangesAsync(ct);
-
-        foreach (var item in historialPendiente)
+        try
         {
-            await _uow.PreventaHistorial.AddAsync(new PreventaHistorial
-            {
-                PreventaLineaId = item.linea.Id,
-                Accion = item.accion,
-                CantidadAnterior = item.anterior,
-                CantidadNueva = item.nueva,
-                UsuarioId = UsuarioId,
-                Detalle = item.detalle,
-            }, ct);
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            return BadRequest(ApiResponse<PreventaLineasActualizadasDto>.Fail(
+                "No se pudieron guardar las lineas de preventa. Revisa si hay productos/fechas repetidos y vuelve a intentar."));
+        }
+        catch
+        {
+            return StatusCode(500, ApiResponse<PreventaLineasActualizadasDto>.Fail(
+                "Error interno guardando lineas de preventa"));
         }
 
-        await _uow.SaveChangesAsync(ct);
+        try
+        {
+            foreach (var item in historialPendiente)
+            {
+                await _uow.PreventaHistorial.AddAsync(new PreventaHistorial
+                {
+                    PreventaLineaId = item.linea.Id,
+                    Accion = item.accion,
+                    CantidadAnterior = item.anterior,
+                    CantidadNueva = item.nueva,
+                    UsuarioId = UsuarioId,
+                    Detalle = item.detalle,
+                }, ct);
+            }
+
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            // El historial no debe impedir la operación principal: las líneas ya quedaron persistidas.
+        }
 
         var totalLineas = await _uow.PreventaLineas.CountAsync(l => l.PreventaId == preventa.Id, ct);
         return Ok(ApiResponse<PreventaLineasActualizadasDto>.Ok(
@@ -385,7 +392,7 @@ public class PreventasController : ControllerBase
             NumeroPedido = $"PREV-{DateTime.UtcNow:yyyyMMddHHmmss}",
             FechaPedido = DateOnly.FromDateTime(DateTime.Today),
             FechaEntrega = preventa.FechaPreventa,
-            Estado = EstadoPedido.Pendiente,
+            Estado = EstadoPedido.Confirmado,
             Notas = $"Generado desde preventa #{preventa.Id}" + (string.IsNullOrWhiteSpace(preventa.Notas) ? string.Empty : $". {preventa.Notas}"),
         };
 
