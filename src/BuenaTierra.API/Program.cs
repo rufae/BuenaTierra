@@ -129,8 +129,15 @@ services.AddCors(options =>
 {
     options.AddPolicy("AllowClients", policy =>
     {
-        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
-        if (allowedOrigins is { Length: > 0 })
+        // Orígenes Android (Capacitor) siempre permitidos para la app móvil
+        string[] androidOrigins = ["capacitor://localhost", "app://.", "http://localhost", "https://localhost"];
+
+        var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+        var allowedOrigins = configuredOrigins is { Length: > 0 }
+            ? configuredOrigins.Union(androidOrigins).ToArray()
+            : androidOrigins;
+
+        if (allowedOrigins.Length > 0)
         {
             policy.WithOrigins(allowedOrigins)
                   .AllowAnyMethod()
