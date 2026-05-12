@@ -1,37 +1,48 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
+import {
+  AlertTriangle,
+  Calendar,
+  Check,
+  Loader2,
+  Plus,
+  Save,
+  ShoppingCart,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react'
 import api from '../lib/api'
 import type {
   Cliente,
+  PedidoDetalle,
+  PedidoResumen,
   Producto,
   PreventaDetalle,
-  PreventaLineaInput,
   PreventaResumen,
   ValidacionConversion,
 } from '../types'
-import { ClipboardList, Plus, Save, RefreshCw, AlertTriangle, ArrowRightLeft, Search, X } from 'lucide-react'
 
-const ESTADO_COLOR: Record<string, string> = {
-  Borrador: 'bg-gray-100 text-gray-700 border border-gray-200',
-  PendienteRevision: 'bg-amber-50 text-amber-700 border border-amber-200',
-  Confirmada: 'bg-blue-50 text-blue-700 border border-blue-200',
-  Convertida: 'bg-green-50 text-green-700 border border-green-200',
-  Cancelada: 'bg-red-50 text-red-700 border border-red-200',
+function todayIso() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-const ESTADO_LINEA_COLOR: Record<string, string> = {
-  Previsto: 'bg-gray-100 text-gray-600',
-  PendienteCompra: 'bg-amber-50 text-amber-700',
-  ListoParaPedido: 'bg-blue-50 text-blue-700',
-  NoServible: 'bg-red-50 text-red-700',
-  Cancelada: 'bg-red-50 text-red-600',
+function formatDate(iso: string): string {
+  if (!iso) return '-'
+  const [y, m, day] = iso.split('-')
+  return `${day}/${m}/${y}`
 }
 
-function labelEstado(e: string) {
+function nombreCliente(c: Cliente): string {
+  return c.razonSocial || `${c.nombre} ${c.apellidos ?? ''}`.trim() || c.nombre
+}
+
+function labelPreventaEstado(e: string) {
   const map: Record<string, string> = {
     Borrador: 'Borrador',
-    PendienteRevision: 'Pendiente revisión',
+    PendienteRevision: 'Pend. revision',
     Confirmada: 'Confirmada',
     Convertida: 'Convertida',
     Cancelada: 'Cancelada',
@@ -39,62 +50,57 @@ function labelEstado(e: string) {
   return map[e] ?? e
 }
 
-interface DraftLinea {
-  id?: number
-  productoId: number
-  fechaObjetivo: string
-  cantidadPrevista: string
-  cantidadFinal: string
-  estadoLinea: string
-  observaciones: string
+function labelPedidoEstado(e: string) {
+  const map: Record<string, string> = {
+    Borrador: 'Borrador',
+    Confirmado: 'Confirmado',
+    Preparado: 'Preparado',
+    EnReparto: 'En reparto',
+    Entregado: 'Entregado',
+    Cancelado: 'Cancelado',
+  }
+  return map[e] ?? e
 }
 
-function todayIso() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+function pedidoTheme(estado: string) {
+  const map: Record<string, { header: string; badge: string }> = {
+    Confirmado: { header: 'bg-blue-100 text-blue-800', badge: 'bg-blue-200 text-blue-900' },
+    Preparado: { header: 'bg-cyan-100 text-cyan-800', badge: 'bg-cyan-200 text-cyan-900' },
+    EnReparto: { header: 'bg-violet-100 text-violet-800', badge: 'bg-violet-200 text-violet-900' },
+    Entregado: { header: 'bg-emerald-100 text-emerald-800', badge: 'bg-emerald-200 text-emerald-900' },
+    Cancelado: { header: 'bg-red-50 text-red-700', badge: 'bg-red-100 text-red-700' },
+    Borrador: { header: 'bg-gray-100 text-gray-700', badge: 'bg-gray-200 text-gray-700' },
+  }
+  return map[estado] ?? map.Borrador
 }
 
-function toNumber(value: string) {
-  const n = Number(value.replace(',', '.'))
-  return Number.isFinite(n) ? n : 0
-}
-
-function nombreCliente(c: Cliente) {
-  return c.razonSocial || `${c.nombre} ${c.apellidos ?? ''}`.trim() || c.nombre
+const PREVENTA_THEME: Record<string, { header: string; badge: string }> = {
+  Borrador: { header: 'bg-amber-100 text-amber-800', badge: 'bg-amber-200 text-amber-900' },
+  PendienteRevision: { header: 'bg-orange-100 text-orange-800', badge: 'bg-orange-200 text-orange-900' },
+  Confirmada: { header: 'bg-indigo-100 text-indigo-800', badge: 'bg-indigo-200 text-indigo-900' },
+  Convertida: { header: 'bg-emerald-100 text-emerald-800', badge: 'bg-emerald-200 text-emerald-900' },
+  Cancelada: { header: 'bg-red-50 text-red-700', badge: 'bg-red-100 text-red-700' },
 }
 
 export default function Preventa() {
   const qc = useQueryClient()
 
-  const [showCreate, setShowCreate] = useState(false)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedClienteId, setSelectedClienteId] = useState<number | null>(null)
+  const [showNewColumn, setShowNewColumn] = useState(false)
+  const [newColDate, setNewColDate] = useState(todayIso)
+  const [newColDraft, setNewColDraft] = useState<Record<number, string>>({})
+  const [periodoFiltro, setPeriodoFiltro] = useState<'7d' | '15d' | '30d' | '90d' | 'all' | 'custom'>('30d')
+  const [customDesde, setCustomDesde] = useState('')
+  const [customHasta, setCustomHasta] = useState(todayIso)
 
-  const [createClienteId, setCreateClienteId] = useState('')
-  const [createFecha, setCreateFecha] = useState(todayIso())
-  const [createNotas, setCreateNotas] = useState('')
-  const [createLineas, setCreateLineas] = useState<DraftLinea[]>([
-    {
-      productoId: 0,
-      fechaObjetivo: todayIso(),
-      cantidadPrevista: '0',
-      cantidadFinal: '',
-      estadoLinea: 'Previsto',
-      observaciones: '',
-    },
-  ])
+  const [drafts, setDrafts] = useState<Record<number, Record<number, string>>>({})
+  const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set())
 
-  const [editClienteId, setEditClienteId] = useState('')
-  const [editFecha, setEditFecha] = useState(todayIso())
-  const [editEstado, setEditEstado] = useState('Borrador')
-  const [editNotas, setEditNotas] = useState('')
-  const [editLineas, setEditLineas] = useState<DraftLinea[]>([])
-
-  const [warningModalOpen, setWarningModalOpen] = useState(false)
-  const [warningData, setWarningData] = useState<ValidacionConversion | null>(null)
-  const [confirmChecked, setConfirmChecked] = useState(false)
+  const [modal, setModal] = useState<{
+    open: boolean
+    preventaId: number | null
+    data: ValidacionConversion | null
+  }>({ open: false, preventaId: null, data: null })
 
   const { data: clientes } = useQuery({
     queryKey: ['clientes'],
@@ -106,715 +112,687 @@ export default function Preventa() {
     queryFn: async () => (await api.get<{ data: Producto[] }>('/productos')).data.data,
   })
 
-  const { data: preventas, isLoading } = useQuery({
+  const { data: allPreventas, isLoading: loadingPreventas } = useQuery({
     queryKey: ['preventas'],
     queryFn: async () => (await api.get<{ data: PreventaResumen[] }>('/preventas')).data.data,
   })
 
-  const { data: detalle, isFetching: cargandoDetalle } = useQuery({
-    queryKey: ['preventa-detalle', selectedId],
-    enabled: selectedId !== null,
-    queryFn: async () => (await api.get<{ data: PreventaDetalle }>(`/preventas/${selectedId}`)).data.data,
+  const { data: allPedidos, isLoading: loadingPedidos } = useQuery({
+    queryKey: ['pedidos'],
+    queryFn: async () => (await api.get<{ data: PedidoResumen[] }>('/pedidos')).data.data,
   })
 
-  const createMutation = useMutation({
+  const activePreventa = useMemo(() => {
+    return (allPreventas ?? [])
+      .filter((p) => p.clienteId === selectedClienteId)
+      .filter((p) => p.estado !== 'Convertida' && p.estado !== 'Cancelada')
+      .sort((a, b) => {
+        const byDate = a.fechaPreventa.localeCompare(b.fechaPreventa)
+        if (byDate !== 0) return byDate
+        return a.id - b.id
+      })
+      .at(-1) ?? null
+  }, [allPreventas, selectedClienteId])
+
+  const { data: activePreventaDetalle, isLoading: loadingPreventaDetalle } = useQuery({
+    queryKey: ['preventa-detalle', activePreventa?.id],
+    enabled: !!activePreventa,
+    queryFn: async () => (await api.get<{ data: PreventaDetalle }>(`/preventas/${activePreventa?.id}`)).data.data,
+    staleTime: 60_000,
+  })
+
+  const pedidoDetailQueries = useQueries({
+    queries: (selectedClienteId ? (allPedidos ?? []) : []).map((pedido) => ({
+      queryKey: ['pedido-detalle-preventa', pedido.id],
+      queryFn: async () => (await api.get<{ data: PedidoDetalle }>(`/pedidos/${pedido.id}`)).data.data,
+      staleTime: 60_000,
+      enabled: !!selectedClienteId,
+    })),
+  })
+
+  const isLoadingPedidoDetails = pedidoDetailQueries.some((q) => q.isLoading)
+
+  const pedidosHistoricos = useMemo(() => {
+    const all = pedidoDetailQueries
+      .map((q) => q.data)
+      .filter((p): p is PedidoDetalle => !!p)
+      .filter((p) => p.cliente.id === selectedClienteId)
+      .filter((p) => p.estado !== 'Cancelado')
+
+    return all.sort((a, b) => {
+      const aDate = a.fechaEntrega ?? a.fecha
+      const bDate = b.fechaEntrega ?? b.fecha
+      return aDate.localeCompare(bDate)
+    })
+  }, [pedidoDetailQueries, selectedClienteId])
+
+  const pedidosHistoricosFiltrados = useMemo(() => {
+    if (periodoFiltro === 'all') return pedidosHistoricos
+
+    const toDate = (iso: string) => new Date(`${iso}T00:00:00`)
+
+    if (periodoFiltro === 'custom') {
+      const desde = customDesde ? toDate(customDesde) : null
+      const hasta = customHasta ? toDate(customHasta) : null
+      return pedidosHistoricos.filter((p) => {
+        const refIso = p.fechaEntrega ?? p.fecha
+        const d = toDate(refIso)
+        if (desde && d < desde) return false
+        if (hasta && d > hasta) return false
+        return true
+      })
+    }
+
+    const dias = Number(periodoFiltro.replace('d', ''))
+    const hoy = toDate(todayIso())
+    const desde = new Date(hoy)
+    desde.setDate(desde.getDate() - dias)
+
+    return pedidosHistoricos.filter((p) => {
+      const refIso = p.fechaEntrega ?? p.fecha
+      const d = toDate(refIso)
+      return d >= desde && d <= hoy
+    })
+  }, [pedidosHistoricos, periodoFiltro, customDesde, customHasta])
+
+  const sortedProductos = useMemo(
+    () => [...(productos ?? [])].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [productos],
+  )
+
+  const selectedCliente = useMemo(
+    () => (clientes ?? []).find((c) => c.id === selectedClienteId),
+    [clientes, selectedClienteId],
+  )
+
+  function getPedidoCellValue(pedido: PedidoDetalle, productoId: number): number {
+    return pedido.lineas
+      .filter((l) => l.productoId === productoId)
+      .reduce((acc, l) => acc + l.cantidad, 0)
+  }
+
+  function getPreventaCellValue(productoId: number): string {
+    if (!activePreventa) return '0'
+    const preId = activePreventa.id
+    if (drafts[preId]?.[productoId] !== undefined) return drafts[preId][productoId]
+    const linea = activePreventaDetalle?.lineas.find((l) => l.productoId === productoId)
+    return linea ? String(linea.cantidadPrevista) : '0'
+  }
+
+  function setPreventaCellValue(productoId: number, raw: string) {
+    if (!activePreventa) return
+    const preId = activePreventa.id
+    setDrafts((prev) => ({
+      ...prev,
+      [preId]: { ...(prev[preId] ?? {}), [productoId]: raw === '' ? '0' : raw },
+    }))
+    setDirtyIds((prev) => new Set(prev).add(preId))
+  }
+
+  function getPedidoColumnTotal(pedido: PedidoDetalle): number {
+    return sortedProductos.reduce((sum, p) => sum + getPedidoCellValue(pedido, p.id), 0)
+  }
+
+  function getPreventaTotal(): number {
+    if (!activePreventa) return 0
+    return sortedProductos.reduce((sum, p) => {
+      const n = Number(getPreventaCellValue(p.id).replace(',', '.'))
+      return sum + (Number.isFinite(n) && n > 0 ? n : 0)
+    }, 0)
+  }
+
+  function getNewColTotal(): number {
+    return sortedProductos.reduce((sum, p) => {
+      const n = Number((newColDraft[p.id] ?? '0').replace(',', '.'))
+      return sum + (Number.isFinite(n) && n > 0 ? n : 0)
+    }, 0)
+  }
+
+  const guardarLineasMutation = useMutation({
     mutationFn: async () => {
-      if (!createClienteId) throw new Error('Selecciona un cliente')
-      const lineas = buildLineasPayload(createLineas)
-      if (!lineas.length) throw new Error('Añade al menos una línea válida')
+      if (!activePreventa) throw new Error('No hay preventa activa')
+      const preId = activePreventa.id
+      const fallbackDate = activePreventa.fechaPreventa || todayIso()
+
+      const lineas = sortedProductos.flatMap((prod) => {
+        const existing = activePreventaDetalle?.lineas.find((l) => l.productoId === prod.id)
+        const raw = drafts[preId]?.[prod.id] ?? (existing ? String(existing.cantidadPrevista) : '0')
+        const cantidad = Number(raw.replace(',', '.'))
+        if (!Number.isFinite(cantidad) || cantidad <= 0) return []
+
+        return [{
+          id: existing?.id,
+          productoId: prod.id,
+          fechaObjetivo: existing?.fechaObjetivo ?? fallbackDate,
+          cantidadPrevista: cantidad,
+          estadoLinea: existing?.estadoLinea ?? 'Previsto',
+          observaciones: existing?.observaciones ?? null,
+        }]
+      })
+
+      await api.put(`/preventas/${preId}/lineas`, { lineas })
+      return preId
+    },
+    onSuccess: async (preId) => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['preventas'] }),
+        qc.invalidateQueries({ queryKey: ['preventa-detalle', preId] }),
+      ])
+      setDirtyIds((prev) => {
+        const s = new Set(prev)
+        s.delete(preId)
+        return s
+      })
+      setDrafts((prev) => {
+        const d = { ...prev }
+        delete d[preId]
+        return d
+      })
+      toast.success('Cambios guardados')
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al guardar'),
+  })
+
+  const crearMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedClienteId) throw new Error('Sin cliente seleccionado')
+
+      const lineas = sortedProductos.flatMap((prod) => {
+        const n = Number((newColDraft[prod.id] ?? '').replace(',', '.'))
+        if (!Number.isFinite(n) || n <= 0) return []
+        return [{
+          productoId: prod.id,
+          fechaObjetivo: newColDate,
+          cantidadPrevista: n,
+          estadoLinea: 'Previsto' as const,
+        }]
+      })
+
+      if (lineas.length === 0) {
+        throw new Error('Introduce al menos una cantidad para crear la preventa')
+      }
 
       await api.post('/preventas/crear', {
-        clienteId: Number(createClienteId),
-        fechaPreventa: createFecha,
-        notas: createNotas || null,
+        clienteId: selectedClienteId,
+        fechaPreventa: newColDate,
+        notas: null,
         lineas,
       })
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['preventas'] })
+      setShowNewColumn(false)
+      setNewColDraft({})
+      setNewColDate(todayIso())
       toast.success('Preventa creada')
-      setShowCreate(false)
-      setCreateClienteId('')
-      setCreateFecha(todayIso())
-      setCreateNotas('')
-      setCreateLineas([
-        {
-          productoId: 0,
-          fechaObjetivo: todayIso(),
-          cantidadPrevista: '0',
-          cantidadFinal: '',
-          estadoLinea: 'Previsto',
-          observaciones: '',
-        },
-      ])
     },
-    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? e?.message ?? 'Error al crear preventa'),
-  })
-
-  const guardarCabeceraMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedId) return
-      await api.put(`/preventas/${selectedId}`, {
-        clienteId: Number(editClienteId),
-        fechaPreventa: editFecha,
-        estado: editEstado,
-        notas: editNotas,
-      })
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ['preventas'] }),
-        qc.invalidateQueries({ queryKey: ['preventa-detalle', selectedId] }),
-      ])
-      toast.success('Cabecera de preventa actualizada')
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al guardar cabecera'),
-  })
-
-  const guardarLineasMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedId) return
-      await api.put(`/preventas/${selectedId}/lineas`, {
-        lineas: buildLineasPayload(editLineas),
-      })
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ['preventas'] }),
-        qc.invalidateQueries({ queryKey: ['preventa-detalle', selectedId] }),
-      ])
-      toast.success('Líneas actualizadas')
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al guardar líneas'),
+    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? e?.message ?? 'Error al crear'),
   })
 
   const validarMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedId) throw new Error('Selecciona una preventa')
-      return (await api.post<{ data: ValidacionConversion }>(`/preventas/${selectedId}/validar-conversion`, {})).data.data
+    mutationFn: async (preventaId: number) => {
+      const data = (await api.post<{ data: ValidacionConversion }>(`/preventas/${preventaId}/validar-conversion`, {})).data.data
+      return { preventaId, data }
     },
-    onSuccess: (data) => {
-      setWarningData(data)
-      setConfirmChecked(false)
-      setWarningModalOpen(true)
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error validando conversión'),
+    onSuccess: ({ preventaId, data }) => setModal({ open: true, preventaId, data }),
+    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al validar'),
   })
 
   const convertirMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedId) throw new Error('Selecciona una preventa')
-      return await api.post<{ data: { pedidoId: number } }>(`/preventas/${selectedId}/convertir`, { alertaConfirmada: true })
+    mutationFn: async (preventaId: number) => {
+      return (await api.post<{ data: { pedidoId: number } }>(`/preventas/${preventaId}/convertir`, {
+        alertaConfirmada: true,
+      })).data.data
     },
-    onSuccess: async (resp) => {
-      setWarningModalOpen(false)
+    onSuccess: async (data, preventaId) => {
+      setModal({ open: false, preventaId: null, data: null })
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['preventas'] }),
-        qc.invalidateQueries({ queryKey: ['preventa-detalle', selectedId] }),
+        qc.invalidateQueries({ queryKey: ['preventa-detalle', preventaId] }),
         qc.invalidateQueries({ queryKey: ['pedidos'] }),
       ])
-      const pedidoId = resp.data?.data?.pedidoId
-      toast.success(pedidoId ? `Preventa convertida a pedido #${pedidoId}` : 'Preventa convertida a pedido')
+      toast.success(`Pedido #${data.pedidoId} creado correctamente`)
     },
-    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al convertir preventa'),
+    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al convertir'),
   })
 
   const cancelarMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedId) return
-      await api.post(`/preventas/${selectedId}/cancelar`, {})
+    mutationFn: async (preventaId: number) => {
+      await api.post(`/preventas/${preventaId}/cancelar`, {})
     },
-    onSuccess: async () => {
+    onSuccess: async (_, preventaId) => {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['preventas'] }),
-        qc.invalidateQueries({ queryKey: ['preventa-detalle', selectedId] }),
+        qc.invalidateQueries({ queryKey: ['preventa-detalle', preventaId] }),
       ])
       toast.success('Preventa cancelada')
     },
-    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al cancelar preventa'),
+    onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al cancelar'),
   })
 
-  const productoMap = useMemo(() => {
-    const m = new Map<number, string>()
-    for (const p of productos ?? []) m.set(p.id, p.nombre)
-    return m
-  }, [productos])
+  const todayDisplay = new Date().toLocaleDateString('es-ES', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 
-  const canEdit = detalle?.estado !== 'Convertida' && detalle?.estado !== 'Cancelada'
-
-  useEffect(() => {
-    if (!detalle) return
-    syncEditorWithDetalle(detalle)
-  }, [detalle])
-
-  function buildLineasPayload(lineas: DraftLinea[]): PreventaLineaInput[] {
-    return lineas
-      .filter((l) => l.productoId > 0)
-      .filter((l) => toNumber(l.cantidadPrevista) >= 0)
-      .map((l) => ({
-        id: l.id,
-        productoId: l.productoId,
-        fechaObjetivo: l.fechaObjetivo || todayIso(),
-        cantidadPrevista: toNumber(l.cantidadPrevista),
-        cantidadFinal: l.cantidadFinal.trim() ? toNumber(l.cantidadFinal) : null,
-        estadoLinea: l.estadoLinea,
-        observaciones: l.observaciones || null,
-      }))
-  }
-
-  function syncEditorWithDetalle(data: PreventaDetalle) {
-    setEditClienteId(String(data.clienteId))
-    setEditFecha(data.fechaPreventa)
-    setEditEstado(data.estado)
-    setEditNotas(data.notas ?? '')
-    setEditLineas(
-      data.lineas.map((l) => ({
-        id: l.id,
-        productoId: l.productoId,
-        fechaObjetivo: l.fechaObjetivo,
-        cantidadPrevista: String(l.cantidadPrevista),
-        cantidadFinal: l.cantidadFinal == null ? '' : String(l.cantidadFinal),
-        estadoLinea: l.estadoLinea,
-        observaciones: l.observaciones ?? '',
-      }))
-    )
-  }
-
-  const [searchTerm, setSearchTerm] = useState('')
-  const [estadoFilter, setEstadoFilter] = useState('')
-
-  const filteredPreventas = useMemo(() => {
-    if (!preventas) return []
-    let result = [...preventas]
-    if (estadoFilter) result = result.filter(p => p.estado === estadoFilter)
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase()
-      result = result.filter(p =>
-        p.clienteNombre?.toLowerCase().includes(q) ||
-        p.fechaPreventa?.includes(q) ||
-        String(p.id).includes(q)
-      )
-    }
-    return result
-  }, [preventas, searchTerm, estadoFilter])
-
-  const stats = useMemo(() => ({
-    total: (preventas ?? []).length,
-    borradores: (preventas ?? []).filter(p => p.estado === 'Borrador').length,
-    confirmadas: (preventas ?? []).filter(p => p.estado === 'Confirmada').length,
-  }), [preventas])
+  const hasContent = pedidosHistoricosFiltrados.length > 0 || !!activePreventa || showNewColumn
 
   return (
     <div className="page-shell space-y-5">
-
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Preventa</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Planifica sin bloquear por stock · convierte a pedido tras revisión</p>
-        </div>
-        <button
-          onClick={() => setShowCreate(v => !v)}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-        >
-          <Plus className="w-4 h-4" />
-          Nueva preventa
-        </button>
+      <div>
+        <h1 className="text-xl font-bold text-gray-900">Preventa</h1>
+        <p className="text-sm text-gray-500 mt-0.5 capitalize">{todayDisplay}</p>
       </div>
 
-      {/* ── Stats ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { label: 'Total preventas', value: stats.total },
-          { label: 'Borradores', value: stats.borradores },
-          { label: 'Confirmadas', value: stats.confirmadas },
-        ].map(s => (
-          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-500">{s.label}</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Formulario nueva preventa ───────────────────────────── */}
-      {showCreate && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ClipboardList className="w-4 h-4 text-gray-500" />
-              <span className="font-semibold text-gray-800 text-sm">Nueva preventa</span>
-            </div>
-            <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="p-5 space-y-5">
-            {/* Cabecera */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Cliente</label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={createClienteId}
-                  onChange={e => setCreateClienteId(e.target.value)}
-                >
-                  <option value="">Seleccionar cliente…</option>
-                  {(clientes ?? []).map(c => <option key={c.id} value={c.id}>{nombreCliente(c)}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha preventa</label>
-                <input
-                  type="date"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={createFecha}
-                  onChange={e => setCreateFecha(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Notas</label>
-                <input
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={createNotas}
-                  onChange={e => setCreateNotas(e.target.value)}
-                  placeholder="Opcional"
-                />
-              </div>
-            </div>
-
-            {/* Líneas */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Líneas</p>
-              {createLineas.map((l, idx) => (
-                <div key={`new-${idx}`} className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end bg-gray-50 rounded-lg p-3 border border-gray-100">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Producto</label>
-                    <select
-                      className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                      value={l.productoId}
-                      onChange={e => { const v = Number(e.target.value); setCreateLineas(prev => prev.map((x, i) => i === idx ? { ...x, productoId: v } : x)) }}
-                    >
-                      <option value={0}>Seleccionar…</option>
-                      {(productos ?? []).map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Fecha objetivo</label>
-                    <input
-                      type="date"
-                      className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
-                      value={l.fechaObjetivo}
-                      onChange={e => setCreateLineas(prev => prev.map((x, i) => i === idx ? { ...x, fechaObjetivo: e.target.value } : x))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Prevista</label>
-                    <input
-                      className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
-                      value={l.cantidadPrevista}
-                      onChange={e => setCreateLineas(prev => prev.map((x, i) => i === idx ? { ...x, cantidadPrevista: e.target.value } : x))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Final</label>
-                    <input
-                      className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
-                      value={l.cantidadFinal}
-                      onChange={e => setCreateLineas(prev => prev.map((x, i) => i === idx ? { ...x, cantidadFinal: e.target.value } : x))}
-                      placeholder="Opcional"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <button
-                      className="w-full h-9 px-2 rounded-lg border border-gray-200 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-40"
-                      onClick={() => setCreateLineas(prev => prev.filter((_, i) => i !== idx))}
-                      disabled={createLineas.length === 1}
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button
-                className="flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-                onClick={() => setCreateLineas(prev => [...prev, { productoId: 0, fechaObjetivo: createFecha || todayIso(), cantidadPrevista: '0', cantidadFinal: '', estadoLinea: 'Previsto', observaciones: '' }])}
-              >
-                <Plus className="w-3 h-3" /> Añadir línea
-              </button>
-              <button
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
-                disabled={createMutation.isPending}
-                onClick={() => createMutation.mutate()}
-              >
-                <Save className="w-4 h-4" /> Guardar preventa
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Listado ────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {/* Barra filtros */}
-        <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Buscar por cliente, fecha o nº…"
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-            />
+      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex items-center gap-2 shrink-0">
+            <Users className="w-4 h-4 text-brand-600" />
+            <span className="text-sm font-semibold text-gray-700">Cliente</span>
           </div>
           <select
-            value={estadoFilter}
-            onChange={e => setEstadoFilter(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white font-medium text-gray-800"
+            value={selectedClienteId ?? ''}
+            onChange={(e) => {
+              const id = e.target.value ? Number(e.target.value) : null
+              setSelectedClienteId(id)
+              setShowNewColumn(false)
+              setNewColDraft({})
+              setDrafts({})
+              setDirtyIds(new Set())
+            }}
           >
-            <option value="">Todos los estados</option>
-            <option value="Borrador">Borrador</option>
-            <option value="PendienteRevision">Pendiente revisión</option>
-            <option value="Confirmada">Confirmada</option>
-            <option value="Convertida">Convertida</option>
-            <option value="Cancelada">Cancelada</option>
+            <option value="">--- Seleccionar cliente ---</option>
+            {(clientes ?? []).map((c) => (
+              <option key={c.id} value={c.id}>{nombreCliente(c)}</option>
+            ))}
           </select>
-          {(searchTerm || estadoFilter) && (
-            <button onClick={() => { setSearchTerm(''); setEstadoFilter('') }} className="text-xs text-gray-500 hover:text-gray-700">
-              Limpiar
+          {selectedClienteId && (
+            <button
+              onClick={() => {
+                setShowNewColumn((v) => !v)
+                setNewColDraft({})
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 transition-colors whitespace-nowrap shadow-sm"
+            >
+              <Plus className="w-4 h-4" /> Nueva preventa
             </button>
           )}
-          <span className="text-xs text-gray-400">{filteredPreventas.length} de {(preventas ?? []).length}</span>
         </div>
-
-        {/* Tabla */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                {['#', 'Fecha', 'Cliente', 'Estado', 'Líneas'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
-                <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">Cargando…</td></tr>
-              ) : !filteredPreventas.length ? (
-                <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">No hay preventas registradas.</td></tr>
-              ) : filteredPreventas.map(p => (
-                <tr
-                  key={p.id}
-                  onClick={() => setSelectedId(p.id)}
-                  className={`cursor-pointer transition-colors hover:bg-gray-50 ${selectedId === p.id ? 'bg-brand-50 border-l-2 border-brand-500' : ''}`}
-                >
-                  <td className="px-4 py-3 font-medium text-gray-900">#{p.id}</td>
-                  <td className="px-4 py-3 text-gray-600">{p.fechaPreventa}</td>
-                  <td className="px-4 py-3 text-gray-800">{p.clienteNombre}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_COLOR[p.estado] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {labelEstado(p.estado)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{p.totalLineas}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {selectedClienteId && (
+          <div className="mt-3 pt-3 border-t border-gray-100 flex flex-col md:flex-row md:items-center gap-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Periodo historico</span>
+            <select
+              value={periodoFiltro}
+              onChange={(e) => setPeriodoFiltro(e.target.value as '7d' | '15d' | '30d' | '90d' | 'all' | 'custom')}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white text-gray-800"
+            >
+              <option value="7d">Ultimos 7 dias</option>
+              <option value="15d">Ultimos 15 dias</option>
+              <option value="30d">Ultimos 30 dias</option>
+              <option value="90d">Ultimos 90 dias</option>
+              <option value="all">Todo el historico</option>
+              <option value="custom">Rango personalizado</option>
+            </select>
+            {periodoFiltro === 'custom' && (
+              <>
+                <input
+                  type="date"
+                  value={customDesde}
+                  onChange={(e) => setCustomDesde(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <input
+                  type="date"
+                  value={customHasta}
+                  onChange={(e) => setCustomHasta(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </>
+            )}
+            <span className="text-xs text-gray-400 md:ml-auto">
+              {pedidosHistoricosFiltrados.length} fechas visibles
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* ── Panel detalle ───────────────────────────────────────── */}
-      {selectedId && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {cargandoDetalle || !detalle ? (
-            <div className="p-6 text-sm text-gray-400 text-center">Cargando detalle…</div>
-          ) : (
-            <>
-              {/* Cabecera panel */}
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-base font-bold text-gray-900">Preventa #{detalle.id}</h2>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_COLOR[detalle.estado] ?? 'bg-gray-100 text-gray-600'}`}>
-                    {labelEstado(detalle.estado)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50"
-                    onClick={() => syncEditorWithDetalle(detalle)}
-                  >
-                    <RefreshCw className="w-3 h-3" /> Recargar
-                  </button>
-                  <button className="text-gray-400 hover:text-gray-600" onClick={() => setSelectedId(null)}>
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+      {!selectedClienteId && (
+        <div className="bg-white rounded-xl border border-gray-200 py-20 text-center shadow-sm">
+          <Calendar className="w-14 h-14 text-gray-200 mx-auto mb-4" />
+          <p className="text-gray-600 font-semibold text-base">Selecciona un cliente para comenzar</p>
+          <p className="text-sm text-gray-400 mt-1">Se mostrara su historico de pedidos para preparar la nueva preventa</p>
+        </div>
+      )}
 
-              <div className="p-5 space-y-6">
-                {/* Datos cabecera */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Datos generales</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Cliente</label>
-                      <select
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
-                        disabled={!canEdit}
-                        value={editClienteId}
-                        onChange={e => setEditClienteId(e.target.value)}
-                      >
-                        <option value="">Seleccionar…</option>
-                        {(clientes ?? []).map(c => <option key={c.id} value={c.id}>{nombreCliente(c)}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Fecha preventa</label>
-                      <input
-                        type="date"
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
-                        disabled={!canEdit}
-                        value={editFecha}
-                        onChange={e => setEditFecha(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
-                      <select
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
-                        value={editEstado}
-                        disabled={!canEdit}
-                        onChange={e => setEditEstado(e.target.value)}
-                      >
-                        {['Borrador', 'PendienteRevision', 'Confirmada', 'Cancelada'].map(st => (
-                          <option key={st} value={st}>{labelEstado(st)}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Notas</label>
-                      <input
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
-                        value={editNotas}
-                        disabled={!canEdit}
-                        onChange={e => setEditNotas(e.target.value)}
-                        placeholder="Sin notas"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <button
-                      className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-                      disabled={!canEdit || guardarCabeceraMutation.isPending}
-                      onClick={() => guardarCabeceraMutation.mutate()}
-                    >
-                      <Save className="w-4 h-4" /> Guardar cabecera
-                    </button>
-                    <button
-                      className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-700 rounded-lg text-sm hover:bg-red-50 disabled:opacity-50"
-                      disabled={!canEdit || cancelarMutation.isPending}
-                      onClick={() => cancelarMutation.mutate()}
-                    >
-                      Cancelar preventa
-                    </button>
-                  </div>
-                </div>
+      {selectedClienteId && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+          {(loadingPreventas || loadingPedidos || loadingPreventaDetalle || isLoadingPedidoDetails) && (
+            <div className="flex items-center gap-2.5 px-5 py-2.5 bg-brand-50 border-b border-brand-100">
+              <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+              <span className="text-sm text-brand-700 font-medium">Cargando historial...</span>
+            </div>
+          )}
 
-                {/* Líneas */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Líneas de preventa</p>
-                  <div className="space-y-2">
-                    {editLineas.map((l, idx) => (
-                      <div key={`edit-${l.id ?? idx}`} className="bg-gray-50 rounded-lg border border-gray-100 p-3">
-                        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
-                          <div className="col-span-2">
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Producto</label>
-                            <select
-                              className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none disabled:bg-white disabled:text-gray-400"
-                              disabled={!canEdit}
-                              value={l.productoId}
-                              onChange={e => { const v = Number(e.target.value); setEditLineas(prev => prev.map((x, i) => i === idx ? { ...x, productoId: v } : x)) }}
-                            >
-                              <option value={0}>Seleccionar…</option>
-                              {(productos ?? []).map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Fecha objetivo</label>
-                            <input
-                              type="date"
-                              className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none disabled:bg-white disabled:text-gray-400"
-                              disabled={!canEdit}
-                              value={l.fechaObjetivo}
-                              onChange={e => setEditLineas(prev => prev.map((x, i) => i === idx ? { ...x, fechaObjetivo: e.target.value } : x))}
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Prevista</label>
-                            <input
-                              className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none disabled:bg-white disabled:text-gray-400"
-                              disabled={!canEdit}
-                              value={l.cantidadPrevista}
-                              onChange={e => setEditLineas(prev => prev.map((x, i) => i === idx ? { ...x, cantidadPrevista: e.target.value } : x))}
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Final</label>
-                            <input
-                              className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none disabled:bg-white disabled:text-gray-400"
-                              disabled={!canEdit}
-                              value={l.cantidadFinal}
-                              onChange={e => setEditLineas(prev => prev.map((x, i) => i === idx ? { ...x, cantidadFinal: e.target.value } : x))}
-                              placeholder="—"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Estado</label>
-                            <select
-                              className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none disabled:bg-white disabled:text-gray-400"
-                              disabled={!canEdit}
-                              value={l.estadoLinea}
-                              onChange={e => setEditLineas(prev => prev.map((x, i) => i === idx ? { ...x, estadoLinea: e.target.value } : x))}
-                            >
-                              {['Previsto', 'PendienteCompra', 'ListoParaPedido', 'NoServible', 'Cancelada'].map(st => (
-                                <option key={st} value={st}>{st}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between mt-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${ESTADO_LINEA_COLOR[l.estadoLinea] ?? 'bg-gray-100 text-gray-600'}`}>
-                              {l.estadoLinea}
+          {!hasContent && !loadingPedidos && !loadingPreventas && (
+            <div className="py-16 text-center">
+              <Calendar className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+              <p className="text-gray-500 font-medium">
+                {selectedCliente ? nombreCliente(selectedCliente) : 'Este cliente'} no tiene pedidos ni preventa activa
+              </p>
+              <p className="text-sm text-gray-400 mt-1">
+                Pulsa <strong className="text-brand-600">Nueva preventa</strong> para crear una columna editable
+              </p>
+            </div>
+          )}
+
+          {hasContent && (
+            <div className="overflow-x-auto">
+              <table className="border-collapse" style={{ width: 'max-content', minWidth: '100%' }}>
+                <colgroup>
+                  <col style={{ width: '210px' }} />
+                  {pedidosHistoricosFiltrados.map((p) => <col key={`pedido-${p.id}`} style={{ width: '135px' }} />)}
+                  {activePreventa && <col style={{ width: '150px' }} />}
+                  {showNewColumn && <col style={{ width: '155px' }} />}
+                </colgroup>
+
+                <thead>
+                  <tr>
+                    <th
+                      className="sticky left-0 z-20 px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider border-r"
+                      style={{
+                        backgroundColor: 'var(--brand-primary-darker)',
+                        borderRightColor: 'var(--brand-primary-dark)',
+                      }}
+                    >
+                      Producto
+                    </th>
+
+                    {pedidosHistoricosFiltrados.map((pedido) => {
+                      const theme = pedidoTheme(pedido.estado)
+                      const dateValue = pedido.fechaEntrega ?? pedido.fecha
+                      return (
+                        <th key={`pedido-head-${pedido.id}`} className={`px-2 py-2.5 text-center border-r border-gray-200 ${theme.header}`}>
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-sm font-bold tabular-nums">{formatDate(dateValue)}</span>
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${theme.badge}`}>
+                              {labelPedidoEstado(pedido.estado)}
                             </span>
-                            <span className="text-xs text-gray-400">
-                              {productoMap.get(l.productoId) ?? 'Sin producto'}{l.id ? ` · línea #${l.id}` : ' · nueva'}
-                            </span>
+                            <span className="text-[10px] font-semibold opacity-80">{pedido.numeroPedido}</span>
                           </div>
-                          {canEdit && (
-                            <button
-                              className="text-xs text-red-500 hover:text-red-700 px-2 py-0.5 rounded hover:bg-red-50"
-                              onClick={() => setEditLineas(prev => prev.filter((_, i) => i !== idx))}
-                            >
-                              Quitar
-                            </button>
+                        </th>
+                      )
+                    })}
+
+                    {activePreventa && (
+                      <th className={`px-2 py-2.5 text-center border-r border-gray-200 ${(PREVENTA_THEME[activePreventa.estado] ?? PREVENTA_THEME.Borrador).header}`}>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-xs font-bold">Preventa activa</span>
+                          <span className="text-sm font-bold tabular-nums">{formatDate(activePreventa.fechaPreventa)}</span>
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${(PREVENTA_THEME[activePreventa.estado] ?? PREVENTA_THEME.Borrador).badge}`}>
+                            {labelPreventaEstado(activePreventa.estado)}
+                          </span>
+                          {dirtyIds.has(activePreventa.id) && (
+                            <span className="text-[10px] text-orange-500 font-bold animate-pulse">Sin guardar</span>
                           )}
                         </div>
-                      </div>
+                      </th>
+                    )}
+
+                    {showNewColumn && (
+                      <th className="px-2 py-2.5 text-center bg-brand-600 border-r border-brand-500">
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-xs font-bold text-white">Nueva preventa</span>
+                          <input
+                            type="date"
+                            value={newColDate}
+                            onChange={(e) => setNewColDate(e.target.value)}
+                            className="w-full px-2 py-1 border border-brand-400 rounded text-xs text-center focus:outline-none focus:ring-2 focus:ring-white bg-brand-700 text-white"
+                          />
+                          <button
+                            onClick={() => {
+                              setShowNewColumn(false)
+                              setNewColDraft({})
+                            }}
+                            className="text-[10px] text-brand-200 hover:text-white transition-colors"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {sortedProductos.map((prod, rowIdx) => (
+                    <tr key={prod.id} className={`border-b border-gray-100 ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
+                      <td className="sticky left-0 z-10 px-4 py-2 text-sm font-medium text-gray-800 border-r border-gray-200 bg-inherit truncate max-w-[210px]" title={prod.nombre}>
+                        {prod.nombre}
+                      </td>
+
+                      {pedidosHistoricosFiltrados.map((pedido) => {
+                        const qty = getPedidoCellValue(pedido, prod.id)
+                        return (
+                          <td key={`pedido-cell-${pedido.id}-${prod.id}`} className="px-1.5 py-1 text-center border-r border-gray-100">
+                            <span className={`text-sm font-bold ${qty > 0 ? 'text-gray-800' : 'text-gray-300'}`}>{qty}</span>
+                          </td>
+                        )
+                      })}
+
+                      {activePreventa && (() => {
+                        const val = getPreventaCellValue(prod.id)
+                        const numVal = Number(val.replace(',', '.'))
+                        const hasValue = Number.isFinite(numVal) && numVal > 0
+                        const isDraftCell = drafts[activePreventa.id]?.[prod.id] !== undefined
+                        return (
+                          <td className={`px-1.5 py-1 text-center border-r border-gray-100 transition-colors ${hasValue ? isDraftCell ? 'bg-orange-50' : 'bg-indigo-50/80' : ''}`}>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={hasValue || isDraftCell ? (val === '0' ? '' : val) : ''}
+                              placeholder="0"
+                              onChange={(e) => setPreventaCellValue(prod.id, e.target.value)}
+                              className={`w-full px-1 py-1.5 text-center text-sm rounded border transition-all focus:outline-none focus:ring-2 focus:ring-brand-400 ${
+                                hasValue
+                                  ? isDraftCell
+                                    ? 'border-orange-300 bg-orange-50 text-orange-900 font-bold'
+                                    : 'border-indigo-200 bg-indigo-50 text-indigo-900 font-bold'
+                                  : 'border-transparent hover:border-gray-300 bg-transparent text-gray-400 placeholder:text-gray-300'
+                              }`}
+                            />
+                          </td>
+                        )
+                      })()}
+
+                      {showNewColumn && (
+                        <td className="px-1.5 py-1 text-center border-r border-brand-100 bg-brand-50/30">
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={newColDraft[prod.id] ?? ''}
+                            placeholder="0"
+                            onChange={(e) => setNewColDraft((prev) => ({ ...prev, [prod.id]: e.target.value }))}
+                            className="w-full px-1 py-1.5 text-center text-sm rounded border border-brand-200 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white font-medium placeholder:text-gray-300"
+                          />
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+
+                <tfoot>
+                  <tr className="border-t-2 border-gray-300 bg-gray-100">
+                    <td className="sticky left-0 z-10 px-4 py-2.5 text-xs font-bold text-gray-600 uppercase tracking-wide border-r border-gray-200 bg-gray-100">
+                      Total uds.
+                    </td>
+
+                    {pedidosHistoricosFiltrados.map((pedido) => (
+                      <td key={`pedido-total-${pedido.id}`} className="px-2 py-2.5 text-center border-r border-gray-200">
+                        <span className="text-base font-extrabold text-gray-800 tabular-nums">{getPedidoColumnTotal(pedido)}</span>
+                      </td>
                     ))}
-                  </div>
 
-                  {canEdit && (
-                    <div className="flex gap-2 mt-3">
-                      <button
-                        className="flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-                        onClick={() => setEditLineas(prev => [...prev, { productoId: 0, fechaObjetivo: editFecha || todayIso(), cantidadPrevista: '0', cantidadFinal: '', estadoLinea: 'Previsto', observaciones: '' }])}
-                      >
-                        <Plus className="w-3 h-3" /> Añadir línea
-                      </button>
-                      <button
-                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
-                        disabled={guardarLineasMutation.isPending}
-                        onClick={() => guardarLineasMutation.mutate()}
-                      >
-                        <Save className="w-4 h-4" /> Guardar líneas
-                      </button>
-                    </div>
-                  )}
-                </div>
+                    {activePreventa && (
+                      <td className="px-2 py-2.5 text-center border-r border-indigo-200 bg-indigo-100/70">
+                        <span className="text-base font-extrabold text-indigo-800 tabular-nums">{getPreventaTotal()}</span>
+                      </td>
+                    )}
 
-                {/* Acción conversión */}
-                <div className="pt-4 border-t border-gray-100">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Conversión a pedido</p>
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      className="flex items-center gap-2 px-4 py-2 border border-amber-300 text-amber-800 bg-amber-50 rounded-lg text-sm font-medium hover:bg-amber-100 disabled:opacity-50"
-                      onClick={() => validarMutation.mutate()}
-                      disabled={validarMutation.isPending}
-                    >
-                      <AlertTriangle className="w-4 h-4" /> Validar stock
-                    </button>
-                    <button
-                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                      onClick={() => validarMutation.mutate()}
-                      disabled={validarMutation.isPending}
-                    >
-                      <ArrowRightLeft className="w-4 h-4" /> Revisar y convertir a pedido
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
+                    {showNewColumn && (
+                      <td className="px-2 py-2.5 text-center border-r border-brand-200 bg-brand-100">
+                        <span className="text-base font-extrabold text-brand-800 tabular-nums">{getNewColTotal()}</span>
+                      </td>
+                    )}
+                  </tr>
+
+                  <tr className="bg-white border-t border-gray-100">
+                    <td className="sticky left-0 z-10 px-4 py-2.5 border-r border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wide">
+                      Acciones
+                    </td>
+
+                    {pedidosHistoricosFiltrados.map((pedido) => (
+                      <td key={`pedido-action-${pedido.id}`} className="px-1.5 py-2 text-center border-r border-gray-100 align-top">
+                        <span className="text-[11px] text-gray-400 font-semibold">Historico</span>
+                      </td>
+                    ))}
+
+                    {activePreventa && (() => {
+                      const isDirty = dirtyIds.has(activePreventa.id)
+                      const canConvert = ['Borrador', 'Confirmada', 'PendienteRevision'].includes(activePreventa.estado) && !isDirty
+                      return (
+                        <td className="px-1.5 py-2 text-center border-r border-gray-100 align-top">
+                          <div className="flex flex-col gap-1.5 items-stretch pt-1">
+                            {isDirty && (
+                              <button
+                                onClick={() => guardarLineasMutation.mutate()}
+                                disabled={guardarLineasMutation.isPending || loadingPreventaDetalle || !activePreventaDetalle}
+                                className="flex items-center justify-center gap-1 px-2 py-1.5 bg-emerald-600 text-white rounded-lg text-[11px] font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                              >
+                                <Save className="w-3 h-3" /> Guardar
+                              </button>
+                            )}
+
+                            {canConvert && (
+                              <button
+                                onClick={() => validarMutation.mutate(activePreventa.id)}
+                                disabled={validarMutation.isPending}
+                                className="flex items-center justify-center gap-1 px-2 py-1.5 bg-brand-600 text-white rounded-lg text-[11px] font-bold hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                              >
+                                <ShoppingCart className="w-3 h-3" /> Pasar a pedido
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => {
+                                if (window.confirm('Cancelar esta preventa?')) cancelarMutation.mutate(activePreventa.id)
+                              }}
+                              disabled={cancelarMutation.isPending}
+                              className="flex items-center justify-center gap-1 px-2 py-1.5 border border-red-200 text-red-600 rounded-lg text-[11px] font-medium hover:bg-red-50 disabled:opacity-50 transition-colors"
+                            >
+                              <Trash2 className="w-3 h-3" /> Cancelar
+                            </button>
+                          </div>
+                        </td>
+                      )
+                    })()}
+
+                    {showNewColumn && (
+                      <td className="px-1.5 py-2 text-center border-r border-brand-100 bg-brand-50/30 align-top">
+                        <div className="flex flex-col gap-1.5 items-stretch pt-1">
+                          <button
+                            onClick={() => crearMutation.mutate()}
+                            disabled={crearMutation.isPending}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-brand-600 text-white rounded-lg text-[11px] font-bold hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                          >
+                            {crearMutation.isPending
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : <Save className="w-3 h-3" />}
+                            Crear preventa
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowNewColumn(false)
+                              setNewColDraft({})
+                            }}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-[11px] hover:bg-gray-50 transition-colors"
+                          >
+                            <X className="w-3 h-3" /> Descartar
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           )}
         </div>
       )}
 
-      {/* ── Modal conversión ────────────────────────────────────── */}
-      {warningModalOpen && warningData && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-base font-bold text-gray-900">Revisión antes de convertir</h3>
-              <button onClick={() => setWarningModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-4 h-4" />
+      {modal.open && modal.data && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className={`px-6 py-4 border-b border-gray-100 flex items-center gap-3 ${modal.data.advertencias.length > 0 ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+              {modal.data.advertencias.length > 0
+                ? <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+                : <Check className="w-5 h-5 text-emerald-500 shrink-0" />}
+              <h3 className="font-bold text-gray-900 text-base flex-1">Pasar preventa a pedido</h3>
+              <button onClick={() => setModal({ open: false, preventaId: null, data: null })} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-5 space-y-4">
+
+            <div className="px-6 py-5 space-y-4">
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                  <p className="text-xs text-gray-500">Líneas convertibles</p>
-                  <p className="text-xl font-bold text-gray-900">{warningData.lineasConvertibles}</p>
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
+                  <p className="text-xs text-gray-500 mb-1">Lineas a convertir</p>
+                  <p className="text-3xl font-extrabold text-gray-900">{modal.data.lineasConvertibles}</p>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                  <p className="text-xs text-gray-500">Cantidad total</p>
-                  <p className="text-xl font-bold text-gray-900">{warningData.cantidadTotal}</p>
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
+                  <p className="text-xs text-gray-500 mb-1">Total unidades</p>
+                  <p className="text-3xl font-extrabold text-gray-900">{modal.data.cantidadTotal}</p>
                 </div>
               </div>
 
-              {warningData.advertencias.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1 max-h-40 overflow-auto">
-                  <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide mb-1">Advertencias de stock</p>
-                  {warningData.advertencias.map((a, idx) => (
-                    <p key={`warn-${idx}`} className="text-sm text-amber-900 flex items-start gap-1.5">
-                      <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />{a}
+              {modal.data.advertencias.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-1.5">
+                  <p className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-2">Advertencias</p>
+                  {modal.data.advertencias.map((w, i) => (
+                    <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                      <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                      {w}
                     </p>
                   ))}
                 </div>
               )}
 
-              <label className="flex items-start gap-2.5 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 rounded"
-                  checked={confirmChecked}
-                  onChange={e => setConfirmChecked(e.target.checked)}
-                />
-                <span>He revisado la preventa y acepto convertirla a pedido, asumiendo las advertencias indicadas.</span>
-              </label>
-
-              <div className="flex justify-end gap-2 pt-1">
+              <div className="flex gap-3 pt-1">
                 <button
-                  className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-                  onClick={() => setWarningModalOpen(false)}
+                  onClick={() => setModal({ open: false, preventaId: null, data: null })}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                  disabled={!confirmChecked || convertirMutation.isPending}
-                  onClick={() => convertirMutation.mutate()}
+                  onClick={() => modal.preventaId && convertirMutation.mutate(modal.preventaId)}
+                  disabled={convertirMutation.isPending}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-bold hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-sm"
                 >
-                  <ArrowRightLeft className="w-4 h-4" /> Convertir ahora
+                  {convertirMutation.isPending
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <ShoppingCart className="w-4 h-4" />}
+                  Confirmar pedido
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-
     </div>
   )
 }

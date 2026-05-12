@@ -354,7 +354,7 @@ public class PedidosController : ControllerBase
     /// Asigna lotes FIFO y consume stock en este punto para evitar descuentos duplicados posteriores.
     /// </summary>
     [HttpPost("{id:int}/confirmar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Confirmar(int id, CancellationToken ct)
     {
         var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
@@ -456,7 +456,7 @@ public class PedidosController : ControllerBase
     /// POST /api/pedidos/{id}/cancelar — Cancelar pedido y devolver stock si ya se descontó al confirmar
     /// </summary>
     [HttpPost("{id:int}/cancelar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Cancelar(int id, CancellationToken ct)
     {
         var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
@@ -536,7 +536,7 @@ public class PedidosController : ControllerBase
     /// POST /api/pedidos/{id}/preparado — Marcar pedido como Preparado
     /// </summary>
     [HttpPost("{id:int}/preparado")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> MarcarPreparado(int id, CancellationToken ct)
     {
         var pedido = await _uow.Pedidos.GetByIdAsync(id, ct);
@@ -555,7 +555,7 @@ public class PedidosController : ControllerBase
     /// POST /api/pedidos/{id}/en-reparto — Marcar pedido como EnReparto
     /// </summary>
     [HttpPost("{id:int}/en-reparto")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> MarcarEnReparto(int id, CancellationToken ct)
     {
         var pedido = await _uow.Pedidos.GetByIdAsync(id, ct);
@@ -574,7 +574,7 @@ public class PedidosController : ControllerBase
     /// POST /api/pedidos/{id}/entregado — Marcar pedido como Entregado
     /// </summary>
     [HttpPost("{id:int}/entregado")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> MarcarEntregado(int id, CancellationToken ct)
     {
         var pedido = await _uow.Pedidos.GetByIdAsync(id, ct);
@@ -594,7 +594,7 @@ public class PedidosController : ControllerBase
     /// Crea un albarán con FIFO automático a partir de un pedido confirmado.
     /// </summary>
     [HttpPost("{id:int}/crear-albaran")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<AlbaranCreado>>> CrearAlbaran(int id, CancellationToken ct)
     {
         var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
@@ -700,7 +700,7 @@ public class PedidosController : ControllerBase
     /// Solo si el cliente permite facturación (noRealizarFacturas = false).
     /// </summary>
     [HttpPost("{id:int}/crear-factura")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<FacturaCreada>>> CrearFactura(
         int id, [FromBody] CrearFacturaDesdePedidoRequest request, CancellationToken ct)
     {
@@ -949,7 +949,7 @@ public class PedidosController : ControllerBase
     /// (solo si no tienen albaranes o facturas asociadas).
     /// </summary>
     [HttpDelete("{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Eliminar(int id, CancellationToken ct)
     {
         var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);

@@ -11,9 +11,13 @@
     "dev:electron": "concurrently -n VITE,ELECTRON -c cyan,yellow \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "tsc -b && vite build",
     "build:electron": "cross-env ELECTRON_BUILD=1 tsc -b && cross-env ELECTRON_BUILD=1 vite build",
+    "build:android": "cross-env ELECTRON_BUILD=0 tsc -b && vite build",
     "build:api": "dotnet publish ../src/BuenaTierra.API/BuenaTierra.API.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ../publish/api",
     "package": "npm run build:electron && electron-builder",
     "package:win": "npm run build:api && npm run package -- --win",
+    "android:sync": "npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:apk": "cd android && gradlew.bat assembleRelease",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
@@ -21,6 +25,8 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@capacitor/android": "^7.4.4",
+    "@capacitor/core": "^7.4.4",
     "@tanstack/react-query": "^5.90.21",
     "@tiptap/extension-color": "^3.20.0",
     "@tiptap/extension-font-family": "^3.20.0",
@@ -51,6 +57,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.4.4",
     "@eslint/js": "^9.13.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
