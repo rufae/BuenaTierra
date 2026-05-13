@@ -118,7 +118,7 @@ public class FacturasController : ControllerBase
 
     /// <summary>POST /api/facturas/{id}/emitir — Borrador → Emitida</summary>
     [HttpPost("{id:int}/emitir")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Emitir(int id, CancellationToken ct)
     {
         var factura = await _uow.Facturas.GetByIdAsync(id, ct);
@@ -135,7 +135,7 @@ public class FacturasController : ControllerBase
 
     /// <summary>POST /api/facturas/{id}/enviar — Emitida → Enviada</summary>
     [HttpPost("{id:int}/enviar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Enviar(int id, CancellationToken ct)
     {
         var factura = await _uow.Facturas.GetByIdAsync(id, ct);
@@ -152,7 +152,7 @@ public class FacturasController : ControllerBase
 
     /// <summary>POST /api/facturas/{id}/cobrar — Emitida|Enviada → Cobrada</summary>
     [HttpPost("{id:int}/cobrar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Cobrar(int id, CancellationToken ct)
     {
         var factura = await _uow.Facturas.GetByIdAsync(id, ct);
@@ -176,7 +176,7 @@ public class FacturasController : ControllerBase
     /// Las facturas Emitida o Cobrada NO se pueden eliminar (requisito legal/fiscal).
     /// </summary>
     [HttpDelete("{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Eliminar(int id, CancellationToken ct)
     {
         var factura = await _uow.Facturas.GetByIdAsync(id, ct);

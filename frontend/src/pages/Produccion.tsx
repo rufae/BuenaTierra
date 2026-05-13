@@ -42,6 +42,13 @@ interface CrearProduccionDto {
   notas?: string
 }
 
+function loteCodigoDesdeIso(isoDate: string): string {
+  const parts = isoDate.split('-')
+  if (parts.length !== 3) return loteCodigo()
+  const [yyyy, mm, dd] = parts
+  return `${dd}${mm}${yyyy.slice(-2)}`
+}
+
 interface ProduccionCreada {
   produccionId: number
   loteId: number | null
@@ -97,16 +104,26 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
   // ── Form ──────────────────────────────────────────────────
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<CrearProduccionDto>(mkForm(user!.empresaId, user!.usuarioId, todayIso))
+  const [fechaLoteCodigo, setFechaLoteCodigo] = useState(todayIso)
 
   function handleFechaChange(isoDate: string) {
-    const parts = isoDate.split('-')
-    if (parts.length === 3) {
-      const [yyyy, mm, dd] = parts
-      const yy = yyyy.slice(-2)
-      setForm(f => ({ ...f, fechaProduccion: isoDate, codigoLoteSugerido: `${dd}${mm}${yy}` }))
-    } else {
-      setForm(f => ({ ...f, fechaProduccion: isoDate }))
+    setForm((current) => {
+      const syncLote = fechaLoteCodigo === current.fechaProduccion || !fechaLoteCodigo
+      return {
+        ...current,
+        fechaProduccion: isoDate,
+        codigoLoteSugerido: syncLote ? loteCodigoDesdeIso(isoDate) : current.codigoLoteSugerido,
+      }
+    })
+    if (fechaLoteCodigo === form.fechaProduccion || !fechaLoteCodigo) {
+      setFechaLoteCodigo(isoDate)
     }
+  }
+
+  function handleFechaLoteCodigoChange(isoDate: string) {
+    setFechaLoteCodigo(isoDate)
+    if (!isoDate) return
+    setForm((current) => ({ ...current, codigoLoteSugerido: loteCodigoDesdeIso(isoDate) }))
   }
 
   // ── Queries ───────────────────────────────────────────────────────
@@ -153,6 +170,7 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
         : `${moduloNombre} registrada (pendiente de finalizar)`)
       setShowForm(false)
       setForm(mkForm(user!.empresaId, user!.usuarioId, todayIso))
+      setFechaLoteCodigo(todayIso)
     },
     onError: () => toast.error(`Error al registrar ${moduloNombreLower}`),
   })
@@ -470,6 +488,14 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
                   <p className="text-xs text-gray-400 mt-0.5">Autogenerado · modificable</p>
                 </div>
               </div>
+
+              {esCompra && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Generar lote desde fecha</label>
+                  <DateInput value={fechaLoteCodigo} onChange={handleFechaLoteCodigoChange} className="w-full" />
+                  <p className="text-xs text-gray-400 mt-0.5">Selecciona una fecha para rellenar automáticamente el lote en formato ddMMyy.</p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Fecha caducidad (opcional)</label>

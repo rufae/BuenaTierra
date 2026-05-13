@@ -120,7 +120,7 @@ export default function Layout() {
         ? item
         : { ...item, to: '/compra', icon: <ShoppingCart className="w-[18px] h-[18px]" />, label: 'Compra' }
     })
-    .filter((item) => esEmpresaObrador || (item.to !== '/ingredientes' && item.to !== '/etiquetas'))
+    .filter((item) => esEmpresaObrador || item.to !== '/ingredientes')
 
   const navItems = isAdmin
     ? NAV_ADMIN
