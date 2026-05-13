@@ -76,7 +76,7 @@ public class EtiquetasController : ControllerBase
     }
 
     [HttpPost("plantillas")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<PlantillaEtiqueta>>> CreatePlantilla(
         [FromBody] PlantillaRequest req, CancellationToken ct)
     {
@@ -98,7 +98,7 @@ public class EtiquetasController : ControllerBase
     }
 
     [HttpPut("plantillas/{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<PlantillaEtiqueta>>> UpdatePlantilla(
         int id, [FromBody] PlantillaRequest req, CancellationToken ct)
     {
@@ -120,7 +120,7 @@ public class EtiquetasController : ControllerBase
     }
 
     [HttpDelete("plantillas/{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> DeletePlantilla(int id, CancellationToken ct)
     {
         var p = await _uow.PlantillasEtiqueta.GetByIdAsync(id, ct)
@@ -159,7 +159,7 @@ public class EtiquetasController : ControllerBase
     }
 
     [HttpPost("importar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> Importar(IFormFile archivo, CancellationToken ct)
     {
         if (archivo == null || archivo.Length == 0)
@@ -196,7 +196,7 @@ public class EtiquetasController : ControllerBase
     }
 
     [HttpDelete("importadas/{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> DeleteImportada(int id, CancellationToken ct)
     {
         var e = await _uow.EtiquetasImportadas.GetByIdAsync(id, ct)
@@ -269,7 +269,7 @@ public class EtiquetasController : ControllerBase
     }
 
     [HttpPost("tipos-iva-re")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> CreateTipoIvaRe([FromBody] TipoIvaReRequest req, CancellationToken ct)
     {
         // Verificar duplicado (empresa + IVA%)
@@ -291,7 +291,7 @@ public class EtiquetasController : ControllerBase
     }
 
     [HttpPut("tipos-iva-re/{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> UpdateTipoIvaRe(int id, [FromBody] TipoIvaReRequest req, CancellationToken ct)
     {
         var e = await _uow.TiposIvaRe.GetByIdAsync(id, ct)
@@ -315,7 +315,7 @@ public class EtiquetasController : ControllerBase
     }
 
     [HttpDelete("tipos-iva-re/{id:int}")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> DeleteTipoIvaRe(int id, CancellationToken ct)
     {
         var e = await _uow.TiposIvaRe.GetByIdAsync(id, ct)
@@ -332,7 +332,7 @@ public class EtiquetasController : ControllerBase
     // ═══════════════════════════════════════════════════════
 
     [HttpPost("imprimir")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<IActionResult> Imprimir([FromBody] ImprimirRequest req, CancellationToken ct)
     {
         var plantilla = await _uow.PlantillasEtiqueta.GetByIdAsync(req.PlantillaEtiquetaId, ct)

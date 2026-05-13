@@ -86,7 +86,7 @@ public class AlbaranesController : ControllerBase
     /// Crea un albarán con asignación FIFO automática de lotes (igual que factura).
     /// </summary>
     [HttpPost("crear")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<AlbaranCreado>>> Crear(
         [FromBody] CrearAlbaranRequest request, CancellationToken ct)
     {
@@ -208,7 +208,7 @@ public class AlbaranesController : ControllerBase
     /// NO relanza FIFO — garantiza trazabilidad: la factura refleja exactamente los lotes del albarán.
     /// </summary>
     [HttpPost("{id:int}/convertir-factura")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<FacturaCreada>>> ConvertirAFactura(
         int id, [FromBody] ConvertirAlbaranRequest request, CancellationToken ct)
     {
@@ -364,7 +364,7 @@ public class AlbaranesController : ControllerBase
 
     /// <summary>POST /api/albaranes/{id}/entregar — Marcar albarán como entregado</summary>
     [HttpPost("{id:int}/entregar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Entregar(int id, CancellationToken ct)
     {
         var albaran = await _uow.Albaranes.GetByIdAsync(id, ct);
@@ -380,7 +380,7 @@ public class AlbaranesController : ControllerBase
 
     /// <summary>POST /api/albaranes/{id}/en-reparto — Marcar albarán como EnReparto</summary>
     [HttpPost("{id:int}/en-reparto")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> MarcarEnReparto(int id, CancellationToken ct)
     {
         var albaran = await _uow.Albaranes.GetByIdAsync(id, ct);
@@ -397,7 +397,7 @@ public class AlbaranesController : ControllerBase
 
     /// <summary>POST /api/albaranes/{id}/cancelar — Cancelar albarán y devolver stock consumido</summary>
     [HttpPost("{id:int}/cancelar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Cancelar(int id, CancellationToken ct)
     {
         var albaran = await _uow.Albaranes.GetConLineasAsync(EmpresaId, id, ct);

@@ -1,4 +1,5 @@
 using BuenaTierra.Application.Common;
+using BuenaTierra.Application.Interfaces;
 using BuenaTierra.Domain.Entities;
 using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Interfaces;
@@ -16,10 +17,12 @@ namespace BuenaTierra.API.Controllers;
 public class PreventasController : ControllerBase
 {
     private readonly IUnitOfWork _uow;
+    private readonly ILoteAsignacionService _loteService;
 
-    public PreventasController(IUnitOfWork uow)
+    public PreventasController(IUnitOfWork uow, ILoteAsignacionService loteService)
     {
         _uow = uow;
+        _loteService = loteService;
     }
 
     private int EmpresaId => int.Parse(User.FindFirstValue("empresa_id")!);
@@ -90,6 +93,11 @@ public class PreventasController : ControllerBase
         if (cliente == null)
             return BadRequest(ApiResponse<PreventaCreadaDto>.Fail("Cliente no valido para la empresa actual"));
 
+        var lineasNormalizadas = NormalizarLineas(request.Lineas);
+        var errorDisponibilidad = await ValidarDisponibilidadAsync(lineasNormalizadas, ct);
+        if (errorDisponibilidad != null)
+            return BadRequest(ApiResponse<PreventaCreadaDto>.Fail(errorDisponibilidad));
+
         var preventa = new Preventa
         {
             EmpresaId = EmpresaId,
@@ -101,7 +109,7 @@ public class PreventasController : ControllerBase
             Notas = request.Notas,
         };
 
-        foreach (var lineaReq in NormalizarLineas(request.Lineas))
+        foreach (var lineaReq in lineasNormalizadas)
         {
             preventa.Lineas.Add(new PreventaLinea
             {
@@ -209,6 +217,10 @@ public class PreventasController : ControllerBase
             if (!claves.Add(key))
                 return BadRequest(ApiResponse<PreventaLineasActualizadasDto>.Fail("No se permiten lineas duplicadas por producto y fecha objetivo"));
         }
+
+        var errorDisponibilidad = await ValidarDisponibilidadAsync(normalizadas, ct);
+        if (errorDisponibilidad != null)
+            return BadRequest(ApiResponse<PreventaLineasActualizadasDto>.Fail(errorDisponibilidad));
 
         // Estrategia robusta: reemplazo completo de líneas editables.
         // Evita colisiones de UNIQUE(preventa_id, producto_id, fecha_objetivo)
@@ -584,6 +596,33 @@ public class PreventasController : ControllerBase
             return reDesdeDB;
 
         return ivaPorcentaje switch { 21m => 5.2m, 10m => 1.4m, 4m => 0.5m, _ => 0m };
+    }
+
+    private async Task<string?> ValidarDisponibilidadAsync(IEnumerable<LineaEntradaNormalizada> lineas, CancellationToken ct)
+    {
+        var cantidadesPorProducto = lineas
+            .GroupBy(l => l.ProductoId)
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.CantidadPrevista));
+
+        if (cantidadesPorProducto.Count == 0)
+            return null;
+
+        var productos = await _uow.Productos.GetQueryable()
+            .Where(p => p.EmpresaId == EmpresaId && cantidadesPorProducto.Keys.Contains(p.Id))
+            .Select(p => new { p.Id, p.Nombre })
+            .ToDictionaryAsync(p => p.Id, p => p.Nombre, ct);
+
+        foreach (var (productoId, cantidadSolicitada) in cantidadesPorProducto)
+        {
+            if (!productos.TryGetValue(productoId, out var nombreProducto))
+                return $"Producto no valido para la empresa actual: {productoId}";
+
+            var disponible = await _loteService.GetDisponibleAsync(EmpresaId, productoId, ct);
+            if (cantidadSolicitada > disponible)
+                return $"Stock insuficiente para {nombreProducto}. Disponible: {disponible:0.###}. Preventa solicitada: {cantidadSolicitada:0.###}.";
+        }
+
+        return null;
     }
 }
 

@@ -8,7 +8,7 @@ namespace BuenaTierra.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Policy = "ObradorOrAdmin")]
+[Authorize(Policy = "AnyRole")]
 public class ProduccionController : ControllerBase
 {
     private readonly IProduccionService _produccionService;

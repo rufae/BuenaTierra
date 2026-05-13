@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './store/authStore'
 import { applyStoredTheme } from './lib/theme'
+import { useTheme } from './hooks/useTheme'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -30,6 +31,8 @@ import Balance from './pages/Balance'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import ShortcutsModal from './components/ShortcutsModal'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import api from './lib/api'
+import type { Empresa } from './types'
 
 // Aplicar tema guardado antes del primer render para evitar flash de colores
 applyStoredTheme()
@@ -62,6 +65,15 @@ function AppRoutes() {
   const homePath = user?.rol === 'Admin' ? '/usuarios' : '/dashboard'
   const esEmpresaObrador = user?.empresaEsObrador ?? true
   const allowedOperativo = esEmpresaObrador ? ['Obrador'] : ['Obrador', 'Repartidor']
+
+  const { data: empresa } = useQuery({
+    queryKey: ['empresa-tema', user?.empresaId],
+    enabled: isAuthenticated && !!user?.empresaId,
+    staleTime: 300_000,
+    queryFn: async () => (await api.get<{ data: Empresa }>('/empresa')).data.data,
+  })
+
+  useTheme(empresa?.configuracion)
 
   useKeyboardShortcuts({
     onShowHelp: () => setShortcutsOpen(true),
@@ -131,10 +143,8 @@ function AppRoutes() {
         <Route
           path="etiquetas"
           element={
-            <RoleGuard allowed={['Obrador']}>
-              {esEmpresaObrador
-                ? <ErrorBoundary><Etiquetas /></ErrorBoundary>
-                : <Navigate to="/dashboard" replace />}
+            <RoleGuard allowed={allowedOperativo}>
+              <ErrorBoundary><Etiquetas /></ErrorBoundary>
             </RoleGuard>
           }
         />

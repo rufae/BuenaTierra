@@ -21,6 +21,7 @@ import type {
   Producto,
   PreventaDetalle,
   PreventaResumen,
+  StockItem,
   ValidacionConversion,
 } from '../types'
 
@@ -110,6 +111,12 @@ export default function Preventa() {
   const { data: productos } = useQuery({
     queryKey: ['productos'],
     queryFn: async () => (await api.get<{ data: Producto[] }>('/productos')).data.data,
+  })
+
+  const { data: stockItems = [] } = useQuery({
+    queryKey: ['stock-todos'],
+    queryFn: async () => (await api.get<{ data: StockItem[] }>('/stock/todos')).data.data,
+    staleTime: 60_000,
   })
 
   const { data: allPreventas, isLoading: loadingPreventas } = useQuery({
@@ -205,6 +212,37 @@ export default function Preventa() {
     [clientes, selectedClienteId],
   )
 
+  const stockDisponiblePorProducto = useMemo(() => {
+    const map: Record<number, number> = {}
+    stockItems.forEach((item) => {
+      const disponible = Number(item.cantidadDisponible ?? 0) - Number(item.cantidadReservada ?? 0)
+      map[item.productoId] = (map[item.productoId] ?? 0) + Math.max(0, disponible)
+    })
+    return map
+  }, [stockItems])
+
+  function getStockDisponible(productoId: number): number {
+    return stockDisponiblePorProducto[productoId] ?? 0
+  }
+
+  function excedeStock(productoId: number, raw: string | undefined): boolean {
+    const cantidad = Number((raw ?? '0').replace(',', '.'))
+    if (!Number.isFinite(cantidad) || cantidad <= 0) return false
+    return cantidad > getStockDisponible(productoId)
+  }
+
+  function validarCantidadesContraStock(cantidades: Record<number, string>): string | null {
+    for (const prod of sortedProductos) {
+      const cantidad = Number((cantidades[prod.id] ?? '0').replace(',', '.'))
+      if (!Number.isFinite(cantidad) || cantidad <= 0) continue
+      const disponible = getStockDisponible(prod.id)
+      if (cantidad > disponible) {
+        return `Stock insuficiente para ${prod.nombre}. Disponible: ${disponible}. Preventa: ${cantidad}.`
+      }
+    }
+    return null
+  }
+
   function getPedidoCellValue(pedido: PedidoDetalle, productoId: number): number {
     return pedido.lineas
       .filter((l) => l.productoId === productoId)
@@ -252,6 +290,8 @@ export default function Preventa() {
     mutationFn: async () => {
       if (!activePreventa) throw new Error('No hay preventa activa')
       const preId = activePreventa.id
+      const errorStock = validarCantidadesContraStock(drafts[preId] ?? {})
+      if (errorStock) throw new Error(errorStock)
       const fallbackDate = activePreventa.fechaPreventa || todayIso()
 
       const lineas = sortedProductos.flatMap((prod) => {
@@ -296,6 +336,9 @@ export default function Preventa() {
   const crearMutation = useMutation({
     mutationFn: async () => {
       if (!selectedClienteId) throw new Error('Sin cliente seleccionado')
+
+      const errorStock = validarCantidadesContraStock(newColDraft)
+      if (errorStock) throw new Error(errorStock)
 
       const lineas = sortedProductos.flatMap((prod) => {
         const n = Number((newColDraft[prod.id] ?? '').replace(',', '.'))
@@ -570,7 +613,10 @@ export default function Preventa() {
                   {sortedProductos.map((prod, rowIdx) => (
                     <tr key={prod.id} className={`border-b border-gray-100 ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}`}>
                       <td className="sticky left-0 z-10 px-4 py-2 text-sm font-medium text-gray-800 border-r border-gray-200 bg-inherit truncate max-w-[210px]" title={prod.nombre}>
-                        {prod.nombre}
+                        <div className="flex flex-col">
+                          <span className="truncate">{prod.nombre}</span>
+                          <span className="text-[11px] font-semibold text-gray-500">Stock: {getStockDisponible(prod.id)}</span>
+                        </div>
                       </td>
 
                       {pedidosHistoricosFiltrados.map((pedido) => {
@@ -587,17 +633,22 @@ export default function Preventa() {
                         const numVal = Number(val.replace(',', '.'))
                         const hasValue = Number.isFinite(numVal) && numVal > 0
                         const isDraftCell = drafts[activePreventa.id]?.[prod.id] !== undefined
+                        const stockExcedido = excedeStock(prod.id, val)
                         return (
                           <td className={`px-1.5 py-1 text-center border-r border-gray-100 transition-colors ${hasValue ? isDraftCell ? 'bg-orange-50' : 'bg-indigo-50/80' : ''}`}>
                             <input
                               type="number"
                               min="0"
+                              max={getStockDisponible(prod.id)}
                               step="1"
                               value={hasValue || isDraftCell ? (val === '0' ? '' : val) : ''}
                               placeholder="0"
                               onChange={(e) => setPreventaCellValue(prod.id, e.target.value)}
+                              title={`Stock disponible: ${getStockDisponible(prod.id)}`}
                               className={`w-full px-1 py-1.5 text-center text-sm rounded border transition-all focus:outline-none focus:ring-2 focus:ring-brand-400 ${
-                                hasValue
+                                stockExcedido
+                                  ? 'border-red-300 bg-red-50 text-red-900 font-bold'
+                                  : hasValue
                                   ? isDraftCell
                                     ? 'border-orange-300 bg-orange-50 text-orange-900 font-bold'
                                     : 'border-indigo-200 bg-indigo-50 text-indigo-900 font-bold'
@@ -613,11 +664,17 @@ export default function Preventa() {
                           <input
                             type="number"
                             min="0"
+                            max={getStockDisponible(prod.id)}
                             step="1"
                             value={newColDraft[prod.id] ?? ''}
                             placeholder="0"
                             onChange={(e) => setNewColDraft((prev) => ({ ...prev, [prod.id]: e.target.value }))}
-                            className="w-full px-1 py-1.5 text-center text-sm rounded border border-brand-200 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white font-medium placeholder:text-gray-300"
+                            title={`Stock disponible: ${getStockDisponible(prod.id)}`}
+                            className={`w-full px-1 py-1.5 text-center text-sm rounded border focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white font-medium placeholder:text-gray-300 ${
+                              excedeStock(prod.id, newColDraft[prod.id])
+                                ? 'border-red-300 bg-red-50 text-red-900'
+                                : 'border-brand-200'
+                            }`}
                           />
                         </td>
                       )}
