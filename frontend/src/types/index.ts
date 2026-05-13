@@ -32,6 +32,7 @@ export interface Empresa {
   activa?: boolean
   esObrador?: boolean
   tipoEmpresa?: 'Obrador' | 'Distribucion'
+  configuracion?: string | null
 }
 
 // ── Categorias ────────────────────────────────────────────────────────────────────
