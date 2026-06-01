@@ -392,6 +392,9 @@ public class FacturaService : IFacturaService
                         {
                             c.Item().Text(empresa?.RazonSocial ?? empresa?.Nombre ?? "")
                                 .Bold().FontSize(10);
+                            if (!string.IsNullOrWhiteSpace(empresa?.RazonSocial)
+                                && !string.Equals(empresa.RazonSocial, empresa.Nombre, StringComparison.OrdinalIgnoreCase))
+                                c.Item().Text(empresa!.Nombre);
                             if (empresa?.Direccion != null)
                                 c.Item().Text(empresa.Direccion);
                             var cpCiudad = string.Join(" ", new[] { empresa?.CodigoPostal, empresa?.Ciudad }.Where(s => !string.IsNullOrWhiteSpace(s)));
@@ -399,10 +402,18 @@ public class FacturaService : IFacturaService
                                 c.Item().Text(cpCiudad);
                             if (!string.IsNullOrWhiteSpace(empresa?.Provincia))
                                 c.Item().Text(empresa!.Provincia!.ToUpper());
+                            if (!string.IsNullOrWhiteSpace(empresa?.Pais))
+                                c.Item().Text(empresa!.Pais!);
                             if (!string.IsNullOrWhiteSpace(empresa?.Nif))
-                                c.Item().Text(empresa!.Nif!);
+                                c.Item().Text($"NIF/CIF: {empresa!.Nif!}");
                             if (!string.IsNullOrWhiteSpace(empresa?.Telefono))
-                                c.Item().Text(empresa!.Telefono!);
+                                c.Item().Text($"Tel: {empresa!.Telefono!}");
+                            if (!string.IsNullOrWhiteSpace(empresa?.Email))
+                                c.Item().Text($"Email: {empresa!.Email!}");
+                            if (!string.IsNullOrWhiteSpace(empresa?.Web))
+                                c.Item().Text($"Web: {empresa!.Web!}");
+                            if (!string.IsNullOrWhiteSpace(empresa?.NumeroRgseaa))
+                                c.Item().Text($"RGSEAA: {empresa!.NumeroRgseaa!}");
                         });
                     });
 
@@ -479,7 +490,9 @@ public class FacturaService : IFacturaService
                         table.ColumnsDefinition(cols =>
                         {
                             cols.ConstantColumn(35);   // ARTÍCULO
-                            cols.RelativeColumn(4);    // DESCRIPCIÓN
+                            cols.RelativeColumn(3);    // NOMBRE
+                            cols.ConstantColumn(65);   // LOTE
+                            cols.ConstantColumn(70);   // CADUCIDAD
                             cols.ConstantColumn(40);   // CANTIDAD
                             cols.ConstantColumn(55);   // PRECIO UNIDAD
                             cols.ConstantColumn(55);   // SUBTOTAL
@@ -489,7 +502,9 @@ public class FacturaService : IFacturaService
                         table.Header(h =>
                         {
                             h.Cell().Element(HeaderCell).Text("ARTÍCULO").Bold().FontSize(7);
-                            h.Cell().Element(HeaderCell).Text("DESCRIPCIÓN").Bold().FontSize(7);
+                            h.Cell().Element(HeaderCell).Text("NOMBRE").Bold().FontSize(7);
+                            h.Cell().Element(HeaderCell).Text("LOTE").Bold().FontSize(7);
+                            h.Cell().Element(HeaderCell).Text("CADUCIDAD").Bold().FontSize(7);
                             h.Cell().Element(HeaderCell).Text("CANTIDAD").Bold().FontSize(7);
                             h.Cell().Element(HeaderCell).Text("PRECIO UNIDAD").Bold().FontSize(7);
                             h.Cell().Element(HeaderCell).Text("SUBTOTAL").Bold().FontSize(7);
@@ -505,15 +520,17 @@ public class FacturaService : IFacturaService
 
                             decimal subtotal = Math.Round(linea.Cantidad * linea.PrecioUnitario * (1 - linea.Descuento / 100), 2);
 
-                            // Descripción: nombre + lote si existe
-                            string desc = linea.Producto?.Nombre ?? linea.Descripcion ?? "—";
+                            string nombre = linea.Producto?.Nombre ?? linea.Descripcion ?? "—";
                             if (linea.Descuento > 0)
-                                desc += $"\nDto: {linea.Descuento:N2}%";
-                            if (linea.Lote != null)
-                                desc += $"\nLote: {linea.Lote.CodigoLote}";
+                                nombre += $"\nDto: {linea.Descuento:N2}%";
+
+                            string lote = linea.Lote?.CodigoLote ?? "—";
+                            string caducidad = linea.Lote?.FechaCaducidad?.ToString("dd/MM/yyyy") ?? "—";
 
                             table.Cell().Element(Cell).Text(linea.Producto?.Codigo ?? lineNum.ToString()).FontSize(7);
-                            table.Cell().Element(Cell).Text(desc).FontSize(7);
+                            table.Cell().Element(Cell).Text(nombre).FontSize(7);
+                            table.Cell().Element(Cell).Text(lote).FontSize(7);
+                            table.Cell().Element(Cell).Text(caducidad).FontSize(7);
                             table.Cell().Element(CellR).Text($"{linea.Cantidad:N2}").FontSize(7);
                             table.Cell().Element(CellR).Text($"{linea.PrecioUnitario:N2}").FontSize(7);
                             table.Cell().Element(CellR).Text($"{subtotal:N2}").FontSize(7);
@@ -526,6 +543,8 @@ public class FacturaService : IFacturaService
                         for (int i = 0; i < emptyRows; i++)
                         {
                             IContainer CellEm(IContainer c) => c.Background("#FFFFFF").Border(0.5f, Unit.Point).BorderColor("#CCCCCC").Padding(6);
+                            table.Cell().Element(CellEm).Text(" ");
+                            table.Cell().Element(CellEm).Text(" ");
                             table.Cell().Element(CellEm).Text(" ");
                             table.Cell().Element(CellEm).Text(" ");
                             table.Cell().Element(CellEm).Text(" ");
