@@ -200,7 +200,7 @@ public class ProduccionService : IProduccionService
 
                 // ── Fusionar el registro de Produccion en el original Finalizado ──
                 var produccionOriginal = await _uow.Producciones.GetFinalizadaMismoLoteAsync(
-                    empresaId, produccion.ProductoId, codigoLote, produccionId, ct);
+                    empresaId, produccion.ProductoId, codigoLote, produccion.FechaProduccion, produccionId, ct);
 
                 if (produccionOriginal != null)
                 {

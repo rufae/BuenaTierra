@@ -228,10 +228,11 @@ public class ProduccionRepository : Repository<Produccion>, IProduccionRepositor
             .FirstOrDefaultAsync(ct);
 
     public async Task<Produccion?> GetFinalizadaMismoLoteAsync(
-        int empresaId, int productoId, string codigoLote, int excludeId, CancellationToken ct = default)
+        int empresaId, int productoId, string codigoLote, DateOnly fecha, int excludeId, CancellationToken ct = default)
         => await _set
             .Where(p => p.EmpresaId == empresaId
                      && p.ProductoId == productoId
+                     && p.FechaProduccion == fecha
                      && p.CodigoLoteSugerido == codigoLote
                      && p.Estado == EstadoProduccion.Finalizada
                      && p.Id != excludeId)

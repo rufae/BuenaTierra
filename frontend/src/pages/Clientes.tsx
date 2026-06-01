@@ -142,20 +142,11 @@ type Tab = 'general' | 'domicilio' | 'contacto' | 'comercial' | 'otros' | 'condi
 
 type FormErrors = Partial<Record<string, string>>
 
-function validateForm(form: FormState, clientesList: Cliente[], editingId?: number): FormErrors {
+function validateForm(form: FormState): FormErrors {
   const errs: FormErrors = {}
 
   if (!form.nombre.trim())
     errs.nombre = 'El nombre / razón social es obligatorio'
-
-  if (form.nif?.trim()) {
-    const nifNorm = form.nif.trim().toUpperCase()
-    const dup = clientesList.find(
-      c => c.nif?.toUpperCase() === nifNorm && c.id !== editingId
-    )
-    if (dup)
-      errs.nif = `NIF/CIF ya registrado en: ${dup.razonSocial || dup.nombreComercial || dup.nombre}`
-  }
 
   return errs
 }
@@ -476,7 +467,7 @@ export default function Clientes() {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const errs = validateForm(form, clientes ?? [], editing?.id)
+    const errs = validateForm(form)
     if (Object.keys(errs).length > 0) {
       setErrors(errs)
       if (errs.nombre) setTab('general')

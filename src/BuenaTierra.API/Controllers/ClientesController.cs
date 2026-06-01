@@ -217,13 +217,6 @@ public class ClientesController : ControllerBase
             var (nifValido, nifError) = NifValidator.Validate(dto.Nif);
             if (!nifValido)
                 return UnprocessableEntity(ApiResponse<Cliente>.Fail($"NIF/CIF/NIE no válido: {nifError}"));
-
-            // Verificar NIF duplicado dentro de la misma empresa
-            var nifNormalizado = dto.Nif.Trim().ToUpperInvariant();
-            var nifDuplicado = await _db.Clientes.AnyAsync(
-                c => c.EmpresaId == EmpresaId && c.Nif == nifNormalizado && c.Activo, ct);
-            if (nifDuplicado)
-                return Conflict(ApiResponse<Cliente>.Fail($"Ya existe un cliente activo con el NIF/CIF '{nifNormalizado}' en esta empresa."));
         }
 
         var cliente = MapToEntity(new Cliente(), dto);
@@ -250,13 +243,6 @@ public class ClientesController : ControllerBase
             var (nifValido, nifError) = NifValidator.Validate(dto.Nif);
             if (!nifValido)
                 return UnprocessableEntity(ApiResponse<Cliente>.Fail($"NIF/CIF/NIE no válido: {nifError}"));
-
-            // Verificar NIF duplicado dentro de la misma empresa (excluir el cliente actual)
-            var nifNormalizado = dto.Nif.Trim().ToUpperInvariant();
-            var nifDuplicado = await _db.Clientes.AnyAsync(
-                c => c.EmpresaId == EmpresaId && c.Nif == nifNormalizado && c.Id != id && c.Activo, ct);
-            if (nifDuplicado)
-                return Conflict(ApiResponse<Cliente>.Fail($"Ya existe otro cliente activo con el NIF/CIF '{nifNormalizado}' en esta empresa."));
         }
 
         var existente = await _uow.Clientes.GetByIdAsync(id, ct)

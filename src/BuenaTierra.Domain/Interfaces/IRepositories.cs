@@ -106,7 +106,7 @@ public interface IProduccionRepository : IRepository<Produccion>
         string? busqueda = null,
         CancellationToken ct = default);
     Task<Produccion?> GetPendienteMismoLoteAsync(int empresaId, int productoId, string codigoLote, DateOnly fecha, CancellationToken ct = default);
-    Task<Produccion?> GetFinalizadaMismoLoteAsync(int empresaId, int productoId, string codigoLote, int excludeId, CancellationToken ct = default);
+    Task<Produccion?> GetFinalizadaMismoLoteAsync(int empresaId, int productoId, string codigoLote, DateOnly fecha, int excludeId, CancellationToken ct = default);
 }
 
 /// <summary>
