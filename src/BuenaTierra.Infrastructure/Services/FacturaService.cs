@@ -386,17 +386,44 @@ public class FacturaService : IFacturaService
                         // Columna vacía izquierda (para el cliente más abajo)
                         topRow.RelativeItem(2);
 
-                        // Datos del emisor — derecha
+                        // Datos del cliente — derecha
                         topRow.RelativeItem(3).Border(0.5f, Unit.Point).BorderColor("#AAAAAA")
                             .Padding(6).Column(c =>
                         {
-                            c.Item().Text(empresa?.RazonSocial ?? empresa?.Nombre ?? "")
+                            c.Item().Text(cli?.RazonSocial ?? cli?.NombreCompleto ?? cli?.Nombre ?? "—")
                                 .Bold().FontSize(10);
+                            if (!string.IsNullOrWhiteSpace(cli?.Nombre) && cli.Nombre != (cli.RazonSocial ?? cli.Nombre))
+                                c.Item().Text(cli.Nombre);
+                            if (!string.IsNullOrWhiteSpace(cli?.Direccion))
+                                c.Item().Text(cli!.Direccion!);
+                            var cpCiudad = string.Join(" ", new[] { cli?.CodigoPostal, cli?.Ciudad }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                            if (!string.IsNullOrWhiteSpace(cpCiudad))
+                                c.Item().Text(cpCiudad);
+                            if (!string.IsNullOrWhiteSpace(cli?.Provincia))
+                                c.Item().Text(cli!.Provincia!.ToUpper());
+                            if (!string.IsNullOrWhiteSpace(cli?.Nif))
+                                c.Item().Text($"NIF/CIF: {cli!.Nif!}");
+                            if (!string.IsNullOrWhiteSpace(cli?.Telefono))
+                                c.Item().Text($"Tel: {cli!.Telefono!}");
+                        });
+                    });
+
+                    // ═══════════════════════════════════════════════
+                    // BLOQUE MEDIO: Cliente (izq) + Número factura (der)
+                    // ═══════════════════════════════════════════════
+                    main.Item().PaddingBottom(4).Row(midRow =>
+                    {
+                        // Datos del emisor — izquierda
+                        midRow.RelativeItem(2).Border(0.5f, Unit.Point).BorderColor("#AAAAAA")
+                            .Padding(6).Column(c =>
+                        {
+                            c.Item().Text(empresa?.RazonSocial ?? empresa?.Nombre ?? "")
+                                .Bold();
                             if (!string.IsNullOrWhiteSpace(empresa?.RazonSocial)
                                 && !string.Equals(empresa.RazonSocial, empresa.Nombre, StringComparison.OrdinalIgnoreCase))
                                 c.Item().Text(empresa!.Nombre);
-                            if (empresa?.Direccion != null)
-                                c.Item().Text(empresa.Direccion);
+                            if (!string.IsNullOrWhiteSpace(empresa?.Direccion))
+                                c.Item().Text(empresa!.Direccion!);
                             var cpCiudad = string.Join(" ", new[] { empresa?.CodigoPostal, empresa?.Ciudad }.Where(s => !string.IsNullOrWhiteSpace(s)));
                             if (!string.IsNullOrWhiteSpace(cpCiudad))
                                 c.Item().Text(cpCiudad);
@@ -414,30 +441,6 @@ public class FacturaService : IFacturaService
                                 c.Item().Text($"Web: {empresa!.Web!}");
                             if (!string.IsNullOrWhiteSpace(empresa?.NumeroRgseaa))
                                 c.Item().Text($"RGSEAA: {empresa!.NumeroRgseaa!}");
-                        });
-                    });
-
-                    // ═══════════════════════════════════════════════
-                    // BLOQUE MEDIO: Cliente (izq) + Número factura (der)
-                    // ═══════════════════════════════════════════════
-                    main.Item().PaddingBottom(4).Row(midRow =>
-                    {
-                        // Datos del cliente — izquierda
-                        midRow.RelativeItem(2).Border(0.5f, Unit.Point).BorderColor("#AAAAAA")
-                            .Padding(6).Column(c =>
-                        {
-                            c.Item().Text(cli?.RazonSocial ?? cli?.NombreCompleto ?? cli?.Nombre ?? "—").Bold();
-                            if (!string.IsNullOrWhiteSpace(cli?.Nombre) && cli.Nombre != (cli.RazonSocial ?? cli.Nombre))
-                                c.Item().Text(cli.Nombre);
-                            if (!string.IsNullOrWhiteSpace(cli?.Direccion))
-                                c.Item().Text(cli!.Direccion!);
-                            var cpCiudad = string.Join(" ", new[] { cli?.CodigoPostal, cli?.Ciudad }.Where(s => !string.IsNullOrWhiteSpace(s)));
-                            if (!string.IsNullOrWhiteSpace(cpCiudad))
-                                c.Item().Text(cpCiudad);
-                            if (!string.IsNullOrWhiteSpace(cli?.Provincia))
-                                c.Item().Text(cli!.Provincia!.ToUpper());
-                            if (!string.IsNullOrWhiteSpace(cli?.Telefono))
-                                c.Item().Text(cli!.Telefono!);
                         });
 
                         midRow.ConstantItem(6);
