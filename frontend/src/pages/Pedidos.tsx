@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, ClienteCondicionEspecial, Producto, SerieFacturacion } from '../types'
-import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin, Search, Trash2, Download } from 'lucide-react'
+import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin, Search, Trash2, Download, Pencil, Undo2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 import { DateInput } from '../components/DateInput'
@@ -137,6 +137,22 @@ export default function Pedidos() {
   const [showFacturaPedido, setShowFacturaPedido] = useState<number | null>(null)
   const [seriePedidoFactura, setSeriePedidoFactura] = useState('')
   const [esSimplificadaPedido, setEsSimplificadaPedido] = useState(false)
+
+  // Devolución
+  const [showDevolucion, setShowDevolucion] = useState<number | null>(null)
+  const [devolucionItems, setDevolucionItems] = useState<
+    { productoId: number; nombre: string; cantidad: number; maxCantidad: number }[]
+  >([])
+
+  // Edición de precios en detalle
+  const [showEditPrecios, setShowEditPrecios] = useState(false)
+  const [editPrecios, setEditPrecios] = useState<
+    Record<string, { precioUnitario: number; descuento: number }>
+  >({})
+
+  // FIFO previews
+  const [fifoPreviews, setFifoPreviews] = useState<Record<string, any[]>>({})
+  const [fifoLoading, setFifoLoading] = useState<Record<string, boolean>>({})
 
   const { data: pedidos, isLoading } = useQuery({
     queryKey: ['pedidos'],
@@ -582,6 +598,14 @@ export default function Pedidos() {
                         {p.estado === 'EnReparto' && (
                           <button onClick={() => entregadoMutation.mutate(p.id)} className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
                             <MapPin className="w-3 h-3" /> Entregado
+                          </button>
+                        )}
+                        {(p.estado === 'Entregado' || p.estado === 'Servido') && (
+                          <button
+                            onClick={() => setShowDevolucion(p.id)}
+                            className="text-xs text-orange-500 hover:text-orange-700 flex items-center gap-1"
+                          >
+                            <RotateCcw className="w-3 h-3" /> Devolución
                           </button>
                         )}
                         <button
