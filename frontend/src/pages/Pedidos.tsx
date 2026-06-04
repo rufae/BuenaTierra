@@ -600,7 +600,7 @@ export default function Pedidos() {
                             <MapPin className="w-3 h-3" /> Entregado
                           </button>
                         )}
-                        {(p.estado === 'Entregado' || p.estado === 'Servido') && (
+                        {(p.estado === 'Confirmado' || p.estado === 'EnPreparacion' || p.estado === 'Preparado' || p.estado === 'EnReparto' || p.estado === 'Entregado' || p.estado === 'Servido') && (
                           <button
                             onClick={() => setShowDevolucion(p.id)}
                             className="text-xs text-orange-500 hover:text-orange-700 flex items-center gap-1"
