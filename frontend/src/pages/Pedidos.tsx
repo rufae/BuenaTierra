@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, ClienteCondicionEspecial, Producto, SerieFacturacion } from '../types'
@@ -203,6 +203,12 @@ export default function Pedidos() {
     queryFn: async () => (await api.get<{ data: SerieFacturacion[] }>('/series')).data.data,
   })
 
+  const { data: detalleDevolucion } = useQuery({
+    queryKey: ['pedido-devolucion', showDevolucion],
+    queryFn: async () => (await api.get<{ data: PedidoDetalle }>(`/pedidos/${showDevolucion}`)).data.data,
+    enabled: showDevolucion !== null,
+  })
+
   // ── Search & Filter ────────────────────────────────────────────────────
   const [searchTerm, setSearchTerm] = useState('')
   const [estadoFilter, setEstadoFilter] = useState<string>('')
@@ -299,6 +305,77 @@ export default function Pedidos() {
     },
     onError: (e: any) => toast.error(e.response?.data?.message ?? e.response?.data?.errors?.[0] ?? 'Error al eliminar pedido'),
   })
+
+  const actualizarLineasMutation = useMutation({
+    mutationFn: ({ id, items }: { id: number; items: { productoId: number; precioUnitario?: number; descuento?: number }[] }) =>
+      api.put(`/pedidos/${id}/actualizar-lineas`, { items }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pedidos'] })
+      qc.invalidateQueries({ queryKey: ['pedido', detailOpen] })
+      setShowEditPrecios(false)
+      toast.success('Precios actualizados')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al actualizar precios'),
+  })
+
+  const devolverMutation = useMutation({
+    mutationFn: ({ id, items }: { id: number; items: { productoId: number; cantidad: number }[] }) =>
+      api.post(`/pedidos/${id}/devolver`, { items }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pedidos'] })
+      qc.invalidateQueries({ queryKey: ['stock'] })
+      toast.success('Devolución registrada correctamente')
+      setShowDevolucion(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? e.response?.data?.message ?? 'Error al registrar devolución'),
+  })
+
+  // Inicializar items de devolución cuando se carga el detalle
+  useEffect(() => {
+    if (detalleDevolucion && showDevolucion !== null) {
+      const init = (detalleDevolucion.lineas ?? []).map(l => ({
+        productoId: l.productoId,
+        nombre: l.productoNombre,
+        cantidad: 0,
+        maxCantidad: Math.ceil(l.cantidad),
+      }))
+      setDevolucionItems(init)
+    }
+  }, [detalleDevolucion, showDevolucion])
+
+  // Auto-cargar FIFO preview cuando se abre detalle de pedido pendiente
+  const prevDetailId = useRef<number | null>(null)
+  useEffect(() => {
+    if (detalle && detalle.estado === 'Pendiente' && detailOpen !== prevDetailId.current) {
+      prevDetailId.current = detailOpen
+      const lineas = detalle.lineas ?? []
+      const keys: Record<string, { productoId: number; cantidad: number }> = {}
+      for (const l of lineas) {
+        const k = `${l.productoId}-${Math.ceil(l.cantidad)}`
+        keys[k] = { productoId: l.productoId, cantidad: Math.ceil(l.cantidad) }
+      }
+      const entries = Object.entries(keys)
+      if (entries.length === 0) return
+      setFifoLoading(prev => {
+        const next = { ...prev }
+        for (const [k] of entries) next[k] = true
+        return next
+      })
+      for (const [k, v] of entries) {
+        ;(async () => {
+          try {
+            const res = await api.get(`/lotes/producto/${v.productoId}/fifo`, { params: { cantidad: v.cantidad } })
+            const r = res.data as any
+            setFifoPreviews(prev => ({ ...prev, [k]: r.success && Array.isArray(r.data) ? r.data : [] }))
+          } catch {
+            setFifoPreviews(prev => ({ ...prev, [k]: [] }))
+          } finally {
+            setFifoLoading(prev => ({ ...prev, [k]: false }))
+          }
+        })()
+      }
+    }
+  }, [detalle, detailOpen])
 
   function resetForm() { setShowForm(false); setClienteId(''); setFechaEntrega(''); setNotas(''); setItems([{ productoId: 0, cantidad: 1 }]) }
 
@@ -535,196 +612,71 @@ export default function Pedidos() {
                     <tr>
                       <td colSpan={7} className="px-4 py-3 bg-blue-50/30">
                         <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-gray-500">
-                              <th className="text-left pb-1 pr-4">Producto</th>
-                              <th className="text-left pb-1 pr-4">Lote</th>
-                              <th className="text-right pb-1 pr-4">Cantidad</th>
-                              <th className="text-right pb-1 pr-4">Precio</th>
-                              <th className="text-right pb-1 pr-4">Descuento</th>
-                              <th className="text-right pb-1">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(detalle.lineas ?? []).map((l, i) => (
-                              <tr key={i} className="border-t border-blue-100">
-                                <td className="py-1 pr-4 font-medium">{l.productoNombre}</td>
-                                <td className="py-1 pr-4">
-                                  {l.codigoLote ? (
-                                    <span className="font-mono text-[11px] text-gray-700">{l.codigoLote}</span>
-                                  ) : (
-                                    <span className="text-gray-400">Sin asignar</span>
-                                  )}
-                                </td>
-                                <td className="py-1 pr-4 text-right">{l.cantidad}</td>
-                                <td className="py-1 pr-4 text-right">{l.precioUnitario.toFixed(2)} €</td>
-                                <td className="py-1 pr-4 text-right">{l.descuento}%</td>
-                                <td className="py-1 text-right font-bold">{(l.subtotal + l.ivaImporte + (l.recargoEquivalenciaImporte ?? 0)).toFixed(2)} €</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <div className="flex justify-end gap-6 mt-2 pt-2 border-t border-blue-200 text-xs">
-                          <span>Base: <b>{detalle.subtotal.toFixed(2)} €</b></span>
-                          {(detalle.descuentoTotal ?? 0) > 0 && (
-                            <span className="text-emerald-700">Descuento: <b>-{detalle.descuentoTotal.toFixed(2)} €</b></span>
-                          )}
-                          <span>IVA: <b>{detalle.ivaTotal.toFixed(2)} €</b></span>
-                          {(detalle.recargoEquivalenciaTotal ?? 0) > 0 && (
-                            <span>R.Eq.: <b>{detalle.recargoEquivalenciaTotal.toFixed(2)} €</b></span>
-                          )}
-                          {(detalle.retencionTotal ?? 0) > 0 && (
-                            <span className="text-red-600">Retención: <b>-{detalle.retencionTotal.toFixed(2)} €</b></span>
-                          )}
-                          <span className="font-bold text-brand-700">TOTAL: {detalle.total.toFixed(2)} €</span>
-                        </div>
-                        {detalle.notas && <p className="text-xs text-gray-500 mt-2 italic">Notas: {detalle.notas}</p>}
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              ))}
-          </tbody>
-        </table>
-        </div>
-      </div>
+              <thead>
+                <tr className="text-gray-500 border-b border-gray-200">
+                  <th className="text-left pb-2 pr-3 font-semibold">Producto</th>
+                  <th className="text-right pb-2 pr-3 font-semibold">Vendido</th>
+                  <th className="text-right pb-2 font-semibold">A devolver</th>
+                </tr>
+              </thead>
+              <tbody>
+                {devolucionItems.map((item, i) => (
+                  <tr key={item.productoId} className="border-b border-gray-100">
+                    <td className="py-2 pr-3 font-medium">{item.nombre}</td>
+                    <td className="py-2 pr-3 text-right text-gray-600">{item.maxCantidad}</td>
+                    <td className="py-2 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        max={item.maxCantidad}
+                        step="1"
+                        value={item.cantidad}
+                        onChange={e => {
+                          const val = Math.min(Math.max(0, parseInt(e.target.value || '0', 10)), item.maxCantidad)
+                          setDevolucionItems(prev => prev.map((d, idx) => idx === i ? { ...d, cantidad: val } : d))
+                        }}
+                        className="w-20 text-right border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-      {/* Modal: Nuevo pedido */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-base font-bold text-gray-900">Nuevo pedido</h2>
-                <button onClick={resetForm}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
+              <p className="text-xs text-gray-500">
+                {devolucionItems.filter(i => i.cantidad > 0).length} producto(s) con devolución
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowDevolucion(null); setDevolucionItems([]) }}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    const items = devolucionItems.filter(i => i.cantidad > 0).map(i => ({
+                      productoId: i.productoId,
+                      cantidad: i.cantidad,
+                    }))
+                    if (items.length === 0) {
+                      toast.error('Selecciona al menos un producto para devolver')
+                      return
+                    }
+                    devolverMutation.mutate({ id: showDevolucion!, items })
+                  }}
+                  disabled={devolverMutation.isPending || devolucionItems.every(i => i.cantidad === 0)}
+                  className="flex items-center gap-2 px-5 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-orange-700"
+                >
+                  {devolverMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <RotateCcw className="w-4 h-4" /> Registrar devolución
+                </button>
               </div>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Cliente *</label>
-                    <select value={clienteId} onChange={e => setClienteId(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                      <option value="">Seleccionar…</option>
-                      {(clientes ?? []).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Fecha entrega prevista</label>
-                    <DateInput value={fechaEntrega} onChange={setFechaEntrega} className="w-full" />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Notas</label>
-                  <input value={notas} onChange={e => setNotas(e.target.value)} placeholder="Notas opcionales…"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
-                </div>
-                {selectedCliente && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 space-y-1">
-                    <p className="font-semibold">El pedido tendrá en cuenta automáticamente la política comercial del cliente.</p>
-                    <p>
-                      Descuento general: <b>{selectedCliente.descuentoGeneral.toFixed(2)}%</b>
-                      {clienteCondiciones && clienteCondiciones.length > 0 ? ` · ${clienteCondiciones.length} condición(es) especial(es) activas` : ' · sin condiciones especiales'}
-                    </p>
-                    <p>La precedencia aplicada es: condición especial de producto &gt; descuento general del cliente &gt; descuento por defecto del producto.</p>
-                  </div>
-                )}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-medium text-gray-700">Artículos *</label>
-                    <button type="button" onClick={addItem} className="text-xs text-brand-600 hover:text-brand-700 font-medium">+ Añadir línea</button>
-                  </div>
-                  <div className="space-y-2">
-                    {items.map((item, i) => (
-                      <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
-                        <select value={item.productoId} onChange={e => updateItem(i, 'productoId', +e.target.value)}
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                          <option value={0}>Seleccionar producto…</option>
-                          {(productos ?? []).map(p => <option key={p.id} value={p.id}>{p.nombre} ({p.precioVenta.toFixed(2)} €)</option>)}
-                        </select>
-                        <input type="number" min="1" step="1" value={item.cantidad} onFocus={e => e.currentTarget.select()} onChange={e => updateItem(i, 'cantidad', parseInt(e.target.value || '0', 10))}
-                          className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="Cant." />
-                        {items.length > 1 && (
-                          <button type="button" onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {selectedCliente && previewLineas.length > 0 && (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-                    <div>
-                      <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">Previsualización comercial del pedido</h3>
-                      <p className="text-xs text-slate-500 mt-1">Estos importes se calculan antes de guardar con las condiciones del cliente seleccionado.</p>
-                    </div>
-                    <div className="space-y-2">
-                      {previewLineas.map(linea => (
-                        <div key={linea.key} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-medium text-slate-900">{linea.productoNombre}</p>
-                              <p className="text-xs text-slate-500">
-                                {linea.cantidad} x {linea.precioUnitario.toFixed(2)} € · Precio: {linea.origenPrecio} · Dto: {linea.descuento.toFixed(2)}% ({linea.origenDescuento})
-                              </p>
-                            </div>
-                            <p className="text-sm font-semibold text-slate-900">{(linea.subtotal + linea.ivaImporte + linea.recargoImporte).toFixed(2)} €</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap justify-end gap-4 border-t border-slate-200 pt-3 text-xs text-slate-700">
-                      <span>Base: <b>{previewTotales.subtotal.toFixed(2)} €</b></span>
-                      <span>IVA: <b>{previewTotales.ivaTotal.toFixed(2)} €</b></span>
-                      {previewTotales.recargoTotal > 0 && <span>R.Eq.: <b>{previewTotales.recargoTotal.toFixed(2)} €</b></span>}
-                      {previewTotales.retencionTotal > 0 && <span className="text-red-700">Retención: <b>-{previewTotales.retencionTotal.toFixed(2)} €</b></span>}
-                      <span className="text-brand-700">Total estimado: <b>{previewTotales.total.toFixed(2)} €</b></span>
-                    </div>
-                  </div>
-                )}
-                <div className="flex justify-end gap-3 pt-2">
-                  <button type="button" onClick={resetForm} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
-                  <button type="submit" disabled={crearMutation.isPending}
-                    className="flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-brand-700">
-                    {crearMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                    Crear pedido
-                  </button>
-                </div>
-              </form>
             </div>
-          </div>
-        </div>
-      )}
-      {/* Modal: Crear factura desde pedido */}
-      {showFacturaPedido !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <h2 className="text-base font-bold text-gray-900 mb-1">Generar factura desde pedido</h2>
-            <p className="text-xs text-gray-500 mb-4">Se asignarán lotes FIFO automáticamente.</p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Serie de facturación *</label>
-                <select value={seriePedidoFactura} onChange={e => setSeriePedidoFactura(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                  <option value="">Seleccionar serie…</option>
-                  {(series ?? []).filter(s => s.activa).map(s => (
-                    <option key={s.id} value={s.id}>{s.codigo}{s.descripcion ? ` — ${s.descripcion}` : ''}</option>
-                  ))}
-                </select>
-              </div>
-              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                <input type="checkbox" checked={esSimplificadaPedido} onChange={e => setEsSimplificadaPedido(e.target.checked)} className="rounded" />
-                Factura simplificada (sin datos cliente)
-              </label>
-            </div>
-            <div className="flex justify-end gap-3 mt-5">
-              <button onClick={() => setShowFacturaPedido(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
-              <button
-                disabled={!seriePedidoFactura || crearFacturaMutation.isPending}
-                onClick={() => crearFacturaMutation.mutate({ id: showFacturaPedido!, serieId: +seriePedidoFactura, esSimplificada: esSimplificadaPedido })}
-                className="flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-brand-700">
-                {crearFacturaMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                Generar factura
-              </button>
-            </div>
+            <p className="text-[11px] text-gray-400 mt-3">
+              La devolución repondrá el stock y generará los registros de trazabilidad correspondientes.
+            </p>
           </div>
         </div>
       )}
