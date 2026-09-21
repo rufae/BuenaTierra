@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import { Mail, Send, Save, Search, RefreshCw, AlertTriangle, Trash2, Paperclip, Download, Inbox } from 'lucide-react'
+import { fmtDateTime } from '../lib/dates'
 import toast from 'react-hot-toast'
 
 type Folder = 'All' | 'Inbox' | 'Sent' | 'Drafts' | 'Errors'
@@ -48,11 +49,6 @@ const EMPTY_COMPOSE: ComposeState = {
   asunto: '',
   cuerpo: '<p>Hola,</p><p>Adjunto documentación.</p><p>Un saludo.</p>',
   facturaId: '',
-}
-
-function fmtDateTime(value: string | null) {
-  if (!value) return '—'
-  return new Date(value).toLocaleString('es-ES')
 }
 
 export default function Correos() {

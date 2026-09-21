@@ -16,6 +16,9 @@ public class Usuario : BaseEntity
     public DateTime? UltimoAcceso { get; set; }
     public string? RefreshToken { get; set; }
     public DateTime? RefreshTokenExp { get; set; }
+    public bool DebeCambiarPassword { get; set; }
+    public string? ResetPasswordCode { get; set; }
+    public DateTime? ResetPasswordCodeExp { get; set; }
     public int? ClienteId { get; set; }             // Vincula Repartidor → Cliente
     public string? Configuracion { get; set; }       // JSON: smtp/imap per-user config
 

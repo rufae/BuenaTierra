@@ -1,5 +1,6 @@
 using BuenaTierra.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -11,6 +12,25 @@ using System.Threading.RateLimiting;
 LoadDotEnvFromWorkspace();
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ============================================================
+// SECRETO JWT — resolver de configuración o de la variable JWT_SECRET (.env)
+// Nunca debe estar hardcodeado en appsettings (se lee de entorno).
+// ============================================================
+var jwtSecret = builder.Configuration["Jwt:Secret"];
+if (string.IsNullOrWhiteSpace(jwtSecret))
+{
+    jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET");
+    if (!string.IsNullOrWhiteSpace(jwtSecret))
+    {
+        builder.Configuration.AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Jwt:Secret"] = jwtSecret });
+    }
+}
+
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+    throw new InvalidOperationException(
+        "Jwt:Secret no configurado o demasiado corto. Define la variable de entorno JWT_SECRET (mínimo 32 caracteres aleatorios).");
 
 // ============================================================
 // SERILOG
@@ -96,10 +116,18 @@ services.AddRateLimiter(options =>
     });
 });
 
-// JWT Authentication
-var jwtSecret = builder.Configuration["Jwt:Secret"]
-    ?? throw new InvalidOperationException("Jwt:Secret no configurado");
+// Forwarded Headers — confiar en X-Forwarded-For de Nginx para que el rate limiting
+// y el registro vean la IP real del cliente (no la del proxy).
+services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // La API solo es alcanzable a través de Nginx (puerto 8080 publicado en 127.0.0.1),
+    // por lo que confiamos en los headers reenviados por el proxy interno.
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
+// JWT Authentication
 services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -123,31 +151,39 @@ services.AddAuthorization(options =>
     options.AddPolicy("AnyRole", p => p.RequireAuthenticatedUser());
 });
 
-// CORS
-// CORS — restrictivo en producción, permisivo en desarrollo/Electron
+// CORS — restrictivo en producción (solo orígenes configurados),
+// permisivo en desarrollo/Electron (localhost + Capacitor).
 services.AddCors(options =>
 {
     options.AddPolicy("AllowClients", policy =>
     {
-        // Orígenes Android (Capacitor) siempre permitidos para la app móvil
-        string[] androidOrigins = ["capacitor://localhost", "app://.", "http://localhost", "https://localhost"];
+        // Orígenes locales para desarrollo y app móvil (Capacitor)
+        string[] localOrigins = ["capacitor://localhost", "app://.", "http://localhost", "https://localhost", "http://localhost:5173", "http://127.0.0.1:5173"];
 
-        var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
-        var allowedOrigins = configuredOrigins is { Length: > 0 }
-            ? configuredOrigins.Union(androidOrigins).ToArray()
-            : androidOrigins;
+        var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 
-        if (allowedOrigins.Length > 0)
+        if (builder.Environment.IsProduction())
         {
+            // En producción solo se permiten los orígenes explícitos de configuración.
+            if (configuredOrigins.Length > 0)
+            {
+                policy.WithOrigins(configuredOrigins)
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .AllowCredentials();
+            }
+            // Si no hay orígenes configurados, no se habilita CORS (mismo origen => sin CORS necesario).
+        }
+        else
+        {
+            var allowedOrigins = configuredOrigins.Length > 0
+                ? configuredOrigins.Union(localOrigins).ToArray()
+                : localOrigins;
+
             policy.WithOrigins(allowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
                   .AllowCredentials();
-        }
-        else
-        {
-            // Fallback para Electron desktop (mismo equipo) y desarrollo
-            policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
         }
     });
 });
@@ -184,11 +220,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "BuenaTierra API v1"));
 }
 
+app.UseForwardedHeaders();
 app.UseMiddleware<BuenaTierra.API.Middleware.ErrorHandlingMiddleware>();
 app.UseSerilogRequestLogging();
 app.UseCors("AllowClients");
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseMiddleware<BuenaTierra.API.Middleware.ForzarCambioPasswordMiddleware>();
 app.UseAuthorization();
 
 // Health check
@@ -295,12 +333,27 @@ app.MapControllers();
         try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE productos ALTER COLUMN vida_util_unidad SET NOT NULL;"); } catch { }
         try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE productos DROP CONSTRAINT IF EXISTS ck_productos_vida_util_unidad;"); } catch { }
         try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE productos ADD CONSTRAINT ck_productos_vida_util_unidad CHECK (vida_util_unidad IN ('Dias','Meses'));"); } catch { }
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS productos ADD COLUMN IF NOT EXISTS unidades_por_caja INTEGER;
+        ");
 
         await migCtx.Database.ExecuteSqlRawAsync(@"
             ALTER TABLE IF EXISTS pedidos_lineas ADD COLUMN IF NOT EXISTS reserva_lotes_json TEXT;
         ");
         await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS pedidos_lineas ADD COLUMN IF NOT EXISTS motivo_precio_especial VARCHAR(500);
+        ");
+        await migCtx.Database.ExecuteSqlRawAsync(@"
             ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS configuracion TEXT;
+        ");
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS debe_cambiar_password BOOLEAN NOT NULL DEFAULT FALSE;
+        ");
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS reset_password_code VARCHAR(200);
+        ");
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS reset_password_code_exp TIMESTAMPTZ;
         ");
     }
     catch (Exception ex)
@@ -343,11 +396,12 @@ try
             Nombre       = "Admin",
             Apellidos    = "BuenaTierra",
             Email        = "admin@buenatierra.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin#BuenaTierra2025"),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_ADMIN_PASSWORD", "Admin#BuenaTierra2025")),
             Rol          = BuenaTierra.Domain.Enums.RolUsuario.Admin,
-            Activo       = true
+            Activo       = true,
+            DebeCambiarPassword = true
         });
-        Log.Information("Usuario Admin creado: admin@buenatierra.com");
+        Log.Information("Usuario Admin creado: admin@buenatierra.com (debe cambiar contraseña en el primer acceso)");
     }
     // Obrador
     if (!ctx.Usuarios.Any(u => u.Email == "obrador@buenatierra.com"))
@@ -358,11 +412,12 @@ try
             Nombre       = "Usuario",
             Apellidos    = "Obrador",
             Email        = "obrador@buenatierra.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Obrador#BuenaTierra2025"),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_OBRADOR_PASSWORD", "Obrador#BuenaTierra2025")),
             Rol          = BuenaTierra.Domain.Enums.RolUsuario.Obrador,
-            Activo       = true
+            Activo       = true,
+            DebeCambiarPassword = true
         });
-        Log.Information("Usuario Obrador creado: obrador@buenatierra.com");
+        Log.Information("Usuario Obrador creado: obrador@buenatierra.com (debe cambiar contraseña en el primer acceso)");
     }
     // Repartidor
     if (!ctx.Usuarios.Any(u => u.Email == "repartidor@buenatierra.com"))
@@ -373,11 +428,12 @@ try
             Nombre       = "Usuario",
             Apellidos    = "Repartidor",
             Email        = "repartidor@buenatierra.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Repartidor#BuenaTierra2025"),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_REPARTIDOR_PASSWORD", "Repartidor#BuenaTierra2025")),
             Rol          = BuenaTierra.Domain.Enums.RolUsuario.Repartidor,
-            Activo       = true
+            Activo       = true,
+            DebeCambiarPassword = true
         });
-        Log.Information("Usuario Repartidor creado: repartidor@buenatierra.com");
+        Log.Information("Usuario Repartidor creado: repartidor@buenatierra.com (debe cambiar contraseña en el primer acceso)");
     }
 
     // Serie de facturación por defecto
@@ -435,6 +491,13 @@ static string? FindUpgradeScriptsDirectory()
     }
 
     return null;
+}
+
+/// <summary>Resuelve la contraseña de seed: variable de entorno si está definida, si no el valor por defecto.</summary>
+static string SeedPassword(string envVar, string fallback)
+{
+    var value = Environment.GetEnvironmentVariable(envVar);
+    return string.IsNullOrWhiteSpace(value) ? fallback : value;
 }
 
 static void LoadDotEnvFromWorkspace()

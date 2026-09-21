@@ -175,10 +175,14 @@ secrets.json
 *.p12
 *.key
 src/BuenaTierra.API/config/*.key
+scripts/backup/.supabase_backup_secret.txt
 
 # Backups
 *.bak
 backups/
+
+# Caché de IDE (LSP/code lens)
+*.lscache
 
 # PDFs generados
 pdfs/

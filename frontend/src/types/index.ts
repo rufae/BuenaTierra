@@ -10,6 +10,7 @@ export interface AuthUser {
   token: string
   refreshToken?: string
   expira?: string
+  debeCambiarPassword?: boolean
 }
 
 // ── API wrapper ───────────────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ export interface Producto {
   ivaPorcentaje: number
   unidadMedida: string
   pesoUnitarioGr: number | null
+  unidadesPorCaja: number | null
   vidaUtilDias: number | null
   vidaUtilUnidad: 'Dias' | 'Meses'
   activo: boolean
@@ -98,6 +100,7 @@ export interface CreateProductoDto {
   ivaPorcentaje: number
   unidadMedida: string
   pesoUnitarioGr?: number
+  unidadesPorCaja?: number
   vidaUtilDias?: number
   vidaUtilUnidad?: 'Dias' | 'Meses'
   proveedorHabitual?: string
@@ -402,6 +405,9 @@ export interface PedidoLinea {
   subtotal: number
   ivaImporte: number
   recargoEquivalenciaImporte: number
+  lotesAsignados?: { loteId: number; codigoLote: string; cantidad: number; cantidadDevuelta?: number }[] | null
+  motivoPrecioEspecial?: string | null
+  unidadesPorCaja?: number | null
 }
 
 export interface PedidoDetalle {

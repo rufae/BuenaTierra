@@ -6,6 +6,8 @@ import type { Cliente, Producto, SerieFacturacion, Factura } from '../types'
 import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, ArrowRight, AlertTriangle, FileSpreadsheet, Search, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
+import { formatCurrency } from '../lib/format'
+import { EstadoBadge } from '../components/EstadoBadge'
 
 // Helper: descarga un blob del API (necesita token de autorización)
 async function downloadBlob(url: string, filename: string) {
@@ -22,14 +24,6 @@ async function downloadBlob(url: string, filename: string) {
   } catch {
     toast.error('Error al descargar el archivo')
   }
-}
-
-const ESTADO_COLOR: Record<string, string> = {
-  Borrador: 'bg-amber-50 text-amber-700',
-  Emitida: 'bg-blue-50 text-blue-700',
-  Enviada: 'bg-purple-50 text-purple-700',
-  Cobrada: 'bg-green-50 text-green-700',
-  Anulada: 'bg-red-50 text-red-700',
 }
 
 /** Comprueba si una factura está vencida */
@@ -165,7 +159,7 @@ export default function Facturacion() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['facturas'] })
       qc.invalidateQueries({ queryKey: ['stock'] })
-      toast.success(`Factura ${res.data.data.numeroFactura} creada — ${res.data.data.total.toFixed(2)} €`)
+      toast.success(`Factura ${res.data.data.numeroFactura} creada — ${formatCurrency(res.data.data.total)}`)
       closeForm()
     },
     onError: (err: unknown) => {
@@ -369,9 +363,16 @@ export default function Facturacion() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
-                <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={6}><div className="text-sm text-gray-500 py-8 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />Cargando facturas…</div></td></tr>
               ) : !filteredFacturas.length ? (
-                <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">{facturas?.length ? 'Sin resultados para el filtro actual' : 'No hay facturas todavía'}</td></tr>
+                <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">
+                  {facturas?.length ? 'Sin resultados para el filtro actual' : (
+                    <div className="text-sm text-gray-400 py-8 text-center">
+                      <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                      No hay facturas todavía.
+                    </div>
+                  )}
+                </td></tr>
               ) : filteredFacturas.map((f) => (
                 <tr key={f.id} className={`hover:bg-gray-50 transition-colors ${isVencida(f) ? 'bg-red-50/60' : ''}`}>
                   <td className="px-5 py-3 font-mono text-xs font-semibold text-brand-700">{(f as unknown as { numeroFactura: string }).numeroFactura ?? '—'}</td>
@@ -381,7 +382,7 @@ export default function Facturacion() {
                     <div className="flex items-center gap-1.5">
                       {(() => {
                         const estado = (f as unknown as { estado: string }).estado
-                        return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_COLOR[estado] ?? 'bg-gray-50 text-gray-600'}`}>{estado}</span>
+                        return <EstadoBadge estado={estado} />
                       })()}
                       {isVencida(f) && (
                         <span className="flex items-center gap-0.5 text-xs text-red-600 font-medium" title="Factura vencida">
@@ -390,7 +391,7 @@ export default function Facturacion() {
                       )}
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-right font-bold text-gray-900">{(f as unknown as { total: number }).total?.toFixed(2)} €</td>
+                  <td className="px-5 py-3 text-right font-bold text-gray-900">{formatCurrency((f as unknown as { total: number }).total ?? 0)}</td>
                   <td className="px-5 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {(() => {
@@ -486,7 +487,7 @@ export default function Facturacion() {
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3">
                   <select value={productoSel} onChange={(e) => setProductoSel(parseInt(e.target.value))} className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                     <option value={0}>— Selecciona producto —</option>
-                    {productos?.map((p) => <option key={p.id} value={p.id}>{p.nombre} — {p.precioVenta.toFixed(2)} €/{p.unidadMedida}</option>)}
+                    {productos?.map((p) => <option key={p.id} value={p.id}>{p.nombre} — {formatCurrency(p.precioVenta)}/{p.unidadMedida}</option>)}
                   </select>
                   <input type="text" inputMode="numeric" pattern="[0-9]*" value={cantidadSel} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setCantidadSel(e.target.value.replace(/\D/g, ''))} className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Cant." />
                   <button type="button" onClick={addLinea} className="flex items-center gap-1 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
@@ -513,8 +514,8 @@ export default function Facturacion() {
                         <tr key={i}>
                           <td className="px-4 py-2 font-medium text-gray-900">{l.productoNombre}</td>
                           <td className="px-4 py-2 text-right">{l.cantidad}</td>
-                          <td className="px-4 py-2 text-right text-gray-600">{(l.precioUnitario ?? 0).toFixed(2)} €</td>
-                          <td className="px-4 py-2 text-right font-semibold">{((l.precioUnitario ?? 0) * l.cantidad).toFixed(2)} €</td>
+                          <td className="px-4 py-2 text-right text-gray-600">{formatCurrency(l.precioUnitario ?? 0)}</td>
+                          <td className="px-4 py-2 text-right font-semibold">{formatCurrency((l.precioUnitario ?? 0) * l.cantidad)}</td>
                           <td className="px-4 py-2 text-right">
                             <button type="button" onClick={() => removeLinea(i)} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
                           </td>
@@ -524,7 +525,7 @@ export default function Facturacion() {
                   </table>
                   <div className="px-4 py-3 bg-brand-50 flex justify-end items-center gap-3">
                     <span className="text-xs text-gray-500">Subtotal estimado (sin IVA):</span>
-                    <span className="font-bold text-brand-700 text-lg">{totalEstimado.toFixed(2)} €</span>
+                    <span className="font-bold text-brand-700 text-lg">{formatCurrency(totalEstimado)}</span>
                   </div>
                 </div>
               )}
@@ -601,7 +602,7 @@ export default function Facturacion() {
                 <div><p className="text-gray-500 text-xs">Fecha</p><p className="font-semibold">{fmtDate(facturaDetalle.fechaFactura)}</p></div>
                 <div>
                   <p className="text-gray-500 text-xs">Estado</p>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_COLOR[facturaDetalle.estado] ?? 'bg-gray-50 text-gray-600'}`}>{facturaDetalle.estado}</span>
+                  <EstadoBadge estado={facturaDetalle.estado} />
                 </div>
               </div>
 
@@ -646,18 +647,18 @@ export default function Facturacion() {
                       <td className="px-4 py-2 font-medium">{l.productoNombre}</td>
                       <td className="px-4 py-2"><span className="font-mono text-xs bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded">{l.codigoLote}</span></td>
                       <td className="px-4 py-2 text-right">{l.cantidad}</td>
-                      <td className="px-4 py-2 text-right">{l.precioUnitario.toFixed(2)} €</td>
+                      <td className="px-4 py-2 text-right">{formatCurrency(l.precioUnitario)}</td>
                       <td className="px-4 py-2 text-right text-gray-500">{l.ivaPorcentaje}%</td>
-                      <td className="px-4 py-2 text-right font-semibold">{(l.subtotal + l.ivaImporte).toFixed(2)} €</td>
+                      <td className="px-4 py-2 text-right font-semibold">{formatCurrency(l.subtotal + l.ivaImporte)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               </div>
               <div className="flex justify-end gap-8 text-sm pt-2">
-                <div><p className="text-gray-500 text-xs">Base imponible</p><p className="font-semibold">{facturaDetalle.baseImponible.toFixed(2)} €</p></div>
-                <div><p className="text-gray-500 text-xs">IVA</p><p className="font-semibold">{facturaDetalle.ivaTotal.toFixed(2)} €</p></div>
-                <div><p className="text-gray-500 text-xs">Total</p><p className="font-bold text-brand-700 text-xl">{facturaDetalle.total.toFixed(2)} €</p></div>
+                <div><p className="text-gray-500 text-xs">Base imponible</p><p className="font-semibold">{formatCurrency(facturaDetalle.baseImponible)}</p></div>
+                <div><p className="text-gray-500 text-xs">IVA</p><p className="font-semibold">{formatCurrency(facturaDetalle.ivaTotal)}</p></div>
+                <div><p className="text-gray-500 text-xs">Total</p><p className="font-bold text-brand-700 text-xl">{formatCurrency(facturaDetalle.total)}</p></div>
               </div>
             </div>
           </div>

@@ -33,6 +33,9 @@ RUN addgroup --system --gid 1001 appgroup && \
 
 WORKDIR /app
 
+# curl para el HEALTHCHECK (la imagen aspnet:9.0 no lo incluye por defecto)
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 # Crear directorios necesarios
 RUN mkdir -p logs reports uploads/logos && chown -R appuser:appgroup /app
 

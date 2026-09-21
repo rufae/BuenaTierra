@@ -228,7 +228,8 @@ public class PedidosController : ControllerBase
             return NotFound(ApiResponse<PedidoDetalle>.Fail("Pedido no encontrado"));
 
         var lotesPorLinea = await BuildLotesFallbackPorLineaAsync(pedido, ct);
-        return Ok(ApiResponse<PedidoDetalle>.Ok(MapToDetalle(pedido, lotesPorLinea)));
+        var devueltoPorLote = await GetDevueltoPorLoteAsync(pedido.Id, ct);
+        return Ok(ApiResponse<PedidoDetalle>.Ok(MapToDetalle(pedido, lotesPorLinea, devueltoPorLote)));
     }
 
     /// <summary>POST /api/pedidos/crear — Crear nuevo pedido con lógica fiscal completa</summary>
@@ -1062,7 +1063,17 @@ public class PedidosController : ControllerBase
         return true;
     }
 
-    private static PedidoDetalle MapToDetalle(Pedido p, IReadOnlyDictionary<int, string?>? lotesPorLinea = null) => new(
+    private async Task<Dictionary<int, decimal>> GetDevueltoPorLoteAsync(int pedidoId, CancellationToken ct)
+    {
+        return await _uow.MovimientosStock.GetQueryable()
+            .Where(m => m.ReferenciaId == pedidoId
+                     && (m.ReferenciaTipo == "devolucion_pedido" || m.ReferenciaTipo == "caducidad_pedido"))
+            .GroupBy(m => m.LoteId)
+            .Select(g => new { LoteId = g.Key, Total = g.Sum(m => m.Cantidad) })
+            .ToDictionaryAsync(k => k.LoteId, v => v.Total, ct);
+    }
+
+    private static PedidoDetalle MapToDetalle(Pedido p, IReadOnlyDictionary<int, string?>? lotesPorLinea = null, IReadOnlyDictionary<int, decimal>? devueltoPorLote = null) => new(
         p.Id,
         p.NumeroPedido ?? $"PED-{p.Id}",
         p.FechaPedido.ToString("yyyy-MM-dd"),
@@ -1076,10 +1087,31 @@ public class PedidosController : ControllerBase
             l.Cantidad, l.PrecioUnitario, l.Descuento,
             l.IvaPorcentaje, l.RecargoEquivalenciaPorcentaje,
             l.Subtotal, l.IvaImporte, l.RecargoEquivalenciaImporte,
-            ResolveCodigoLote(l, lotesPorLinea)
+            ResolveCodigoLote(l, lotesPorLinea),
+            ParseLotesAsignados(l.ReservaLotesJson, devueltoPorLote),
+            l.MotivoPrecioEspecial,
+            l.Producto?.UnidadesPorCaja
         )).ToList(),
         p.Cliente?.NoRealizarFacturas ?? false
     );
+
+    private static List<LoteAsignadoDto>? ParseLotesAsignados(string? reservaLotesJson, IReadOnlyDictionary<int, decimal>? devueltoPorLote = null)
+    {
+        if (string.IsNullOrWhiteSpace(reservaLotesJson)) return null;
+        try
+        {
+            var reservas = JsonSerializer.Deserialize<List<ReservaLoteItem>>(reservaLotesJson, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            return reservas?.Select(r =>
+            {
+                var devuelto = devueltoPorLote?.GetValueOrDefault(r.LoteId) ?? 0m;
+                return new LoteAsignadoDto(r.LoteId, r.CodigoLote, r.Cantidad, devuelto);
+            }).ToList();
+        }
+        catch { return null; }
+    }
 
     private static string? ResolveCodigoLote(PedidoLinea linea, IReadOnlyDictionary<int, string?>? lotesPorLinea)
     {
@@ -1135,6 +1167,220 @@ public class PedidosController : ControllerBase
         var lote = descripcion[start..end].Trim();
         return string.IsNullOrWhiteSpace(lote) ? null : lote;
     }
+
+    /// <summary>
+    /// PUT /api/pedidos/{id}/actualizar-lineas — Actualiza precios/descuentos de líneas
+    /// de un pedido en estado Pendiente antes de confirmar.
+    /// </summary>
+    [HttpPut("{id:int}/actualizar-lineas")]
+    [Authorize(Policy = "AnyRole")]
+    public async Task<ActionResult<ApiResponse<string>>> ActualizarLineas(
+        int id, [FromBody] ActualizarLineasPedidoRequest request, CancellationToken ct)
+    {
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
+        if (pedido == null || pedido.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
+        if (pedido.Estado != EstadoPedido.Pendiente)
+            return BadRequest(ApiResponse<string>.Fail("Solo se pueden modificar líneas de pedidos en estado Pendiente"));
+
+        foreach (var item in request.Items)
+        {
+            var linea = pedido.Lineas.FirstOrDefault(l => l.ProductoId == item.ProductoId);
+            if (linea == null) continue;
+
+            if (item.PrecioUnitario.HasValue)
+                linea.PrecioUnitario = item.PrecioUnitario.Value;
+            if (item.Descuento.HasValue)
+                linea.Descuento = item.Descuento.Value;
+
+            // Guardar el motivo del cambio de precio si se proporcionó
+            if (!string.IsNullOrWhiteSpace(item.Motivo))
+                linea.MotivoPrecioEspecial = item.Motivo;
+        }
+
+        var cliente = await _uow.Clientes.GetByIdAsync(pedido.ClienteId, ct);
+        decimal retencionPorc = cliente != null && !cliente.NoAplicarRetenciones && cliente.PorcentajeRetencion > 0
+            ? cliente.PorcentajeRetencion : 0m;
+
+        pedido.Subtotal = pedido.Lineas.Sum(l => l.Subtotal);
+        pedido.DescuentoTotal = pedido.Lineas.Sum(l => l.Cantidad * l.PrecioUnitario - l.Subtotal);
+        pedido.IvaTotal = pedido.Lineas.Sum(l => l.IvaImporte);
+        pedido.RecargoEquivalenciaTotal = pedido.Lineas.Sum(l => l.RecargoEquivalenciaImporte);
+        pedido.RetencionTotal = Math.Round(pedido.Subtotal * retencionPorc / 100, 2, MidpointRounding.AwayFromZero);
+        pedido.Total = pedido.Subtotal + pedido.IvaTotal + pedido.RecargoEquivalenciaTotal - pedido.RetencionTotal;
+
+        await _uow.Pedidos.UpdateAsync(pedido, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<string>.Ok("OK", "Líneas actualizadas correctamente"));
+    }
+
+    /// <summary>
+    /// POST /api/pedidos/{id}/devolver — Registra una devolución (normal o por caducidad).
+    /// Cada ítem especifica producto, lote, cantidad y si es caducidad.
+    /// Si es caducidad: no repone stock, solo registra movimiento tipo Caducidad y trazabilidad.
+    /// Si es normal: repone stock + movimiento tipo Devolucion + trazabilidad.
+    /// </summary>
+    [HttpPost("{id:int}/devolver")]
+    [Authorize(Policy = "AnyRole")]
+    public async Task<ActionResult<ApiResponse<string>>> Devolver(
+        int id, [FromBody] DevolverPedidoRequest request, CancellationToken ct)
+    {
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
+        if (pedido == null || pedido.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
+        if (pedido.Estado is EstadoPedido.Pendiente or EstadoPedido.Cancelado)
+            return BadRequest(ApiResponse<string>.Fail("No se puede devolver un pedido en estado Pendiente o Cancelado"));
+
+        if (request.Items == null || request.Items.Count == 0)
+            return BadRequest(ApiResponse<string>.Fail("Debe indicar al menos un producto a devolver"));
+
+        await _uow.BeginTransactionAsync(ct);
+        try
+        {
+            foreach (var item in request.Items)
+            {
+                if (item.Cantidad <= 0) continue;
+
+                var linea = pedido.Lineas.FirstOrDefault(l => l.ProductoId == item.ProductoId)
+                    ?? throw new DomainException($"Producto ID {item.ProductoId} no encontrado en el pedido");
+
+                // Verificar que el lote solicitado está en la reserva del pedido
+                if (string.IsNullOrWhiteSpace(linea.ReservaLotesJson))
+                {
+                    if (linea.Producto?.RequiereLote == true)
+                        throw new DomainException($"La línea '{linea.Producto.Nombre}' no tiene asignación de lotes");
+                    continue;
+                }
+
+                var reservas = JsonSerializer.Deserialize<List<ReservaLoteItem>>(linea.ReservaLotesJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? throw new DomainException($"Error al parsear reserva de lotes para '{linea.Producto?.Nombre}'");
+
+                var reservaMatch = reservas.FirstOrDefault(r => r.LoteId == item.LoteId)
+                    ?? throw new DomainException($"Lote ID {item.LoteId} no asignado al producto {item.ProductoId} en este pedido");
+
+                var cant = item.Cantidad.ToString("0.##");
+                if (item.Cantidad > reservaMatch.Cantidad)
+                    throw new DomainException($"Solo hay {reservaMatch.Cantidad.ToString("0.##")} uds del lote '{reservaMatch.CodigoLote}' en este pedido, no {cant}");
+
+                var yaDevuelto = await _uow.MovimientosStock.GetQueryable()
+                    .Where(m => m.ReferenciaId == pedido.Id
+                             && m.ProductoId == item.ProductoId
+                             && m.LoteId == item.LoteId
+                             && (m.ReferenciaTipo == "devolucion_pedido" || m.ReferenciaTipo == "caducidad_pedido"))
+                    .SumAsync(m => (decimal?)m.Cantidad, ct) ?? 0m;
+                var restante = reservaMatch.Cantidad - yaDevuelto;
+                if (item.Cantidad > restante)
+                    throw new DomainException(
+                        $"Ya se gestionaron {yaDevuelto.ToString("0.##")} uds del lote '{reservaMatch.CodigoLote}' " +
+                        $"(máximo restante a devolver: {restante.ToString("0.##")})");
+
+                if (item.EsCaducidad)
+                {
+                    // Devolución por caducidad — NO reponemos stock, solo registramos movimiento y trazabilidad
+                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    {
+                        EmpresaId = EmpresaId,
+                        ProductoId = item.ProductoId,
+                        LoteId = item.LoteId,
+                        Tipo = TipoMovimientoStock.Caducidad,
+                        Cantidad = item.Cantidad,
+                        CantidadAntes = 0,
+                        CantidadDespues = 0,
+                        ReferenciaTipo = "caducidad_pedido",
+                        ReferenciaId = pedido.Id,
+                        UsuarioId = UsuarioId,
+                        Notas = $"Caducidad desde pedido {pedido.NumeroPedido ?? pedido.Id.ToString()}"
+                    }, ct);
+
+                    await _uow.Trazabilidades.AddAsync(new Trazabilidad
+                    {
+                        EmpresaId = EmpresaId,
+                        LoteId = item.LoteId,
+                        ProductoId = item.ProductoId,
+                        ClienteId = pedido.ClienteId,
+                        Cantidad = item.Cantidad,
+                        TipoOperacion = "caducidad_pedido",
+                        FechaOperacion = DateTime.UtcNow,
+                        UsuarioId = UsuarioId,
+                        DatosAdicionales = JsonSerializer.Serialize(new
+                        {
+                            pedidoId = pedido.Id,
+                            pedidoNumero = pedido.NumeroPedido,
+                            codigoLote = reservaMatch.CodigoLote,
+                            motivo = "caducidad"
+                        })
+                    }, ct);
+                }
+                else
+                {
+                    // Devolución normal — reponemos stock
+                    var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, item.ProductoId, item.LoteId, ct);
+                    if (stock == null)
+                    {
+                        stock = new Stock
+                        {
+                            EmpresaId = EmpresaId,
+                            ProductoId = item.ProductoId,
+                            LoteId = item.LoteId,
+                            CantidadDisponible = 0,
+                            CantidadReservada = 0
+                        };
+                        await _uow.Stock.AddAsync(stock, ct);
+                    }
+
+                    var cantidadAntes = stock.CantidadDisponible;
+                    stock.CantidadDisponible += item.Cantidad;
+                    stock.UpdatedAt = DateTime.UtcNow;
+                    await _uow.Stock.UpdateAsync(stock, ct);
+
+                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    {
+                        EmpresaId = EmpresaId,
+                        ProductoId = item.ProductoId,
+                        LoteId = item.LoteId,
+                        Tipo = TipoMovimientoStock.Devolucion,
+                        Cantidad = item.Cantidad,
+                        CantidadAntes = cantidadAntes,
+                        CantidadDespues = stock.CantidadDisponible,
+                        ReferenciaTipo = "devolucion_pedido",
+                        ReferenciaId = pedido.Id,
+                        UsuarioId = UsuarioId,
+                        Notas = $"Devolución del pedido {pedido.NumeroPedido ?? pedido.Id.ToString()}"
+                    }, ct);
+
+                    await _uow.Trazabilidades.AddAsync(new Trazabilidad
+                    {
+                        EmpresaId = EmpresaId,
+                        LoteId = item.LoteId,
+                        ProductoId = item.ProductoId,
+                        ClienteId = pedido.ClienteId,
+                        Cantidad = item.Cantidad,
+                        TipoOperacion = "devolucion_pedido",
+                        FechaOperacion = DateTime.UtcNow,
+                        UsuarioId = UsuarioId,
+                        DatosAdicionales = JsonSerializer.Serialize(new
+                        {
+                            pedidoId = pedido.Id,
+                            pedidoNumero = pedido.NumeroPedido,
+                            codigoLote = reservaMatch.CodigoLote,
+                            motivo = "devolucion_voluntaria"
+                        })
+                    }, ct);
+                }
+            }
+
+            await _uow.SaveChangesAsync(ct);
+            await _uow.CommitTransactionAsync(ct);
+
+            return Ok(ApiResponse<string>.Ok("OK", "Devolución registrada correctamente"));
+        }
+        catch
+        {
+            await _uow.RollbackTransactionAsync(ct);
+            throw;
+        }
+    }
 }
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -1159,7 +1405,8 @@ public record PedidoLineaDto(
     decimal Cantidad, decimal PrecioUnitario, decimal Descuento,
     decimal IvaPorcentaje, decimal RecargoEquivalenciaPorcentaje,
     decimal Subtotal, decimal IvaImporte, decimal RecargoEquivalenciaImporte,
-    string? CodigoLote = null);
+    string? CodigoLote = null, List<LoteAsignadoDto>? LotesAsignados = null,
+    string? MotivoPrecioEspecial = null, int? UnidadesPorCaja = null);
 
 public class CrearPedidoRequest
 {
@@ -1187,3 +1434,36 @@ public class CrearFacturaDesdePedidoRequest
 
 /// <summary>Asignación de un lote al confirmar el pedido, serializada en JSON en pedidos_lineas.reserva_lotes_json</summary>
 public record ReservaLoteItem(int LoteId, string CodigoLote, decimal Cantidad);
+
+/// <summary>Detalle de lote asignado a una línea para mostrar en frontend</summary>
+public record LoteAsignadoDto(int LoteId, string CodigoLote, decimal Cantidad, decimal CantidadDevuelta = 0);
+
+// ─── Devoluciones ────────────────────────────────────────────────────────────
+
+public class DevolverPedidoRequest
+{
+    public List<DevolverLineaRequest> Items { get; set; } = new();
+}
+
+public class DevolverLineaRequest
+{
+    public int ProductoId { get; set; }
+    public int LoteId { get; set; }
+    public decimal Cantidad { get; set; }
+    public bool EsCaducidad { get; set; }
+}
+
+// ─── Actualización de líneas en pendiente ────────────────────────────────────
+
+public class ActualizarLineasPedidoRequest
+{
+    public List<ActualizarLineaRequest> Items { get; set; } = new();
+}
+
+public class ActualizarLineaRequest
+{
+    public int ProductoId { get; set; }
+    public decimal? PrecioUnitario { get; set; }
+    public decimal? Descuento { get; set; }
+    public string? Motivo { get; set; }
+}

@@ -6,7 +6,7 @@ interface AuthContextValue {
   user: AuthUser | null
   login: (email: string, password: string) => Promise<void>
   logout: () => void
-  updateUser: (patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email'>>) => void
+  updateUser: (patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email' | 'debeCambiarPassword'>>) => void
   isAuthenticated: boolean
 }
 
@@ -36,8 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     // 1. Obtener el token
     const loginRes = await api.post('/auth/login', { email, password })
-    const { token, refreshToken, expira } = loginRes.data.data as {
-      token: string; refreshToken: string; expira: string
+    const { token, refreshToken, expira, debeCambiarPassword } = loginRes.data.data as {
+      token: string; refreshToken: string; expira: string; debeCambiarPassword?: boolean
     }
 
     // 2. Obtener los datos del usuario usando el token recién emitido
@@ -70,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token,
       refreshToken,
       expira,
+      debeCambiarPassword,
     }
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
@@ -81,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
-  const updateUser = useCallback((patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email'>>) => {
+  const updateUser = useCallback((patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email' | 'debeCambiarPassword'>>) => {
     setUser(prev => {
       if (!prev) return prev
       const updated = { ...prev, ...patch }

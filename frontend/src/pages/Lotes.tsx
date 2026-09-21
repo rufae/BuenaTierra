@@ -3,15 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
 import type { Producto, StockItem } from '../types'
-import { Search, Lock, AlertTriangle, Eye, RefreshCw } from 'lucide-react'
+import { Search, Lock, AlertTriangle, Eye, RefreshCw, Loader2, Layers } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate, parseDate } from '../lib/dates'
-
-const ESTADO_BADGE: Record<string, string> = {
-  activo: 'bg-green-50 text-green-700 border border-green-200',
-  bloqueado: 'bg-red-50 text-red-700 border border-red-200',
-  'próximo a caducar': 'bg-amber-50 text-amber-700 border border-amber-200',
-}
+import { EstadoBadge } from '../components/EstadoBadge'
 
 export default function Lotes() {
   const { user } = useAuth()
@@ -236,9 +231,15 @@ export default function Lotes() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {isLoading
-              ? <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-sm">Cargando lotes…</td></tr>
+              ? <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500 text-sm">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                  Cargando…
+                </td></tr>
               : filtrados.length === 0
-              ? <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-sm">No hay lotes registrados</td></tr>
+              ? <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-sm">
+                  <Layers className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  No hay lotes registrados
+                </td></tr>
               : filtrados.map((s, idx) => {
                   const estado = getEstado(s)
                   return (
@@ -254,9 +255,7 @@ export default function Lotes() {
                       <td className="px-4 py-3 font-bold text-gray-900">{s.cantidadDisponible}</td>
                       <td className="px-4 py-3 text-gray-500">{s.cantidadReservada}</td>
                       <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${ESTADO_BADGE[estado] ?? 'bg-gray-100 text-gray-600'}`}>
-                          {estado}
-                        </span>
+                        <EstadoBadge estado={estado} />
                       </td>
                       <td className="px-4 py-3">
                         {estado !== 'agotado' && (

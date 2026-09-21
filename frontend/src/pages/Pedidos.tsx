@@ -1,22 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
-import type { PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, ClienteCondicionEspecial, Producto, SerieFacturacion } from '../types'
+import type { ApiResponse, PedidoResumen, PedidoDetalle, CreatePedidoDto, Cliente, ClienteCondicionEspecial, Producto, SerieFacturacion } from '../types'
 import { Plus, X, Loader2, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Truck, PackageCheck, MapPin, Search, Trash2, Download, Pencil, Undo2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 import { DateInput } from '../components/DateInput'
-
-const ESTADO_COLOR: Record<string, string> = {
-  Pendiente: 'bg-amber-50 text-amber-700 border border-amber-200',
-  Confirmado: 'bg-blue-50 text-blue-700 border border-blue-200',
-  EnPreparacion: 'bg-purple-50 text-purple-700 border border-purple-200',
-  Preparado: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
-  EnReparto: 'bg-orange-50 text-orange-700 border border-orange-200',
-  Entregado: 'bg-green-50 text-green-700 border border-green-200',
-  Servido: 'bg-green-50 text-green-700 border border-green-200',
-  Cancelado: 'bg-red-50 text-red-700 border border-red-200',
-}
+import { EstadoBadge } from '../components/EstadoBadge'
+import { formatCurrency } from '../lib/format'
 
 interface ItemForm { productoId: number; cantidad: number }
 
@@ -25,6 +16,26 @@ interface PreviewPricing {
   descuento: number
   origenPrecio: string
   origenDescuento: string
+}
+
+interface DevolucionLoteForm {
+  loteId: number
+  codigoLote: string
+  cantidad: number
+  maxCantidad: number
+  cantidadOriginal: number
+  cantidadDevuelta: number
+  esCaducidad: boolean
+  /** Para MILHOJAS: si true la cantidad está en cajas (1 caja = 12 uds) */
+  esCaja: boolean
+}
+
+interface DevolucionItemForm {
+  productoId: number
+  productoNombre: string
+  /** Unidades por caja (p.ej. 12 para MILHOJAS). Si > 0, permite devolver por cajas o unidades. */
+  unidadesPorCaja: number
+  lotes: DevolucionLoteForm[]
 }
 
 function normalizeCode(value?: string | null) {
@@ -140,14 +151,12 @@ export default function Pedidos() {
 
   // Devolución
   const [showDevolucion, setShowDevolucion] = useState<number | null>(null)
-  const [devolucionItems, setDevolucionItems] = useState<
-    { productoId: number; nombre: string; cantidad: number; maxCantidad: number }[]
-  >([])
+  const [devolucionItems, setDevolucionItems] = useState<DevolucionItemForm[]>([])
 
   // Edición de precios en detalle
   const [showEditPrecios, setShowEditPrecios] = useState(false)
   const [editPrecios, setEditPrecios] = useState<
-    Record<string, { precioUnitario: number; descuento: number }>
+    Record<string, { precioUnitario: number; descuento: number; motivo: string }>
   >({})
 
   // FIFO previews
@@ -289,11 +298,11 @@ export default function Pedidos() {
   })
 
   const crearAlbaranMutation = useMutation({
-    mutationFn: (id: number) => api.post(`/pedidos/${id}/crear-albaran`, {}),
+    mutationFn: (id: number) => api.post<ApiResponse<{ numeroAlbaran: string }>>(`/pedidos/${id}/crear-albaran`, {}),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['pedidos'] })
       qc.invalidateQueries({ queryKey: ['albaranes'] })
-      const num = (res.data as any)?.data?.numeroAlbaran ?? ''
+      const num = res.data?.data?.numeroAlbaran ?? ''
       toast.success(`Albarán ${num} creado con lotes FIFO asignados`)
     },
     onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al crear albarán'),
@@ -301,11 +310,11 @@ export default function Pedidos() {
 
   const crearFacturaMutation = useMutation({
     mutationFn: ({ id, serieId, esSimplificada }: { id: number; serieId: number; esSimplificada: boolean }) =>
-      api.post(`/pedidos/${id}/crear-factura`, { serieId, esSimplificada }),
+      api.post<ApiResponse<{ numeroFactura: string }>>(`/pedidos/${id}/crear-factura`, { serieId, esSimplificada }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['pedidos'] })
       qc.invalidateQueries({ queryKey: ['facturas'] })
-      const num = (res.data as any)?.data?.numeroFactura ?? ''
+      const num = res.data?.data?.numeroFactura ?? ''
       toast.success(`Factura ${num} generada correctamente`)
       setShowFacturaPedido(null)
     },
@@ -323,19 +332,19 @@ export default function Pedidos() {
   })
 
   const actualizarLineasMutation = useMutation({
-    mutationFn: ({ id, items }: { id: number; items: { productoId: number; precioUnitario?: number; descuento?: number }[] }) =>
+    mutationFn: ({ id, items }: { id: number; items: { productoId: number; precioUnitario?: number; descuento?: number; motivo?: string }[] }) =>
       api.put(`/pedidos/${id}/actualizar-lineas`, { items }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pedidos'] })
-      qc.invalidateQueries({ queryKey: ['pedido', detailOpen] })
       setShowEditPrecios(false)
+      setEditPrecios({})
       toast.success('Precios actualizados')
     },
     onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al actualizar precios'),
   })
 
   const devolverMutation = useMutation({
-    mutationFn: ({ id, items }: { id: number; items: { productoId: number; cantidad: number }[] }) =>
+    mutationFn: ({ id, items }: { id: number; items: { productoId: number; loteId: number; cantidad: number; esCaducidad: boolean }[] }) =>
       api.post(`/pedidos/${id}/devolver`, { items }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pedidos'] })
@@ -346,15 +355,33 @@ export default function Pedidos() {
     onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? e.response?.data?.message ?? 'Error al registrar devolución'),
   })
 
-  // Inicializar items de devolución cuando se carga el detalle
+  // Inicializar items de devolución con sus lotes cuando se carga el detalle
   useEffect(() => {
     if (detalleDevolucion && showDevolucion !== null) {
-      const init = (detalleDevolucion.lineas ?? []).map(l => ({
-        productoId: l.productoId,
-        nombre: l.productoNombre,
-        cantidad: 0,
-        maxCantidad: Math.ceil(l.cantidad),
-      }))
+      const init: DevolucionItemForm[] = (detalleDevolucion.lineas ?? [])
+        .filter(l => l.lotesAsignados && l.lotesAsignados.length > 0)
+        .map(l => {
+          const unidadesPorCaja = l.unidadesPorCaja ?? (l.productoNombre.toUpperCase().includes('MILHOJAS') ? 12 : 0)
+          return {
+            productoId: l.productoId,
+            productoNombre: l.productoNombre,
+            unidadesPorCaja,
+            lotes: (l.lotesAsignados ?? []).map(la => {
+              const devuelto = la.cantidadDevuelta ?? 0
+              const original = Math.ceil(la.cantidad)
+              return {
+                loteId: la.loteId,
+                codigoLote: la.codigoLote,
+                cantidad: 0,
+                maxCantidad: Math.max(0, original - devuelto),
+                cantidadOriginal: original,
+                cantidadDevuelta: devuelto,
+                esCaducidad: false,
+                esCaja: unidadesPorCaja > 0,
+              }
+            }),
+          }
+        })
       setDevolucionItems(init)
     }
   }, [detalleDevolucion, showDevolucion])
@@ -380,8 +407,8 @@ export default function Pedidos() {
       for (const [k, v] of entries) {
         ;(async () => {
           try {
-            const res = await api.get(`/lotes/producto/${v.productoId}/fifo`, { params: { cantidad: v.cantidad } })
-            const r = res.data as any
+            const res = await api.get<ApiResponse<any[]>>(`/lotes/producto/${v.productoId}/fifo`, { params: { cantidad: v.cantidad } })
+            const r = res.data
             setFifoPreviews(prev => ({ ...prev, [k]: r.success && Array.isArray(r.data) ? r.data : [] }))
           } catch {
             setFifoPreviews(prev => ({ ...prev, [k]: [] }))
@@ -495,7 +522,7 @@ export default function Pedidos() {
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500">{s.label}</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{s.fmt ? `${(s.value as number).toFixed(2)} €` : s.value}</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{s.fmt ? formatCurrency(s.value as number) : s.value}</p>
           </div>
         ))}
       </div>
@@ -544,9 +571,13 @@ export default function Pedidos() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {isLoading
-              ? <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Cargando pedidos…</td></tr>
-              : filteredPedidos.length === 0
+            {isLoading && (
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                Cargando pedidos…
+              </td></tr>
+            )}
+            {!isLoading && filteredPedidos.length === 0
               ? <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">{(pedidos ?? []).length ? 'Sin resultados para el filtro actual' : 'No hay pedidos. Crea el primero.'}</td></tr>
               : filteredPedidos.map(p => (
                 <React.Fragment key={p.id}>
@@ -555,10 +586,10 @@ export default function Pedidos() {
                     <td className="px-4 py-3 text-gray-600">{fmtDate(p.fecha)}</td>
                     <td className="px-4 py-3 text-gray-500">{fmtDate(p.fechaEntrega)}</td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${ESTADO_COLOR[p.estado] ?? 'bg-gray-100 text-gray-600'}`}>{p.estado}</span>
+                      <EstadoBadge estado={p.estado} />
                     </td>
                     <td className="px-4 py-3 text-gray-700">{p.clienteNombre}</td>
-                    <td className="px-4 py-3 font-bold text-gray-900">{p.total.toFixed(2)} €</td>
+                    <td className="px-4 py-3 font-bold text-gray-900">{formatCurrency(p.total)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
                         <button onClick={() => setDetailOpen(detailOpen === p.id ? null : p.id)} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
@@ -637,12 +668,13 @@ export default function Pedidos() {
                       <td colSpan={7} className="px-4 py-3 bg-blue-50/30">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="text-gray-500">
+                            <tr className="text-[11px] text-gray-500">
                               <th className="text-left pb-1 pr-4">Producto</th>
-                              <th className="text-left pb-1 pr-4 w-1/5">Lote</th>
-                              <th className="text-right pb-1 pr-4">Cantidad</th>
+                              <th className="text-left pb-1 pr-4">Lote</th>
+                              <th className="text-right pb-1 pr-4">Cant.</th>
                               <th className="text-right pb-1 pr-4">Precio</th>
-                              <th className="text-right pb-1 pr-4">Dto%</th>
+                              <th className="text-right pb-1 pr-4">Dto.%</th>
+                              <th className="text-right pb-1 pr-4">{p.estado === 'Pendiente' && showEditPrecios ? 'Motivo' : ''}</th>
                               <th className="text-right pb-1">Total</th>
                             </tr>
                           </thead>
@@ -698,7 +730,7 @@ export default function Pedidos() {
                                         className="w-20 text-right border border-blue-300 rounded px-1 py-0.5 text-xs"
                                       />
                                     ) : (
-                                      `${l.precioUnitario.toFixed(2)} €`
+                                      formatCurrency(l.precioUnitario)
                                     )}
                                   </td>
                                   <td className="py-1 pr-4 text-right">
@@ -719,7 +751,23 @@ export default function Pedidos() {
                                       `${l.descuento}%`
                                     )}
                                   </td>
-                                  <td className="py-1 text-right font-bold">{importeLinea.toFixed(2)} €</td>
+                                  <td className="py-1 pr-4 text-right">
+                                    {isPending && showEditPrecios ? (
+                                      <input
+                                        type="text"
+                                        value={ed.motivo ?? ''}
+                                        onChange={e => setEditPrecios(prev => ({
+                                          ...prev,
+                                          [l.productoId]: { ...prev[l.productoId] ?? { precioUnitario: l.precioUnitario, descuento: l.descuento, motivo: '' }, motivo: e.target.value }
+                                        }))}
+                                        placeholder="Motivo…"
+                                        className="w-24 text-xs border border-blue-200 rounded px-1 py-0.5"
+                                      />
+                                    ) : l.motivoPrecioEspecial ? (
+                                      <span className="text-[10px] text-gray-400 italic">{l.motivoPrecioEspecial}</span>
+                                    ) : null}
+                                  </td>
+                                  <td className="py-1 text-right font-bold">{formatCurrency(importeLinea)}</td>
                                 </tr>
                               )
                             })}
@@ -732,10 +780,10 @@ export default function Pedidos() {
                                 <button
                                   onClick={() => {
                                     setShowEditPrecios(true)
-                                    const init: Record<string, { precioUnitario: number; descuento: number }> = {}
-                                    for (const l of detalle.lineas ?? []) {
-                                      init[l.productoId] = { precioUnitario: l.precioUnitario, descuento: l.descuento }
-                                    }
+                                      const init: Record<string, { precioUnitario: number; descuento: number; motivo: string }> = {}
+                                      for (const l of detalle.lineas ?? []) {
+                                        init[l.productoId] = { precioUnitario: l.precioUnitario, descuento: l.descuento, motivo: '' }
+                                      }
                                     setEditPrecios(init)
                                   }}
                                   className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
@@ -750,6 +798,7 @@ export default function Pedidos() {
                                         productoId: parseInt(productoId),
                                         precioUnitario: v.precioUnitario,
                                         descuento: v.descuento,
+                                        motivo: v.motivo || undefined,
                                       }))
                                       actualizarLineasMutation.mutate({ id: p.id, items })
                                     }}
@@ -770,18 +819,18 @@ export default function Pedidos() {
                             </div>
                           )}
                           <div className="flex flex-wrap justify-end gap-3 text-xs ml-auto">
-                            <span>Base: <b>{detalle.subtotal.toFixed(2)} €</b></span>
+                            <span>Base: <b>{formatCurrency(detalle.subtotal)}</b></span>
                             {(detalle.descuentoTotal ?? 0) > 0 && (
-                              <span className="text-emerald-700">Descuento: <b>-{detalle.descuentoTotal.toFixed(2)} €</b></span>
+                              <span className="text-emerald-700">Descuento: <b>-{formatCurrency(detalle.descuentoTotal)}</b></span>
                             )}
-                            <span>IVA: <b>{detalle.ivaTotal.toFixed(2)} €</b></span>
+                            <span>IVA: <b>{formatCurrency(detalle.ivaTotal)}</b></span>
                             {(detalle.recargoEquivalenciaTotal ?? 0) > 0 && (
-                              <span>R.Eq.: <b>{detalle.recargoEquivalenciaTotal.toFixed(2)} €</b></span>
+                              <span>R.Eq.: <b>{formatCurrency(detalle.recargoEquivalenciaTotal)}</b></span>
                             )}
                             {(detalle.retencionTotal ?? 0) > 0 && (
-                              <span className="text-red-600">Retención: <b>-{detalle.retencionTotal.toFixed(2)} €</b></span>
+                              <span className="text-red-600">Retención: <b>-{formatCurrency(detalle.retencionTotal)}</b></span>
                             )}
-                            <span className="font-bold text-brand-700">TOTAL: {detalle.total.toFixed(2)} €</span>
+                            <span className="font-bold text-brand-700">TOTAL: {formatCurrency(detalle.total)}</span>
                           </div>
                         </div>
                         {detalle.notas && <p className="text-xs text-gray-500 mt-2 italic">Notas: {detalle.notas}</p>}
@@ -853,7 +902,7 @@ export default function Pedidos() {
                         <select value={item.productoId} onChange={e => updateItem(i, 'productoId', +e.target.value)}
                           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                           <option value={0}>Seleccionar producto…</option>
-                          {(productos ?? []).map(p => <option key={p.id} value={p.id}>{p.nombre} ({p.precioVenta.toFixed(2)} €)</option>)}
+                          {(productos ?? []).map(p => <option key={p.id} value={p.id}>{p.nombre} ({formatCurrency(p.precioVenta)})</option>)}
                         </select>
                         <input type="number" min="1" step="1" value={item.cantidad} onFocus={e => e.currentTarget.select()} onChange={e => updateItem(i, 'cantidad', parseInt(e.target.value || '0', 10))}
                           className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" placeholder="Cant." />
@@ -877,20 +926,20 @@ export default function Pedidos() {
                             <div>
                               <p className="text-sm font-medium text-slate-900">{linea.productoNombre}</p>
                               <p className="text-xs text-slate-500">
-                                {linea.cantidad} x {linea.precioUnitario.toFixed(2)} € · Precio: {linea.origenPrecio} · Dto: {linea.descuento.toFixed(2)}% ({linea.origenDescuento})
+                                {linea.cantidad} x {formatCurrency(linea.precioUnitario)} · Precio: {linea.origenPrecio} · Dto: {linea.descuento.toFixed(2)}% ({linea.origenDescuento})
                               </p>
                             </div>
-                            <p className="text-sm font-semibold text-slate-900">{(linea.subtotal + linea.ivaImporte + linea.recargoImporte).toFixed(2)} €</p>
+                            <p className="text-sm font-semibold text-slate-900">{formatCurrency(linea.subtotal + linea.ivaImporte + linea.recargoImporte)}</p>
                           </div>
                         </div>
                       ))}
                     </div>
                     <div className="flex flex-wrap justify-end gap-4 border-t border-slate-200 pt-3 text-xs text-slate-700">
-                      <span>Base: <b>{previewTotales.subtotal.toFixed(2)} €</b></span>
-                      <span>IVA: <b>{previewTotales.ivaTotal.toFixed(2)} €</b></span>
-                      {previewTotales.recargoTotal > 0 && <span>R.Eq.: <b>{previewTotales.recargoTotal.toFixed(2)} €</b></span>}
-                      {previewTotales.retencionTotal > 0 && <span className="text-red-700">Retención: <b>-{previewTotales.retencionTotal.toFixed(2)} €</b></span>}
-                      <span className="text-brand-700">Total estimado: <b>{previewTotales.total.toFixed(2)} €</b></span>
+                      <span>Base: <b>{formatCurrency(previewTotales.subtotal)}</b></span>
+                      <span>IVA: <b>{formatCurrency(previewTotales.ivaTotal)}</b></span>
+                      {previewTotales.recargoTotal > 0 && <span>R.Eq.: <b>{formatCurrency(previewTotales.recargoTotal)}</b></span>}
+                      {previewTotales.retencionTotal > 0 && <span className="text-red-700">Retención: <b>-{formatCurrency(previewTotales.retencionTotal)}</b></span>}
+                      <span className="text-brand-700">Total estimado: <b>{formatCurrency(previewTotales.total)}</b></span>
                     </div>
                   </div>
                 )}
@@ -944,10 +993,10 @@ export default function Pedidos() {
         </div>
       )}
 
-      {/* Modal: Devolución */}
+      {/* Modal: Devolución con lotes */}
       {showDevolucion !== null && detalleDevolucion && (
         <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-bold text-gray-900">Devolución de pedido</h2>
@@ -960,41 +1009,140 @@ export default function Pedidos() {
               </button>
             </div>
 
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-gray-500 border-b border-gray-200">
-                  <th className="text-left pb-2 pr-3 font-semibold">Producto</th>
-                  <th className="text-right pb-2 pr-3 font-semibold">Vendido</th>
-                  <th className="text-right pb-2 font-semibold">A devolver</th>
-                </tr>
-              </thead>
-              <tbody>
-                {devolucionItems.map((item, i) => (
-                  <tr key={item.productoId} className="border-b border-gray-100">
-                    <td className="py-2 pr-3 font-medium">{item.nombre}</td>
-                    <td className="py-2 pr-3 text-right text-gray-600">{item.maxCantidad}</td>
-                    <td className="py-2 text-right">
-                      <input
-                        type="number"
-                        min="0"
-                        max={item.maxCantidad}
-                        step="1"
-                        value={item.cantidad}
-                        onChange={e => {
-                          const val = Math.min(Math.max(0, parseInt(e.target.value || '0', 10)), item.maxCantidad)
-                          setDevolucionItems(prev => prev.map((d, idx) => idx === i ? { ...d, cantidad: val } : d))
-                        }}
-                        className="w-20 text-right border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {/* Si no hay productos con lotes asignados */}
+            {devolucionItems.length === 0 && (
+              <p className="text-sm text-gray-500 py-4 text-center">
+                No hay productos con lotes asignados en este pedido para devolver.
+              </p>
+            )}
 
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
+            {devolucionItems.map((item, pIdx) => (
+              <div key={item.productoId} className="mb-4 pb-3 border-b border-gray-100 last:border-b-0">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-gray-800">{item.productoNombre}</p>
+                  {item.unidadesPorCaja > 0 && (
+                    <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                      1 caja = {item.unidadesPorCaja} uds
+                    </span>
+                  )}
+                </div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-200">
+                      <th className="text-left pb-1.5 pr-2 font-semibold">Lote</th>
+                      <th className="text-center pb-1.5 pr-2 font-semibold">Vendido</th>
+                      <th className="text-center pb-1.5 pr-2 font-semibold">Devuelto</th>
+                      <th className="text-center pb-1.5 pr-2 font-semibold">A devolver</th>
+                      {item.unidadesPorCaja > 0 && <th className="text-center pb-1.5 pr-2 font-semibold">Tipo</th>}
+                      <th className="text-center pb-1.5 font-semibold" colSpan={2}>Motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {item.lotes.map((lote, lIdx) => (
+                      <tr key={lote.loteId} className={lIdx < item.lotes.length - 1 ? 'border-b border-gray-50' : ''}>
+                        <td className="py-1.5 pr-2 font-mono text-gray-700">{lote.codigoLote}</td>
+                        <td className="py-1.5 pr-2 text-center text-gray-600">
+                          {item.unidadesPorCaja > 0
+                            ? `${(lote.cantidadOriginal / item.unidadesPorCaja).toFixed(1)} cajas`
+                            : lote.cantidadOriginal}
+                        </td>
+                        <td className="py-1.5 pr-2 text-center text-gray-400">
+                          {lote.cantidadDevuelta > 0
+                            ? (item.unidadesPorCaja > 0
+                              ? `${(lote.cantidadDevuelta / item.unidadesPorCaja).toFixed(1)} cajas`
+                              : lote.cantidadDevuelta)
+                            : '—'}
+                        </td>
+                        <td className="py-1.5 pr-2 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max={item.unidadesPorCaja > 0 && lote.esCaja ? Math.ceil(lote.maxCantidad / item.unidadesPorCaja) : lote.maxCantidad}
+                              step="1"
+                              value={lote.cantidad}
+                              onChange={e => {
+                                const val = Math.min(Math.max(0, parseInt(e.target.value || '0', 10)),
+                                  item.unidadesPorCaja > 0 && lote.esCaja ? Math.ceil(lote.maxCantidad / item.unidadesPorCaja) : lote.maxCantidad)
+                                setDevolucionItems(prev => prev.map((d, di) =>
+                                  di === pIdx
+                                    ? { ...d, lotes: d.lotes.map((ld, li) => li === lIdx ? { ...ld, cantidad: val } : ld) }
+                                    : d
+                                ))
+                              }}
+                              className="w-14 text-center border border-gray-300 rounded-lg px-1.5 py-1 text-xs focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                            />
+                            {item.unidadesPorCaja > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setDevolucionItems(prev => prev.map((d, di) =>
+                                  di === pIdx
+                                    ? { ...d, lotes: d.lotes.map((ld, li) => li === lIdx ? { ...ld, esCaja: !ld.esCaja, cantidad: 0 } : ld) }
+                                    : d
+                                ))}
+                                className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                                  lote.esCaja
+                                    ? 'bg-brand-50 text-brand-700 border-brand-300'
+                                    : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                                }`}
+                                title="Cambiar entre cajas y unidades"
+                              >
+                                {lote.esCaja ? 'Cajas' : 'Uds'}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        {item.unidadesPorCaja > 0 && (
+                          <td className="py-1.5 pr-2 text-center text-[10px] text-gray-400">
+                            {lote.esCaja ? `= ${lote.cantidad * item.unidadesPorCaja} uds` : `${lote.cantidad} uds`}
+                          </td>
+                        )}
+                        <td className="py-1.5 text-center" colSpan={2}>
+                          <div className="flex items-center justify-center gap-3">
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="radio"
+                                name={`motivo-${lote.loteId}`}
+                                checked={!lote.esCaducidad}
+                                onChange={() => {
+                                  setDevolucionItems(prev => prev.map((d, di) =>
+                                    di === pIdx
+                                      ? { ...d, lotes: d.lotes.map((ld, li) => li === lIdx ? { ...ld, esCaducidad: false } : ld) }
+                                      : d
+                                  ))
+                                }}
+                                className="w-3.5 h-3.5 text-green-600 focus:ring-green-500"
+                              />
+                              <span className="text-[11px] text-gray-600">Normal</span>
+                            </label>
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="radio"
+                                name={`motivo-${lote.loteId}`}
+                                checked={lote.esCaducidad}
+                                onChange={() => {
+                                  setDevolucionItems(prev => prev.map((d, di) =>
+                                    di === pIdx
+                                      ? { ...d, lotes: d.lotes.map((ld, li) => li === lIdx ? { ...ld, esCaducidad: true } : ld) }
+                                      : d
+                                  ))
+                                }}
+                                className="w-3.5 h-3.5 text-orange-600 focus:ring-orange-500"
+                              />
+                              <span className="text-[11px] text-orange-600">Caducidad</span>
+                            </label>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
+            <div className="flex items-center justify-between pt-3 border-t border-gray-200">
               <p className="text-xs text-gray-500">
-                {devolucionItems.filter(i => i.cantidad > 0).length} producto(s) con devolución
+                {devolucionItems.reduce((acc, item) => acc + item.lotes.filter(l => l.cantidad > 0).length, 0)} lote(s) con devolución
               </p>
               <div className="flex gap-3">
                 <button
@@ -1005,17 +1153,30 @@ export default function Pedidos() {
                 </button>
                 <button
                   onClick={() => {
-                    const items = devolucionItems.filter(i => i.cantidad > 0).map(i => ({
-                      productoId: i.productoId,
-                      cantidad: i.cantidad,
-                    }))
+                    const items: { productoId: number; loteId: number; cantidad: number; esCaducidad: boolean }[] = []
+                    for (const item of devolucionItems) {
+                      for (const lote of item.lotes) {
+                        if (lote.cantidad > 0) {
+                          // Si el producto se vende por cajas y está en cajas, convertir a unidades
+                          const cantidadFinal = item.unidadesPorCaja > 0 && lote.esCaja
+                            ? lote.cantidad * item.unidadesPorCaja
+                            : lote.cantidad
+                          items.push({
+                            productoId: item.productoId,
+                            loteId: lote.loteId,
+                            cantidad: cantidadFinal,
+                            esCaducidad: lote.esCaducidad,
+                          })
+                        }
+                      }
+                    }
                     if (items.length === 0) {
-                      toast.error('Selecciona al menos un producto para devolver')
+                      toast.error('Selecciona al menos un lote para devolver')
                       return
                     }
                     devolverMutation.mutate({ id: showDevolucion!, items })
                   }}
-                  disabled={devolverMutation.isPending || devolucionItems.every(i => i.cantidad === 0)}
+                  disabled={devolverMutation.isPending || devolucionItems.every(item => item.lotes.every(l => l.cantidad === 0))}
                   className="flex items-center gap-2 px-5 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-orange-700"
                 >
                   {devolverMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -1023,8 +1184,9 @@ export default function Pedidos() {
                 </button>
               </div>
             </div>
-            <p className="text-[11px] text-gray-400 mt-3">
-              La devolución repondrá el stock y generará los registros de trazabilidad correspondientes.
+            <p className="text-[11px] text-gray-400 mt-2.5 leading-relaxed">
+              Marca <strong>Caducidad</strong> si la devolución es por producto caducado (no repondrá stock).
+              Si no, la devolución repondrá el stock automáticamente.
             </p>
           </div>
         </div>

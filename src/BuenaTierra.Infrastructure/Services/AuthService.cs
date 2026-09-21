@@ -1,4 +1,5 @@
 using BuenaTierra.Application.Interfaces;
+using BuenaTierra.Domain.Common;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using Microsoft.Extensions.Configuration;
@@ -51,7 +52,7 @@ public class AuthService : IAuthService
         var refreshToken = GenerarRefreshToken();
         var refreshExp = DateTime.UtcNow.AddDays(int.Parse(_config["Jwt:RefreshExpiresInDays"] ?? "30"));
 
-        usuario.RefreshToken = refreshToken;
+        usuario.RefreshToken = HashRefreshToken(refreshToken);
         usuario.RefreshTokenExp = refreshExp;
         usuario.UltimoAcceso = DateTime.UtcNow;
 
@@ -60,14 +61,15 @@ public class AuthService : IAuthService
 
         _logger.LogInformation("Login exitoso: usuario={UsuarioId}, empresa={EmpresaId}", usuario.Id, usuario.EmpresaId);
 
-        int expiresMinutes = int.Parse(_config["Jwt:ExpiresInMinutes"] ?? "480");
-        return new AuthResult(true, token, refreshToken, DateTime.UtcNow.AddMinutes(expiresMinutes));
+        int expiresMinutes = int.Parse(_config["Jwt:ExpiresInMinutes"] ?? "30");
+        return new AuthResult(true, token, refreshToken, DateTime.UtcNow.AddMinutes(expiresMinutes), DebeCambiarPassword: usuario.DebeCambiarPassword);
     }
 
     public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default)
     {
+        var refreshTokenHash = HashRefreshToken(refreshToken);
         var usuario = (await _uow.Usuarios.FindAsync(
-            u => u.RefreshToken == refreshToken && u.RefreshTokenExp > DateTime.UtcNow && u.Activo, ct))
+            u => u.RefreshToken == refreshTokenHash && u.RefreshTokenExp > DateTime.UtcNow && u.Activo, ct))
             .FirstOrDefault();
 
         if (usuario == null)
@@ -77,14 +79,32 @@ public class AuthService : IAuthService
         var newRefreshToken = GenerarRefreshToken();
         var refreshExp = DateTime.UtcNow.AddDays(int.Parse(_config["Jwt:RefreshExpiresInDays"] ?? "30"));
 
-        usuario.RefreshToken = newRefreshToken;
+        usuario.RefreshToken = HashRefreshToken(newRefreshToken);
         usuario.RefreshTokenExp = refreshExp;
 
         await _uow.Usuarios.UpdateAsync(usuario, ct);
         await _uow.SaveChangesAsync(ct);
 
-        int expiresMinutes = int.Parse(_config["Jwt:ExpiresInMinutes"] ?? "480");
-        return new AuthResult(true, token, newRefreshToken, DateTime.UtcNow.AddMinutes(expiresMinutes));
+        int expiresMinutes = int.Parse(_config["Jwt:ExpiresInMinutes"] ?? "30");
+        return new AuthResult(true, token, newRefreshToken, DateTime.UtcNow.AddMinutes(expiresMinutes), DebeCambiarPassword: usuario.DebeCambiarPassword);
+    }
+
+    public async Task EstablecerPasswordAsync(int usuarioId, string nuevaPassword, CancellationToken ct = default)
+    {
+        var usuario = await _uow.Usuarios.GetByIdAsync(usuarioId, ct)
+            ?? throw new EntidadNotFoundException("Usuario", usuarioId);
+
+        var error = PasswordPolicy.Validate(nuevaPassword);
+        if (error != null)
+            throw new DomainException(error);
+
+        usuario.PasswordHash = BCrypt.Net.BCrypt.HashPassword(nuevaPassword);
+        usuario.DebeCambiarPassword = false;
+        usuario.RefreshToken = null;
+        usuario.RefreshTokenExp = null;
+
+        await _uow.Usuarios.UpdateAsync(usuario, ct);
+        await _uow.SaveChangesAsync(ct);
     }
 
     public async Task LogoutAsync(int usuarioId, CancellationToken ct = default)
@@ -115,6 +135,7 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.Name, usuario.NombreCompleto),
             new Claim("empresa_id", usuario.EmpresaId.ToString()),
             new Claim(ClaimTypes.Role, usuario.Rol.ToString()),
+            new Claim("debe_cambiar_password", usuario.DebeCambiarPassword ? "true" : "false"),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
@@ -135,5 +156,11 @@ public class AuthService : IAuthService
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(bytes);
         return Convert.ToBase64String(bytes);
+    }
+
+    private static string HashRefreshToken(string refreshToken)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken));
+        return Convert.ToHexString(bytes);
     }
 }

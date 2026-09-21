@@ -278,11 +278,10 @@ public class CorreosController : ControllerBase
                     await client.AuthenticateAsync(imapCfg.User, imapCfg.Password, fallbackAuthCts.Token);
                 }
 
-                var inbox = client.Inbox;
+                var inbox = client.Inbox!;
                 using var inboxCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 inboxCts.CancelAfter(TimeSpan.FromSeconds(30));
                 await inbox.OpenAsync(FolderAccess.ReadOnly, inboxCts.Token);
-
                 var knownUids = await _ctx.CorreosMensajes
                     .Where(c => c.EmpresaId == EmpresaId && c.UsuarioId == UsuarioId
                              && c.Folder == "Inbox" && c.UidImap != null)
@@ -312,7 +311,7 @@ public class CorreosController : ControllerBase
                             if (part.IsAttachment && adjuntoDatos == null)
                             {
                                 using var ms = new MemoryStream();
-                                await part.Content.DecodeToAsync(ms, ct);
+                                await part.Content!.DecodeToAsync(ms, ct);
                                 adjuntoDatos = ms.ToArray();
                                 adjuntoNombre = part.FileName ?? "adjunto";
                                 adjuntoContentType = part.ContentType.MimeType;
@@ -407,6 +406,7 @@ public class CorreosController : ControllerBase
     {
         try
         {
+            json = BuenaTierra.API.Services.ConfiguracionCrypto.UnprotectJson(json);
             var root = JsonNode.Parse(json)?.AsObject();
             if (root == null) return null;
             string? host = root["smtpHost"]?.GetValue<string>();
@@ -429,7 +429,8 @@ public class CorreosController : ControllerBase
         if (usuario == null || string.IsNullOrWhiteSpace(usuario.Configuracion)) return null;
         try
         {
-            var root = JsonNode.Parse(usuario.Configuracion)?.AsObject();
+            var jsonDescifrado = BuenaTierra.API.Services.ConfiguracionCrypto.UnprotectJson(usuario.Configuracion);
+            var root = JsonNode.Parse(jsonDescifrado)?.AsObject();
             if (root == null) return null;
             string? host = root["imapHost"]?.GetValue<string>();
             int? port = root["imapPort"]?.GetValue<int>();

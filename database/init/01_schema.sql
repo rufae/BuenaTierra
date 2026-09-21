@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
     refresh_token_exp   TIMESTAMPTZ,
     cliente_id          INTEGER,
     configuracion       TEXT,
+    debe_cambiar_password BOOLEAN NOT NULL DEFAULT FALSE,
+    reset_password_code VARCHAR(200),
+    reset_password_code_exp TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, email)
@@ -211,6 +214,7 @@ CREATE TABLE IF NOT EXISTS productos (
     iva_porcentaje      NUMERIC(5,2) NOT NULL DEFAULT 10.00,
     unidad_medida       VARCHAR(20) DEFAULT 'unidad',
     peso_unitario_gr    NUMERIC(10,3),
+    unidades_por_caja   INTEGER,
     vida_util_dias      INTEGER,
     vida_util_unidad    VARCHAR(10) NOT NULL DEFAULT 'Dias' CHECK (vida_util_unidad IN ('Dias','Meses')),
     temperatura_min     NUMERIC(5,1),

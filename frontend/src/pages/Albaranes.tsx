@@ -2,17 +2,10 @@ import { Fragment, useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../lib/api'
 import type { AlbaranResumen, AlbaranDetalle, CreateAlbaranDto, Cliente, Producto, SerieFacturacion } from '../types'
-import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp, Download, Package, Search } from 'lucide-react'
+import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp, Download, Package, Search, ClipboardList } from 'lucide-react'
+import { EstadoBadge } from '../components/EstadoBadge'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
-
-const ESTADO_COLOR: Record<string, string> = {
-  Pendiente: 'bg-amber-50 text-amber-700 border border-amber-200',
-  EnReparto: 'bg-orange-50 text-orange-700 border border-orange-200',
-  Entregado: 'bg-green-50 text-green-700 border border-green-200',
-  Facturado: 'bg-blue-50 text-blue-700 border border-blue-200',
-  Cancelado: 'bg-red-50 text-red-700 border border-red-200',
-}
 
 interface ItemForm { productoId: number; cantidad: number }
 
@@ -240,18 +233,16 @@ export default function Albaranes() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {isLoading
-              ? <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Cargando albaranes…</td></tr>
+              ? <tr><td colSpan={6} className="text-sm text-gray-500 py-8 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />Cargando albaranes…</td></tr>
               : filteredAlbaranes.length === 0
-              ? <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">{(albaranes ?? []).length ? 'Sin resultados para el filtro actual' : 'No hay albaranes. Crea el primero.'}</td></tr>
+              ? <tr><td colSpan={6} className="text-sm text-gray-400 py-8 text-center">{(albaranes ?? []).length ? 'Sin resultados para el filtro actual' : <><ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-40" />No hay albaranes. Crea el primero desde un pedido.</>}</td></tr>
               : filteredAlbaranes.map(a => (
                 <Fragment key={a.id}>
                   <tr className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{a.numeroAlbaran}</td>
                     <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha)}</td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${ESTADO_COLOR[a.estado] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {a.estado}
-                      </span>
+                      <EstadoBadge estado={a.estado} />
                     </td>
                     <td className="px-4 py-3 text-gray-700">{a.clienteNombre}</td>
                     <td className="px-4 py-3 font-bold text-gray-900">{a.total.toFixed(2)} €</td>

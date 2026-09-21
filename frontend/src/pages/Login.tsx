@@ -161,6 +161,19 @@ export default function Login() {
                   </button>
                 </div>
               </div>
+
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => navigate('/olvide-password')}
+                  className="text-xs font-medium transition-colors"
+                  style={{ color: '#2563eb' }}
+                  onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                  onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
             </form>
           </div>
 

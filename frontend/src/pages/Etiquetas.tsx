@@ -11,6 +11,8 @@ import api from '../lib/api'
 import LabelEditor from '../components/LabelEditor'
 import CollaboraViewer from '../components/CollaboraViewer'
 import '../styles/label-editor.css'
+import { fmtDate } from '../lib/dates'
+import { EstadoBadge } from '../components/EstadoBadge'
 import type {
   PlantillaEtiqueta, EtiquetaImportada, TrabajoImpresion,
   TipoIvaRe, Producto, Lote, EtiquetaPreview,
@@ -27,16 +29,6 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
-}
-
-function formatDate(d: string | null) {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDateShort(d: string | null) {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 const IMPRESORA_LABELS: Record<string, string> = {
@@ -90,8 +82,8 @@ function replaceTemplateFields(html: string, preview: EtiquetaPreview): string {
   if (preview.lote) {
     const l = preview.lote
     fields['lote.codigoLote'] = l.codigoLote ?? ''
-    fields['lote.fechaFabricacion'] = l.fechaFabricacion ? formatDateShort(l.fechaFabricacion) : ''
-    fields['lote.fechaCaducidad'] = l.fechaCaducidad ? formatDateShort(l.fechaCaducidad) : ''
+    fields['lote.fechaFabricacion'] = l.fechaFabricacion ? fmtDate(l.fechaFabricacion) : ''
+    fields['lote.fechaCaducidad'] = l.fechaCaducidad ? fmtDate(l.fechaCaducidad) : ''
   }
 
   // Barcode image placeholder
@@ -547,7 +539,7 @@ function PlantillasTab() {
                 <div className="flex items-start justify-between mb-2">
                   <div className="min-w-0 flex-1">
                     <h3 className="font-semibold text-gray-900 text-sm truncate">{e.nombre}</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">{formatDate(e.createdAt)}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{fmtDate(e.createdAt)}</p>
                   </div>
                   <span className={`px-2 py-0.5 text-xs font-medium rounded shrink-0 ml-2 ${FORMAT_COLORS[e.formato] ?? 'bg-gray-100 text-gray-700'}`}>
                     {e.formato}
@@ -860,7 +852,7 @@ function PlantillaPreview({ plantillaId, onClose }: { plantillaId: number; onClo
             <div className="border-t border-gray-100 pt-3 space-y-1 text-xs text-gray-600">
               <p className="font-medium text-gray-700">Datos del lote:</p>
               <p>Lote: {preview.lote.codigoLote}</p>
-              {preview.lote.fechaCaducidad && <p>Cad: {formatDateShort(preview.lote.fechaCaducidad)}</p>}
+              {preview.lote.fechaCaducidad && <p>Cad: {fmtDate(preview.lote.fechaCaducidad)}</p>}
             </div>
           )}
         </div>
@@ -934,8 +926,8 @@ function PlantillaPreview({ plantillaId, onClose }: { plantillaId: number; onClo
                 {preview.lote && (
                   <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
                     <p><b className="text-gray-700">Lote:</b> {preview.lote.codigoLote}</p>
-                    <p><b className="text-gray-700">Fabricación:</b> {formatDateShort(preview.lote.fechaFabricacion)}</p>
-                    {preview.lote.fechaCaducidad && <p><b className="text-gray-700">Caducidad:</b> {formatDateShort(preview.lote.fechaCaducidad)}</p>}
+                    <p><b className="text-gray-700">Fabricación:</b> {fmtDate(preview.lote.fechaFabricacion)}</p>
+                    {preview.lote.fechaCaducidad && <p><b className="text-gray-700">Caducidad:</b> {fmtDate(preview.lote.fechaCaducidad)}</p>}
                   </div>
                 )}
               </div>
@@ -1172,7 +1164,7 @@ function ImportadasTab() {
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-right text-gray-500">{formatBytes(e.tamanoBytes)}</td>
-                  <td className="px-4 py-2.5 text-gray-500">{formatDate(e.createdAt)}</td>
+                  <td className="px-4 py-2.5 text-gray-500">{fmtDate(e.createdAt)}</td>
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       <button
@@ -1462,7 +1454,7 @@ function GenerarTab() {
             >
               <option value="">— Sin lote —</option>
               {lotes.filter(l => !productoId || l.productoId === productoId).map(l => (
-                <option key={l.id} value={l.id}>{l.codigoLote} {l.fechaCaducidad ? `(cad: ${formatDateShort(l.fechaCaducidad)})` : ''}</option>
+                <option key={l.id} value={l.id}>{l.codigoLote} {l.fechaCaducidad ? `(cad: ${fmtDate(l.fechaCaducidad)})` : ''}</option>
               ))}
             </select>
           </div>
@@ -1597,12 +1589,6 @@ function ImpresionTab() {
     })
   }
 
-  const estadoColor: Record<string, string> = {
-    Pendiente: 'bg-amber-100 text-amber-700',
-    Impreso: 'bg-emerald-100 text-emerald-700',
-    Error: 'bg-red-100 text-red-700',
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -1693,11 +1679,9 @@ function ImpresionTab() {
                   <td className="px-4 py-2.5 text-gray-600 font-mono text-xs">{t.codigoLote ?? '—'}</td>
                   <td className="px-4 py-2.5 text-center">{t.copias}</td>
                   <td className="px-4 py-2.5">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${estadoColor[t.estado] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {t.estado}
-                    </span>
+                    <EstadoBadge estado={t.estado} />
                   </td>
-                  <td className="px-4 py-2.5 text-gray-500">{formatDate(t.createdAt)}</td>
+                  <td className="px-4 py-2.5 text-gray-500">{fmtDate(t.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

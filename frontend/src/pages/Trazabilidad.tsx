@@ -13,6 +13,7 @@ import {
 import toast from 'react-hot-toast'
 import { fmtDate, isExpired } from '../lib/dates'
 import { DateInput } from '../components/DateInput'
+import { EstadoBadge } from '../components/EstadoBadge'
 
 
 type Tab = 'movimientos' | 'producto' | 'ingrediente'
@@ -22,17 +23,6 @@ const ALERGENO_EMOJI: Record<string, string> = {
   CACAHUETES: '🥜', SOJA: '🫘', LACTEOS: '🥛', FRUTOS_SECOS: '🌰',
   APIO: '🌿', MOSTAZA: '🟡', SESAMO: '🌱', SO2: '💨',
   ALTRAMUCES: '🟠', MOLUSCOS: '🦑',
-}
-
-function EstadoBadge({ estado }: { estado: string }) {
-  const cls =
-    estado === 'Activo' ? 'bg-green-50 text-green-700' :
-    estado === 'Bloqueado' ? 'bg-red-50 text-red-700' :
-    estado === 'Caducado' ? 'bg-orange-50 text-orange-700' :
-    'bg-gray-100 text-gray-500'
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>{estado}</span>
-  )
 }
 
 function today() { return new Date().toISOString().slice(0, 10) }
@@ -199,7 +189,26 @@ function TabMovimientos() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                         row.tipoOperacion === 'Venta' ? 'bg-green-50 text-green-700' :
                         row.tipoOperacion === 'Produccion' ? 'bg-blue-50 text-blue-700' :
-                        'bg-gray-100 text-gray-600'}`}>{row.tipoOperacion}</span>
+                        row.tipoOperacion === 'Compra' ? 'bg-teal-50 text-teal-700' :
+                        row.tipoOperacion === 'devolucion_pedido' ? 'bg-red-50 text-red-700' :
+                        row.tipoOperacion === 'caducidad_pedido' ? 'bg-orange-50 text-orange-700' :
+                        row.tipoOperacion?.toLowerCase().includes('devol') ? 'bg-red-50 text-red-700' :
+                        row.tipoOperacion?.toLowerCase().includes('caduc') ? 'bg-orange-50 text-orange-700' :
+                        'bg-gray-100 text-gray-600'}`}>
+                        {row.tipoOperacion === 'devolucion_pedido' ? 'Devolución normal' :
+                         row.tipoOperacion === 'caducidad_pedido' ? 'Devolución por caducidad' :
+                         row.tipoOperacion}
+                      </span>
+                      {row.datosAdicionales && (
+                        <span className="block text-[10px] text-gray-400 mt-0.5 max-w-[160px] truncate" title={row.datosAdicionales}>
+                          {(() => {
+                            try {
+                              const d = JSON.parse(row.datosAdicionales)
+                              return d.motivo === 'caducidad' ? 'Caducidad' : d.motivo === 'devolucion_voluntaria' ? 'Voluntaria' : ''
+                            } catch { return '' }
+                          })()}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 font-medium text-gray-900">{row.productoNombre}</td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-700">{row.lote}</td>
@@ -356,7 +365,19 @@ function TabProducto() {
                         {lote.movimientos.map(m => (
                           <tr key={m.id} className="hover:bg-gray-50">
                             <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(m.fecha)}</td>
-                            <td className="px-4 py-2.5"><span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">{m.tipoOperacion}</span></td>
+                            <td className="px-4 py-2.5">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                m.tipoOperacion === 'Venta' ? 'bg-green-50 text-green-700' :
+                                m.tipoOperacion === 'devolucion_pedido' ? 'bg-red-50 text-red-700' :
+                                m.tipoOperacion === 'caducidad_pedido' ? 'bg-orange-50 text-orange-700' :
+                                m.tipoOperacion?.toLowerCase().includes('devol') ? 'bg-red-50 text-red-700' :
+                                m.tipoOperacion?.toLowerCase().includes('caduc') ? 'bg-orange-50 text-orange-700' :
+                                'bg-blue-50 text-blue-700'}`}>
+                                {m.tipoOperacion === 'devolucion_pedido' ? 'Devolución normal' :
+                                 m.tipoOperacion === 'caducidad_pedido' ? 'Devolución por caducidad' :
+                                 m.tipoOperacion}
+                              </span>
+                            </td>
                             <td className="px-4 py-2.5 font-semibold text-right">{m.cantidad}</td>
                             <td className="px-4 py-2.5 text-gray-900">{m.clienteNombre ?? '—'}</td>
                             <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">{m.clienteNif ?? '—'}</td>

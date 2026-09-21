@@ -7,6 +7,8 @@ import { applyStoredTheme } from './lib/theme'
 import { useTheme } from './hooks/useTheme'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import CambiarContrasena from './pages/CambiarContrasena'
+import ForgotPassword from './pages/ForgotPassword'
 import Dashboard from './pages/Dashboard'
 import Productos from './pages/Productos'
 import Clientes from './pages/Clientes'
@@ -47,6 +49,14 @@ const queryClient = new QueryClient({
 })
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, user } = useAuth()
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (user?.debeCambiarPassword) return <Navigate to="/cambiar-contrasena" replace />
+  return <>{children}</>
+}
+
+/** Solo requiere autenticación (sin bloqueo por cambio de contraseña obligatorio) */
+function AuthOnly({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />
 }
@@ -86,6 +96,8 @@ function AppRoutes() {
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to={homePath} replace /> : <Login />} />
+      <Route path="/olvide-password" element={<ForgotPassword />} />
+      <Route path="/cambiar-contrasena" element={<AuthOnly><CambiarContrasena /></AuthOnly>} />
       <Route
         path="/"
         element={

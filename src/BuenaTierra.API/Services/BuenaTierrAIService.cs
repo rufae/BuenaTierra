@@ -337,7 +337,8 @@ public sealed class BuenaTierrAIService : IBuenaTierrAIService
             if (empresa is null || string.IsNullOrWhiteSpace(empresa.Configuracion))
                 return new BuenaTierrAICompanyConfig();
 
-            using var doc = JsonDocument.Parse(empresa.Configuracion);
+            var configuracionDescifrada = ConfiguracionCrypto.UnprotectJson(empresa.Configuracion);
+            using var doc = JsonDocument.Parse(configuracionDescifrada);
             var root = doc.RootElement;
             var node = root;
 

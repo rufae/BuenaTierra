@@ -2,10 +2,6 @@ include:
   - docker-compose.yml
 
 services:
-  db:
-    environment:
-      POSTGRES_PASSWORD: REDACTED
-
   api:
     build:
       context: .
@@ -14,9 +10,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=buenatierra;Username=buenatierra_admin;Password=REDACTED;Pooling=true;"
-      Jwt__Secret: REDACTED
-      Jwt__ExpiresInMinutes: 480
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${POSTGRES_DB:-buenatierra};Username=${POSTGRES_USER:-buenatierra_admin};Password=${POSTGRES_PASSWORD};Pooling=true;"
+      Jwt__Secret: ${JWT_SECRET}
+      Jwt__ExpiresInMinutes: 30
     ports:
       - "8080:8080"
     volumes:

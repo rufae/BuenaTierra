@@ -133,6 +133,7 @@ public class ProductosController : ControllerBase
         p.IvaPorcentaje          = r.IvaPorcentaje;
         p.UnidadMedida           = r.UnidadMedida ?? "ud";
         p.PesoUnitarioGr         = r.PesoUnitarioGr;
+        p.UnidadesPorCaja        = r.UnidadesPorCaja;
         p.VidaUtilDias           = r.VidaUtilDias;
         p.VidaUtilUnidad         = vidaUtilUnidad;
         p.DescuentoPorDefecto    = r.DescuentoPorDefecto;
@@ -439,6 +440,7 @@ public record ProductoRequest(
     decimal  IvaPorcentaje,
     string?  UnidadMedida,
     decimal? PesoUnitarioGr,
+    int?     UnidadesPorCaja,
     int?     VidaUtilDias,
     string?  VidaUtilUnidad,
     decimal? DescuentoPorDefecto,

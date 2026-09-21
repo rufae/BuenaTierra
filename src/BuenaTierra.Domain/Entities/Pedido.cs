@@ -50,6 +50,12 @@ public class PedidoLinea : BaseEntity
     /// </summary>
     public string? ReservaLotesJson { get; set; }
 
+    /// <summary>
+    /// Motivo opcional cuando se modifica el precio en estado Pendiente
+    /// (ej: "precio especial por cliente habitual", "oferta semanal", etc.)
+    /// </summary>
+    public string? MotivoPrecioEspecial { get; set; }
+
     // Navegación
     public virtual Pedido Pedido { get; set; } = null!;
     public virtual Producto Producto { get; set; } = null!;

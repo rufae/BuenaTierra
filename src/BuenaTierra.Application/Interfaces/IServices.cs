@@ -9,9 +9,10 @@ public interface IAuthService
     Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default);
     Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default);
     Task LogoutAsync(int usuarioId, CancellationToken ct = default);
+    Task EstablecerPasswordAsync(int usuarioId, string nuevaPassword, CancellationToken ct = default);
 }
 
-public record AuthResult(bool Success, string? Token, string? RefreshToken, DateTime? Expira, string? Error = null);
+public record AuthResult(bool Success, string? Token, string? RefreshToken, DateTime? Expira, string? Error = null, bool DebeCambiarPassword = false);
 
 // ============================================================
 // Lotes (FIFO Motor)

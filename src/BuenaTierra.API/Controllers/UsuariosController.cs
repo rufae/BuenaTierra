@@ -1,4 +1,5 @@
 using BuenaTierra.Application.Common;
+using BuenaTierra.Domain.Common;
 using BuenaTierra.Domain.Entities;
 using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Interfaces;
@@ -95,6 +96,10 @@ public class UsuariosController : ControllerBase
 
         if (!Enum.TryParse<RolUsuario>(req.Rol, out var rol))
             return BadRequest(ApiResponse<object>.Fail("Rol no válido. Use: Admin, Obrador, Repartidor"));
+
+        var errorPassword = PasswordPolicy.Validate(req.Password);
+        if (errorPassword != null)
+            return BadRequest(ApiResponse<object>.Fail(errorPassword));
 
         if (rol == RolUsuario.Repartidor && req.ClienteId.HasValue)
         {
@@ -208,10 +213,12 @@ public class UsuariosController : ControllerBase
         if (u is null)
             return NotFound(ApiResponse<string>.Fail("Usuario no encontrado"));
 
-        if (string.IsNullOrWhiteSpace(req.NuevaPassword) || req.NuevaPassword.Length < 8)
-            return BadRequest(ApiResponse<string>.Fail("La contraseña debe tener al menos 8 caracteres"));
+        var errorPassword = PasswordPolicy.Validate(req.NuevaPassword);
+        if (errorPassword != null)
+            return BadRequest(ApiResponse<string>.Fail(errorPassword));
 
         u.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NuevaPassword);
+        u.DebeCambiarPassword = true;
         await _uow.Usuarios.UpdateAsync(u, ct);
         await _uow.SaveChangesAsync(ct);
 
@@ -334,10 +341,12 @@ public class UsuariosController : ControllerBase
         if (!BCrypt.Net.BCrypt.Verify(req.PasswordActual, u.PasswordHash))
             return BadRequest(ApiResponse<string>.Fail("La contraseña actual no es correcta"));
 
-        if (string.IsNullOrWhiteSpace(req.NuevaPassword) || req.NuevaPassword.Length < 8)
-            return BadRequest(ApiResponse<string>.Fail("La nueva contraseña debe tener al menos 8 caracteres"));
+        var errorPassword = PasswordPolicy.Validate(req.NuevaPassword);
+        if (errorPassword != null)
+            return BadRequest(ApiResponse<string>.Fail(errorPassword));
 
         u.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NuevaPassword);
+        u.DebeCambiarPassword = false;
         await _uow.Usuarios.UpdateAsync(u, ct);
         await _uow.SaveChangesAsync(ct);
 
@@ -356,7 +365,8 @@ public class UsuariosController : ControllerBase
         {
             try
             {
-                var parsed = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>>(u.Configuracion);
+                var jsonDescifrado = BuenaTierra.API.Services.ConfiguracionCrypto.UnprotectJson(u.Configuracion);
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>>(jsonDescifrado);
                 if (parsed != null)
                     foreach (var kv in parsed)
                         cfg[kv.Key] = kv.Value;
@@ -374,7 +384,7 @@ public class UsuariosController : ControllerBase
         var u = await _uow.Usuarios.GetByIdAsync(UsuarioActualId, ct);
         if (u is null) return NotFound(ApiResponse<string>.Fail("Usuario no encontrado"));
 
-        u.Configuracion = body.GetRawText();
+        u.Configuracion = BuenaTierra.API.Services.ConfiguracionCrypto.ProtectJson(body.GetRawText());
         await _uow.Usuarios.UpdateAsync(u, ct);
         await _uow.SaveChangesAsync(ct);
 

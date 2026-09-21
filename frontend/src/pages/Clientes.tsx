@@ -11,6 +11,7 @@ import { Plus, Pencil, X, Loader2, Trash2, AlertCircle, Search, ChevronUp, Chevr
 import toast from 'react-hot-toast'
 import Swal from 'sweetalert2'
 import { DateInput } from '../components/DateInput'
+import { EstadoBadge } from '../components/EstadoBadge'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -75,12 +76,6 @@ const TIPO_BADGE: Record<TipoCliente, string> = {
   Repartidor: 'bg-brand-50 text-brand-700',
 }
 
-const ESTADO_BADGE: Record<EstadoCliente, string> = {
-  Activo: 'bg-green-50 text-green-700',
-  Inactivo: 'bg-gray-100 text-gray-500',
-  Suspendido: 'bg-yellow-50 text-yellow-700',
-  Bloqueado: 'bg-red-50 text-red-700',
-}
 
 type FormState = Omit<Cliente, 'id' | 'condicionesEspeciales'>
 
@@ -629,7 +624,7 @@ export default function Clientes() {
                   <td className="px-5 py-3 text-gray-500">{c.email ?? '—'}</td>
                   <td className="px-5 py-3 text-gray-500">{c.telefono ?? '—'}</td>
                   <td className="px-5 py-3">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ESTADO_BADGE[c.estadoCliente]}`}>{c.estadoCliente}</span>
+                    <EstadoBadge estado={c.estadoCliente} />
                   </td>
                   <td className="px-5 py-3 text-right">
                     {(saldosPendientes[c.id] ?? 0) > 0 ? (

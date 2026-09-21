@@ -24,6 +24,21 @@ export default defineConfig({
   base: process.env.ELECTRON_BUILD ? './' : '/',
   build: {
     chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        // Separar las librerías pesadas en chunks independientes para reducir el bundle principal
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('recharts') || id.includes('/d3-') || id.includes('victory')) return 'charts'
+          if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('canvg') || id.includes('purify')) return 'pdf'
+          if (id.includes('xlsx')) return 'xlsx'
+          if (id.includes('@tiptap') || id.includes('prosemirror')) return 'editor'
+          if (id.includes('sweetalert2')) return 'sweetalert'
+          if (id.includes('@tanstack') || id.includes('react-query')) return 'query'
+          return undefined
+        },
+      },
+    },
   },
   test: {
     environment: 'happy-dom',

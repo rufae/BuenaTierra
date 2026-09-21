@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Edit2, Trash2, Search, X, Save, Loader2,
   AlertTriangle, ChevronDown, ChevronRight, Package, Info, ClipboardList,
-  FileDown, FileSpreadsheet, Boxes,
+  FileDown, FileSpreadsheet, Boxes, Beaker,
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -11,6 +11,7 @@ import * as XLSX from 'xlsx'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { DateInput } from '../components/DateInput'
+import { EstadoBadge } from '../components/EstadoBadge'
 import type {
   Alergeno, Ingrediente, Producto,
   FichaAlergenoItem, ProductoIngredienteLinea,
@@ -174,7 +175,10 @@ function TabIngredientes() {
         {/* Table */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {isLoading ? (
-            <div className="p-8 text-center text-gray-400 text-sm">Cargando...</div>
+            <div className="text-sm text-gray-500 py-8 text-center">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Cargando…
+            </div>
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
@@ -253,6 +257,7 @@ function TabIngredientes() {
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">
+                      <Beaker className="w-8 h-8 mx-auto mb-2 opacity-40" />
                       {ingredientes?.length === 0
                         ? 'No hay ingredientes registrados. Crea el primero.'
                         : 'Sin resultados para la búsqueda'}
@@ -739,7 +744,10 @@ function TabControlMaterias() {
       {/* Tabla */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">Cargando…</div>
+          <div className="text-sm text-gray-500 py-8 text-center">
+            <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+            Cargando…
+          </div>
         ) : (
           <table className="w-full text-xs min-w-[1200px]">
             <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
@@ -762,6 +770,7 @@ function TabControlMaterias() {
               {!lista.length ? (
                 <tr>
                   <td colSpan={12} className="px-4 py-8 text-center text-gray-400">
+                    <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-40" />
                     Sin registros. Añade el primero con "Nuevo registro".
                   </td>
                 </tr>
@@ -1081,7 +1090,10 @@ function TabFichas() {
             </div>
 
             {fichaLoading ? (
-              <p className="text-sm text-gray-400 text-center py-6">Cargando...</p>
+              <div className="text-sm text-gray-500 py-8 text-center">
+                <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                Cargando…
+              </div>
             ) : fichaCompleta ? (
               <div className="grid grid-cols-2 gap-2">
                 {fichaCompleta.ficha.map(a => (
@@ -1338,17 +1350,6 @@ function TabStockMP() {
     })
   }
 
-  const estadoBadge = (estado: StockMpRow['estado']) => {
-    const cfg: Record<StockMpRow['estado'], { cls: string; label: string }> = {
-      activo:      { cls: 'bg-green-100 text-green-700', label: 'Activo' },
-      por_caducar: { cls: 'bg-amber-100 text-amber-700', label: 'Por caducar' },
-      caducado:    { cls: 'bg-red-100 text-red-700',     label: 'Caducado' },
-      agotado:     { cls: 'bg-gray-100 text-gray-500',   label: 'Agotado' },
-    }
-    const { cls, label } = cfg[estado] ?? { cls: 'bg-gray-100 text-gray-500', label: estado }
-    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{label}</span>
-  }
-
   const fmt = (d: string | null | undefined) => {
     if (!d) return '—'
     const [y, m, day] = d.split('T')[0].split('-')
@@ -1482,7 +1483,7 @@ function TabStockMP() {
                           <td className="px-4 py-2 text-right font-bold text-gray-900">
                             {l.unidades % 1 === 0 ? l.unidades : l.unidades.toFixed(2)}
                           </td>
-                          <td className="px-4 py-2">{estadoBadge(l.estado)}</td>
+                          <td className="px-4 py-2"><EstadoBadge estado={l.estado} /></td>
                           <td className="px-4 py-2 text-gray-500 italic">{fmt(l.fechaFinExistencia)}</td>
                         </tr>
                       ))}

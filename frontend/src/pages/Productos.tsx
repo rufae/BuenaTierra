@@ -39,6 +39,7 @@ function toFormState(p: Producto): FormState {
     ivaPorcentaje: p.ivaPorcentaje,
     unidadMedida: p.unidadMedida,
     pesoUnitarioGr: p.pesoUnitarioGr != null ? String(p.pesoUnitarioGr) : '',
+    unidadesPorCaja: p.unidadesPorCaja != null ? String(p.unidadesPorCaja) : '',
     vidaUtilDias: p.vidaUtilDias != null ? String(p.vidaUtilDias) : '',
     vidaUtilUnidad: normalizeVidaUtilUnidad(p.vidaUtilUnidad),
     precioVenta: String(p.precioVenta),
@@ -72,7 +73,7 @@ type FTab = 'ficha' | 'ingredientes' | 'alergenos'
 interface FormState {
   codigo: string; codigoBarras: string; nombre: string; descripcion: string
   categoriaId: string; ivaPorcentaje: number; unidadMedida: string
-  pesoUnitarioGr: string; vidaUtilDias: string; vidaUtilUnidad: 'Dias' | 'Meses'
+  pesoUnitarioGr: string; unidadesPorCaja: string; vidaUtilDias: string; vidaUtilUnidad: 'Dias' | 'Meses'
   precioVenta: string; precioCoste: string; descuentoPorDefecto: string
   proveedorHabitual: string; referencia: string; fabricante: string
   stockMinimo: string; stockMaximo: string
@@ -83,7 +84,7 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   codigo: '', codigoBarras: '', nombre: '', descripcion: '',
   categoriaId: '', ivaPorcentaje: 10, unidadMedida: 'ud',
-  pesoUnitarioGr: '', vidaUtilDias: '', vidaUtilUnidad: 'Dias',
+  pesoUnitarioGr: '', unidadesPorCaja: '', vidaUtilDias: '', vidaUtilUnidad: 'Dias',
   precioVenta: '', precioCoste: '', descuentoPorDefecto: '',
   proveedorHabitual: '', referencia: '', fabricante: '',
   stockMinimo: '', stockMaximo: '',
@@ -263,6 +264,7 @@ export default function Productos() {
       ivaPorcentaje: form.ivaPorcentaje,
       unidadMedida: form.unidadMedida,
       pesoUnitarioGr: n(form.pesoUnitarioGr),
+      unidadesPorCaja: ni(form.unidadesPorCaja),
       vidaUtilDias: ni(form.vidaUtilDias),
       vidaUtilUnidad: normalizeVidaUtilUnidad(form.vidaUtilUnidad),
       descuentoPorDefecto: n(form.descuentoPorDefecto),
@@ -474,11 +476,13 @@ export default function Productos() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
-                <tr><td colSpan={9} className="px-5 py-8 text-center text-gray-400">
-                  <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                <tr><td colSpan={9} className="px-5 py-8 text-center text-gray-500">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                  Cargando…
                 </td></tr>
               ) : !listaFiltrada.length ? (
                 <tr><td colSpan={9} className="px-5 py-8 text-center text-gray-400">
+                  <Package className="w-8 h-8 mx-auto mb-2 opacity-40" />
                   {search || filtroCategoria ? 'Sin resultados para este filtro.' : 'No hay productos. Crea el primero.'}
                 </td></tr>
               ) : listaFiltrada.map(p => (
@@ -686,6 +690,11 @@ export default function Productos() {
                     <input type="number" min="0" step="0.001" value={form.pesoUnitarioGr}
                       onChange={e => setF('pesoUnitarioGr', e.target.value)}
                       placeholder="0" className={INP} />
+                  </Field>
+                  <Field label="Unidades por caja">
+                    <input type="number" min="0" step="1" value={form.unidadesPorCaja}
+                      onChange={e => setF('unidadesPorCaja', e.target.value)}
+                      placeholder="p.ej. 12 (si se vende por cajas)" className={INP} />
                   </Field>
                   <Field label="Vida útil">
                     <div className="grid grid-cols-2 gap-2">

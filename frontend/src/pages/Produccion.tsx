@@ -5,10 +5,12 @@ import api from '../lib/api'
 import type { Producto } from '../types'
 import {
   Plus, CheckCircle, XCircle, Loader2, X, Factory, Hash,
-  Search, RefreshCw, Filter, FileDown, FileText,
+  Search, RefreshCw, Filter, FileDown, FileText, Cog,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { DateInput } from '../components/DateInput'
+import { EstadoBadge } from '../components/EstadoBadge'
+import { fmtDate } from '../lib/dates'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -64,20 +66,8 @@ function loteCodigo(date: Date = new Date()): string {
 }
 
 // Formatea "YYYY-MM-DD..." a "DD/MM/YYYY"
-function fmtDate(s: string | null): string {
-  if (!s) return '—'
-  const [y, m, d] = s.split('T')[0].split('-')
-  return `${d}/${m}/${y}`
-}
-
 const ESTADOS = ['Planificada', 'EnProceso', 'Finalizada', 'Cancelada']
 
-const ESTADO_BADGE: Record<string, string> = {
-  Planificada: 'bg-blue-50 text-blue-700 border border-blue-200',
-  EnProceso:   'bg-amber-50 text-amber-700 border border-amber-200',
-  Finalizada:  'bg-green-50 text-green-700 border border-green-200',
-  Cancelada:   'bg-red-50 text-red-600 border border-red-200',
-}
 
 function mkForm(empresaId: number, usuarioId: number, todayIso: string): CrearProduccionDto {
   return { empresaId, usuarioId, productoId: 0, cantidadProducida: 0, fechaProduccion: todayIso, codigoLoteSugerido: loteCodigo(), fechaCaducidadSugerida: '', notas: '' }
@@ -368,11 +358,13 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
-                <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-400">
-                  <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-500">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                  Cargando…
                 </td></tr>
               ) : !producciones.length ? (
                 <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-400">
+                  <Cog className="w-8 h-8 mx-auto mb-2 opacity-40" />
                   No hay {esCompra ? 'compras' : 'producciones'} para los filtros seleccionados
                 </td></tr>
               ) : producciones.map(p => (
@@ -390,9 +382,7 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
                   </td>
 
                   <td className="px-4 py-3 text-center">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ESTADO_BADGE[p.estado] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {p.estado}
-                    </span>
+                    <EstadoBadge estado={p.estado} />
                   </td>
 
                   <td className="px-4 py-3">

@@ -176,6 +176,12 @@ public class EmpresaController : ControllerBase
         var e = await _uow.Empresas.GetByIdAsync(EmpresaId, ct);
         if (e is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
 
+        // Solo el Admin recibe la configuración completa (contiene credenciales SMTP/IMAP/IA).
+        // Para el resto se eliminan los campos sensibles.
+        var configuracion = User.IsInRole("Admin")
+            ? BuenaTierra.API.Services.ConfiguracionCrypto.UnprotectJson(e.Configuracion)
+            : BuenaTierra.API.Services.ConfiguracionSanitizer.Sanitize(e.Configuracion);
+
         return Ok(ApiResponse<object>.Ok(new
         {
             e.Id,
@@ -194,7 +200,7 @@ public class EmpresaController : ControllerBase
             e.NumeroRgseaa,
             e.EsObrador,
             e.Activa,
-            e.Configuracion,
+            Configuracion = configuracion,
         }));
     }
 
@@ -244,7 +250,7 @@ public class EmpresaController : ControllerBase
         var e = await _uow.Empresas.GetByIdAsync(EmpresaId, ct);
         if (e is null) return NotFound(ApiResponse<string>.Fail("Empresa no encontrada"));
 
-        e.Configuracion = req.Configuracion ?? "{}";
+        e.Configuracion = BuenaTierra.API.Services.ConfiguracionCrypto.ProtectJson(req.Configuracion ?? "{}");
 
         await _uow.Empresas.UpdateAsync(e, ct);
         await _uow.SaveChangesAsync(ct);
@@ -337,10 +343,10 @@ public class EmpresaController : ControllerBase
             ["apiKey"] = req.ApiKey ?? string.Empty,
         };
 
-        e.Configuracion = root.ToJsonString(new JsonSerializerOptions
+        e.Configuracion = BuenaTierra.API.Services.ConfiguracionCrypto.ProtectJson(root.ToJsonString(new JsonSerializerOptions
         {
             WriteIndented = false
-        });
+        }));
 
         await _uow.Empresas.UpdateAsync(e, ct);
         await _uow.SaveChangesAsync(ct);

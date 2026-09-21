@@ -38,28 +38,28 @@ BEGIN
 
     -- Admin
     IF NOT EXISTS (SELECT 1 FROM usuarios WHERE email = 'admin@buenatierra.com') THEN
-        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo)
+        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo, debe_cambiar_password)
         VALUES (v_empresa_id, 'Admin', 'BuenaTierra', 'admin@buenatierra.com',
                 '$2a$11$7etbvn5l084UxDxQtAq8deaKvAFqmYD/XVIYHMEjllPfNzBm5IGsu',
-                'Admin', TRUE);
+                'Admin', TRUE, TRUE);
         RAISE NOTICE 'Usuario Admin creado.';
     END IF;
 
     -- Obrador
     IF NOT EXISTS (SELECT 1 FROM usuarios WHERE email = 'obrador@buenatierra.com') THEN
-        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo)
+        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo, debe_cambiar_password)
         VALUES (v_empresa_id, 'Usuario', 'Obrador', 'obrador@buenatierra.com',
                 '$2a$11$cdjttUHVx.IlhIQl7Tfw5.fqb4a9sMVeMJG8BhR8Ay.dZOExjgxDO',
-                'Obrador', TRUE);
+                'Obrador', TRUE, TRUE);
         RAISE NOTICE 'Usuario Obrador creado.';
     END IF;
 
     -- Repartidor
     IF NOT EXISTS (SELECT 1 FROM usuarios WHERE email = 'repartidor@buenatierra.com') THEN
-        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo)
+        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo, debe_cambiar_password)
         VALUES (v_empresa_id, 'Usuario', 'Repartidor', 'repartidor@buenatierra.com',
                 '$2a$11$I74m7XKGi71RDBt40Dn4IuTQoSMcf7YczzL2kWSauBd4IEyo47xea',
-                'Repartidor', TRUE);
+                'Repartidor', TRUE, TRUE);
         RAISE NOTICE 'Usuario Repartidor creado.';
     END IF;
 END $$;

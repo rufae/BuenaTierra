@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Calendar,
   Check,
+  ClipboardList,
   Loader2,
   Plus,
   Save,
@@ -24,16 +25,11 @@ import type {
   StockItem,
   ValidacionConversion,
 } from '../types'
+import { fmtDate } from '../lib/dates'
 
 function todayIso() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return '-'
-  const [y, m, day] = iso.split('-')
-  return `${day}/${m}/${y}`
 }
 
 function nombreCliente(c: Cliente): string {
@@ -520,12 +516,12 @@ export default function Preventa() {
           )}
 
           {!hasContent && !loadingPedidos && !loadingPreventas && (
-            <div className="py-16 text-center">
-              <Calendar className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-              <p className="text-gray-500 font-medium">
+            <div className="text-sm text-gray-400 py-16 text-center">
+              <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-gray-500 font-medium mb-1">
                 {selectedCliente ? nombreCliente(selectedCliente) : 'Este cliente'} no tiene pedidos ni preventa activa
               </p>
-              <p className="text-sm text-gray-400 mt-1">
+              <p className="text-sm">
                 Pulsa <strong className="text-brand-600">Nueva preventa</strong> para crear una columna editable
               </p>
             </div>
@@ -559,7 +555,7 @@ export default function Preventa() {
                       return (
                         <th key={`pedido-head-${pedido.id}`} className={`px-2 py-2.5 text-center border-r border-gray-200 ${theme.header}`}>
                           <div className="flex flex-col items-center gap-1">
-                            <span className="text-sm font-bold tabular-nums">{formatDate(dateValue)}</span>
+                            <span className="text-sm font-bold tabular-nums">{fmtDate(dateValue)}</span>
                             <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${theme.badge}`}>
                               {labelPedidoEstado(pedido.estado)}
                             </span>
@@ -573,7 +569,7 @@ export default function Preventa() {
                       <th className={`px-2 py-2.5 text-center border-r border-gray-200 ${(PREVENTA_THEME[activePreventa.estado] ?? PREVENTA_THEME.Borrador).header}`}>
                         <div className="flex flex-col items-center gap-1">
                           <span className="text-xs font-bold">Preventa activa</span>
-                          <span className="text-sm font-bold tabular-nums">{formatDate(activePreventa.fechaPreventa)}</span>
+                          <span className="text-sm font-bold tabular-nums">{fmtDate(activePreventa.fechaPreventa)}</span>
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${(PREVENTA_THEME[activePreventa.estado] ?? PREVENTA_THEME.Borrador).badge}`}>
                             {labelPreventaEstado(activePreventa.estado)}
                           </span>
