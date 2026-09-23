@@ -25,12 +25,17 @@ export default function CambiarContrasena() {
     }
     setLoading(true)
     try {
-      await api.post('/auth/establecer-password', { nuevaPassword: nueva })
-      updateUser({ debeCambiarPassword: false })
+      // El backend devuelve un JWT nuevo sin el flag debe_cambiar_password;
+      // hay que guardarlo o el middleware seguiría bloqueando la app.
+      const res = await api.post<{ data: { token: string; refreshToken: string; expira: string } }>(
+        '/auth/establecer-password', { nuevaPassword: nueva })
+      const { token, refreshToken, expira } = res.data.data
+      updateUser({ debeCambiarPassword: false, token, refreshToken, expira })
       toast.success('Contraseña establecida correctamente')
       navigate('/', { replace: true })
-    } catch (err: any) {
-      const msg = err?.response?.data?.errors?.[0] ?? err?.response?.data?.message ?? 'No se pudo cambiar la contraseña'
+    } catch (err: unknown) {
+      const response = (err as { response?: { data?: { errors?: string[]; message?: string } } })?.response
+      const msg = response?.data?.errors?.[0] ?? response?.data?.message ?? 'No se pudo cambiar la contraseña'
       toast.error(msg)
     } finally {
       setLoading(false)

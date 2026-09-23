@@ -205,9 +205,8 @@ public class ProductosController : ControllerBase
             ).ToList();
         }
 
-        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-        using var package = new OfficeOpenXml.ExcelPackage();
-        var ws = package.Workbook.Worksheets.Add("Productos");
+        using var wb = new ClosedXML.Excel.XLWorkbook();
+        var ws = wb.Worksheets.Add("Productos");
 
         string[] headers = {
             "Código", "Cód. Barras", "Nombre", "Descripción", "Familia",
@@ -217,46 +216,44 @@ public class ProductosController : ControllerBase
         };
 
         for (int i = 0; i < headers.Length; i++)
-            ws.Cells[1, i + 1].Value = headers[i];
+            ws.Cell(1, i + 1).Value = headers[i];
 
-        using (var hr = ws.Cells[1, 1, 1, headers.Length])
-        {
-            hr.Style.Font.Bold = true;
-            hr.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
-            hr.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(41, 128, 185));
-            hr.Style.Font.Color.SetColor(System.Drawing.Color.White);
-        }
+        var hr = ws.Range(1, 1, 1, headers.Length);
+        hr.Style.Font.Bold = true;
+        hr.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#2980B9");
+        hr.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
 
         int row = 2;
         foreach (var p in todos)
         {
-            ws.Cells[row, 1].Value  = p.Codigo;
-            ws.Cells[row, 2].Value  = p.CodigoBarras;
-            ws.Cells[row, 3].Value  = p.Nombre;
-            ws.Cells[row, 4].Value  = p.Descripcion;
-            ws.Cells[row, 5].Value  = p.Categoria?.Nombre;
-            ws.Cells[row, 6].Value  = p.PrecioVenta;
-            ws.Cells[row, 7].Value  = p.PrecioCoste;
-            ws.Cells[row, 8].Value  = p.IvaPorcentaje;
-            ws.Cells[row, 9].Value  = p.UnidadMedida;
-            ws.Cells[row, 10].Value = p.PesoUnitarioGr;
-            ws.Cells[row, 11].Value = p.VidaUtilDias;
-            ws.Cells[row, 12].Value = p.VidaUtilUnidad;
-            ws.Cells[row, 13].Value = p.DescuentoPorDefecto;
-            ws.Cells[row, 14].Value = p.StockMinimo;
-            ws.Cells[row, 15].Value = p.StockMaximo;
-            ws.Cells[row, 16].Value = p.RequiereLote ? "Sí" : "No";
-            ws.Cells[row, 17].Value = p.Activo ? "Sí" : "No";
+            ws.Cell(row, 1).Value  = p.Codigo;
+            ws.Cell(row, 2).Value  = p.CodigoBarras;
+            ws.Cell(row, 3).Value  = p.Nombre;
+            ws.Cell(row, 4).Value  = p.Descripcion;
+            ws.Cell(row, 5).Value  = p.Categoria?.Nombre;
+            ws.Cell(row, 6).Value  = p.PrecioVenta;
+            if (p.PrecioCoste.HasValue) ws.Cell(row, 7).Value = p.PrecioCoste.Value;
+            ws.Cell(row, 8).Value  = p.IvaPorcentaje;
+            ws.Cell(row, 9).Value  = p.UnidadMedida;
+            if (p.PesoUnitarioGr.HasValue) ws.Cell(row, 10).Value = p.PesoUnitarioGr.Value;
+            if (p.VidaUtilDias.HasValue) ws.Cell(row, 11).Value = p.VidaUtilDias.Value;
+            ws.Cell(row, 12).Value = p.VidaUtilUnidad;
+            if (p.DescuentoPorDefecto.HasValue) ws.Cell(row, 13).Value = p.DescuentoPorDefecto.Value;
+            if (p.StockMinimo.HasValue) ws.Cell(row, 14).Value = p.StockMinimo.Value;
+            if (p.StockMaximo.HasValue) ws.Cell(row, 15).Value = p.StockMaximo.Value;
+            ws.Cell(row, 16).Value = p.RequiereLote ? "Sí" : "No";
+            ws.Cell(row, 17).Value = p.Activo ? "Sí" : "No";
 
-            ws.Cells[row, 6].Style.Numberformat.Format = "#,##0.0000 €";
-            ws.Cells[row, 7].Style.Numberformat.Format = "#,##0.0000 €";
+            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.0000 €";
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.0000 €";
             row++;
         }
 
-        ws.Cells.AutoFitColumns();
+        ws.Columns().AdjustToContents();
 
-        var bytes = package.GetAsByteArray();
-        return File(bytes,
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return File(ms.ToArray(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "productos.xlsx");
     }

@@ -132,7 +132,64 @@ public enum TipoMovimientoStock
     AjustePositivo,
     AjusteNegativo,
     Devolucion,
-    Caducidad
+    Caducidad,
+    CargaFurgoneta,
+    DescargaFurgoneta,
+    Merma
+}
+
+/// <summary>Ubicación de la que sale (o a la que vuelve) la mercancía en una venta/devolución.</summary>
+public enum OrigenStock
+{
+    Fabrica,
+    Furgoneta
+}
+
+/// <summary>
+/// Motivos de devolución. Cada motivo define con MotivoDevolucionInfo.SumaStock()
+/// si la mercancía vuelve al stock o no (pérdida: caducidad, daño...).
+/// </summary>
+public enum MotivoDevolucion
+{
+    /// <summary>El cliente rechazó el producto (en buen estado) → repone stock.</summary>
+    DevolucionVoluntaria,
+    /// <summary>Error de preparación/pedido del obrador (en buen estado) → repone stock.</summary>
+    ErrorPreparacion,
+    /// <summary>Caducidad detectada → NO repone stock.</summary>
+    Caducidad,
+    /// <summary>Producto dañado/roto en ruta → NO repone stock.</summary>
+    ProductoDaniado,
+    /// <summary>Defecto de calidad del obrador (no revendible) → repone stock.</summary>
+    CalidadObrador,
+    /// <summary>Otro motivo (requiere descripción) → NO repone stock (seguro por defecto).</summary>
+    Otro
+}
+
+public static class MotivoDevolucionInfo
+{
+    /// <summary>Indica si la devolución con este motivo repone el stock.</summary>
+    public static bool SumaStock(MotivoDevolucion motivo) => motivo switch
+    {
+        MotivoDevolucion.DevolucionVoluntaria => true,
+        MotivoDevolucion.ErrorPreparacion => true,
+        MotivoDevolucion.CalidadObrador => true,
+        MotivoDevolucion.Caducidad => false,
+        MotivoDevolucion.ProductoDaniado => false,
+        MotivoDevolucion.Otro => false,
+        _ => false
+    };
+
+    /// <summary>Etiqueta visible del motivo.</summary>
+    public static string Descripcion(MotivoDevolucion motivo) => motivo switch
+    {
+        MotivoDevolucion.DevolucionVoluntaria => "Devolución voluntaria",
+        MotivoDevolucion.ErrorPreparacion => "Error de preparación",
+        MotivoDevolucion.Caducidad => "Caducidad",
+        MotivoDevolucion.ProductoDaniado => "Producto dañado",
+        MotivoDevolucion.CalidadObrador => "Calidad del obrador",
+        MotivoDevolucion.Otro => "Otro motivo",
+        _ => motivo.ToString()
+    };
 }
 
 // ── Etiquetas ─────────────────────────────────────────

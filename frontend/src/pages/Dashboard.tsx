@@ -198,7 +198,7 @@ export default function Dashboard() {
                 <StatCard title="Lotes a caducar" value={stats?.lotesProximoCaducar ?? 0}
                   sub="Próximos 5 días" icon={<Clock className="w-5 h-5 text-orange-600" />}
                   color="bg-orange-50" alert={(stats?.lotesProximoCaducar ?? 0) > 0} onClick={() => navigate('/lotes')} />
-                <StatCard title={esEmpresaObrador ? 'Producción hoy' : 'Compras hoy'} value={stats?.produccionHoy ?? 0}
+                <StatCard title={esEmpresaObrador ? 'Producción hoy' : 'Cargas hoy'} value={stats?.produccionHoy ?? 0}
                   sub="Lotes abiertos" icon={<Package className="w-5 h-5 text-purple-600" />}
                   color="bg-purple-50" onClick={() => navigate(rutaOperacion)} />
                 <StatCard title="Facturas del mes" value={stats?.facturasMesCount ?? 0}

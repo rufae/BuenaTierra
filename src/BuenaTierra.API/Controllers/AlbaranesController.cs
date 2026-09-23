@@ -5,11 +5,10 @@ using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using BuenaTierra.Domain.Services;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
-using OfficeOpenXml.Style;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -58,7 +57,8 @@ public class AlbaranesController : ControllerBase
             a.Cliente?.Nif,
             a.Total,
             a.PedidoId,
-            a.Cliente?.NoRealizarFacturas ?? false
+            a.Cliente?.NoRealizarFacturas ?? false,
+            a.OrigenStock.ToString()
         )).ToList();
 
         var pg = new PaginationParams(page, pageSize);
@@ -99,7 +99,24 @@ public class AlbaranesController : ControllerBase
             .FirstOrDefaultAsync(c => c.Id == request.ClienteId && c.EmpresaId == EmpresaId, ct)
             ?? throw new EntidadNotFoundException(nameof(Cliente), request.ClienteId);
 
-        // Por cada item, asignar lotes FIFO
+        // Resolver origen: explícito o heredado del pedido vinculado
+        OrigenStock origen;
+        if (request.OrigenStock.HasValue)
+        {
+            origen = request.OrigenStock.Value;
+        }
+        else if (request.PedidoId.HasValue)
+        {
+            var pedidoOrigen = await _uow.Pedidos.GetByIdAsync(request.PedidoId.Value, ct)
+                ?? throw new EntidadNotFoundException(nameof(Pedido), request.PedidoId.Value);
+            origen = pedidoOrigen.OrigenStock;
+        }
+        else
+        {
+            return BadRequest(ApiResponse<AlbaranCreado>.Fail("Debe indicar el origen de la venta (Fábrica o Furgoneta)"));
+        }
+
+        // Por cada item, asignar lotes FIFO en el origen indicado
         var lineasConLotes = new List<(LineaAlbaranRequest Item, Producto Producto, List<LoteAsignado> Lotes)>();
 
         foreach (var item in request.Items)
@@ -109,7 +126,7 @@ public class AlbaranesController : ControllerBase
 
             List<LoteAsignado> lotesAsignados;
             if (producto.RequiereLote)
-                lotesAsignados = await _loteService.AsignarLotesAsync(EmpresaId, item.ProductoId, item.Cantidad, ct);
+                lotesAsignados = await _loteService.AsignarLotesAsync(EmpresaId, item.ProductoId, item.Cantidad, origen, ct);
             else
                 lotesAsignados = [new LoteAsignado(0, "", item.ProductoId, item.Cantidad, DateOnly.MinValue, null)];
 
@@ -148,7 +165,8 @@ public class AlbaranesController : ControllerBase
                 NumeroAlbaran = numeroAlbaran,
                 FechaAlbaran = request.FechaAlbaran,
                 Estado = EstadoAlbaran.Pendiente,
-                Notas = request.Notas
+                Notas = request.Notas,
+                OrigenStock = origen
             };
 
             short orden = 0;
@@ -180,10 +198,10 @@ public class AlbaranesController : ControllerBase
                 }
             }
 
-            // Calcular totales
-            albaran.Subtotal = albaran.Lineas.Sum(l => l.Subtotal);
-            albaran.IvaTotal = albaran.Lineas.Sum(l => l.IvaImporte);
-            albaran.RecargoEquivalenciaTotal = Math.Round(albaran.Lineas.Sum(l => l.RecargoEquivalenciaImporte), 2);
+            // Cabeceras = Σ de los valores de línea redondeados a 2dp (Money.R2)
+            albaran.Subtotal = albaran.Lineas.Sum(l => Domain.Common.Money.R2(l.Subtotal));
+            albaran.IvaTotal = albaran.Lineas.Sum(l => Domain.Common.Money.R2(l.IvaImporte));
+            albaran.RecargoEquivalenciaTotal = albaran.Lineas.Sum(l => Domain.Common.Money.R2(l.RecargoEquivalenciaImporte));
             albaran.RetencionTotal = Math.Round(albaran.Subtotal * retencionPorc / 100, 2);
             albaran.Total = albaran.Subtotal + albaran.IvaTotal + albaran.RecargoEquivalenciaTotal - albaran.RetencionTotal;
 
@@ -255,7 +273,8 @@ public class AlbaranesController : ControllerBase
                 FechaFactura = request.FechaFactura ?? DateOnly.FromDateTime(DateTime.Today),
                 Estado = EstadoFactura.Emitida,
                 EsSimplificada = request.EsSimplificada,
-                Notas = albaran.Notas
+                Notas = albaran.Notas,
+                OrigenStock = albaran.OrigenStock
             };
 
             // Construir líneas de factura directamente desde las líneas del albarán
@@ -278,11 +297,11 @@ public class AlbaranesController : ControllerBase
                 });
             }
 
-            // Calcular totales
-            factura.Subtotal = factura.Lineas.Sum(l => l.Subtotal);
+            // Cabeceras = Σ de los valores de línea redondeados a 2dp (Money.R2)
+            factura.Subtotal = factura.Lineas.Sum(l => Domain.Common.Money.R2(l.Subtotal));
             factura.BaseImponible = factura.Subtotal - factura.DescuentoTotal;
-            factura.IvaTotal = factura.Lineas.Sum(l => l.IvaImporte);
-            factura.RecargoEquivalenciaTotal = Math.Round(factura.Lineas.Sum(l => l.RecargoEquivalenciaImporte), 2);
+            factura.IvaTotal = factura.Lineas.Sum(l => Domain.Common.Money.R2(l.IvaImporte));
+            factura.RecargoEquivalenciaTotal = factura.Lineas.Sum(l => Domain.Common.Money.R2(l.RecargoEquivalenciaImporte));
             factura.RetencionTotal = Math.Round(factura.BaseImponible * retencionPorc / 100, 2);
             factura.Total = factura.BaseImponible + factura.IvaTotal + factura.RecargoEquivalenciaTotal - factura.RetencionTotal;
 
@@ -302,7 +321,7 @@ public class AlbaranesController : ControllerBase
                 if (consumirStock)
                 {
                     decimal cantidadAntes = stock.CantidadDisponible;
-                    stock.CantidadDisponible -= linea.Cantidad;
+                    stock.Consumir(albaran.OrigenStock, linea.Cantidad);
                     stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - linea.Cantidad);
                     stock.UpdatedAt = DateTime.UtcNow;
                     await _uow.Stock.UpdateAsync(stock, ct);
@@ -426,7 +445,7 @@ public class AlbaranesController : ControllerBase
                     continue;
 
                 decimal cantidadAntes = stock.CantidadDisponible;
-                stock.CantidadDisponible += mov.Cantidad;
+                stock.Reponer(albaran.OrigenStock, mov.Cantidad);
                 stock.UpdatedAt = DateTime.UtcNow;
                 await _uow.Stock.UpdateAsync(stock, ct);
 
@@ -666,33 +685,31 @@ public class AlbaranesController : ControllerBase
     [HttpGet("{id:int}/excel")]
     public async Task<IActionResult> GetExcel(int id, CancellationToken ct)
     {
-        ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-
         var albaran = await _uow.Albaranes.GetConLineasAsync(EmpresaId, id, ct);
         if (albaran == null || albaran.EmpresaId != EmpresaId)
             return NotFound(ApiResponse<string>.Fail("Albarán no encontrado"));
 
-        using var package = new ExcelPackage();
-        var ws = package.Workbook.Worksheets.Add("Albaran");
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Albaran");
 
-        ws.Cells["A1"].Value = "ALBARÁN";
-        ws.Cells["A1"].Style.Font.Size = 16;
-        ws.Cells["A1"].Style.Font.Bold = true;
+        ws.Cell("A1").Value = "ALBARÁN";
+        ws.Cell("A1").Style.Font.FontSize = 16;
+        ws.Cell("A1").Style.Font.Bold = true;
 
-        ws.Cells["A3"].Value = "Número";
-        ws.Cells["B3"].Value = albaran.NumeroAlbaran;
-        ws.Cells["A4"].Value = "Fecha";
-        ws.Cells["B4"].Value = albaran.FechaAlbaran.ToDateTime(TimeOnly.MinValue);
-        ws.Cells["B4"].Style.Numberformat.Format = "dd/mm/yyyy";
-        ws.Cells["A5"].Value = "Estado";
-        ws.Cells["B5"].Value = albaran.Estado.ToString();
-        ws.Cells["A6"].Value = "Pedido origen";
-        ws.Cells["B6"].Value = albaran.PedidoId?.ToString() ?? "";
+        ws.Cell("A3").Value = "Número";
+        ws.Cell("B3").Value = albaran.NumeroAlbaran;
+        ws.Cell("A4").Value = "Fecha";
+        ws.Cell("B4").Value = albaran.FechaAlbaran.ToDateTime(TimeOnly.MinValue);
+        ws.Cell("B4").Style.NumberFormat.Format = "dd/mm/yyyy";
+        ws.Cell("A5").Value = "Estado";
+        ws.Cell("B5").Value = albaran.Estado.ToString();
+        ws.Cell("A6").Value = "Pedido origen";
+        ws.Cell("B6").Value = albaran.PedidoId?.ToString() ?? "";
 
-        ws.Cells["A7"].Value = "Cliente";
-        ws.Cells["B7"].Value = albaran.Cliente?.NombreCompleto;
-        ws.Cells["A8"].Value = "NIF Cliente";
-        ws.Cells["B8"].Value = albaran.Cliente?.Nif;
+        ws.Cell("A7").Value = "Cliente";
+        ws.Cell("B7").Value = albaran.Cliente?.NombreCompleto;
+        ws.Cell("A8").Value = "NIF Cliente";
+        ws.Cell("B8").Value = albaran.Cliente?.Nif;
 
         int headerRow = 10;
         string[] headers =
@@ -703,11 +720,10 @@ public class AlbaranesController : ControllerBase
 
         for (int i = 0; i < headers.Length; i++)
         {
-            ws.Cells[headerRow, i + 1].Value = headers[i];
-            ws.Cells[headerRow, i + 1].Style.Font.Bold = true;
-            ws.Cells[headerRow, i + 1].Style.Fill.PatternType = ExcelFillStyle.Solid;
-            ws.Cells[headerRow, i + 1].Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(41, 128, 185));
-            ws.Cells[headerRow, i + 1].Style.Font.Color.SetColor(System.Drawing.Color.White);
+            ws.Cell(headerRow, i + 1).Value = headers[i];
+            ws.Cell(headerRow, i + 1).Style.Font.Bold = true;
+            ws.Cell(headerRow, i + 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#2980B9");
+            ws.Cell(headerRow, i + 1).Style.Font.FontColor = XLColor.White;
         }
 
         int row = headerRow + 1;
@@ -717,52 +733,57 @@ public class AlbaranesController : ControllerBase
             decimal iva = Math.Round(subtotal * l.IvaPorcentaje / 100, 4);
             decimal re = Math.Round(subtotal * l.RecargoEquivalenciaPorcentaje / 100, 4);
 
-            ws.Cells[row, 1].Value = l.Producto?.Nombre ?? l.Descripcion;
-            ws.Cells[row, 2].Value = l.Lote?.CodigoLote ?? "";
-            ws.Cells[row, 3].Value = l.Lote != null ? l.Lote.FechaFabricacion.ToDateTime(TimeOnly.MinValue) : (object)"";
-            ws.Cells[row, 4].Value = l.Lote?.FechaCaducidad.HasValue == true
-                ? l.Lote.FechaCaducidad.Value.ToDateTime(TimeOnly.MinValue)
-                : (object)"";
-            ws.Cells[row, 5].Value = l.Cantidad;
-            ws.Cells[row, 6].Value = l.PrecioUnitario;
-            ws.Cells[row, 7].Value = l.Descuento;
-            ws.Cells[row, 8].Value = l.IvaPorcentaje / 100;
-            ws.Cells[row, 9].Value = l.RecargoEquivalenciaPorcentaje / 100;
-            ws.Cells[row, 10].Value = subtotal;
-            ws.Cells[row, 11].Value = iva;
-            ws.Cells[row, 12].Value = re;
-            ws.Cells[row, 13].Value = subtotal + iva + re;
+            ws.Cell(row, 1).Value = l.Producto?.Nombre ?? l.Descripcion;
+            ws.Cell(row, 2).Value = l.Lote?.CodigoLote ?? "";
+            if (l.Lote != null)
+            {
+                ws.Cell(row, 3).Value = l.Lote.FechaFabricacion.ToDateTime(TimeOnly.MinValue);
+                ws.Cell(row, 3).Style.NumberFormat.Format = "dd/mm/yyyy";
+                if (l.Lote.FechaCaducidad.HasValue)
+                {
+                    ws.Cell(row, 4).Value = l.Lote.FechaCaducidad.Value.ToDateTime(TimeOnly.MinValue);
+                    ws.Cell(row, 4).Style.NumberFormat.Format = "dd/mm/yyyy";
+                }
+            }
+            ws.Cell(row, 5).Value = l.Cantidad;
+            ws.Cell(row, 6).Value = l.PrecioUnitario;
+            ws.Cell(row, 7).Value = l.Descuento;
+            ws.Cell(row, 8).Value = l.IvaPorcentaje / 100;
+            ws.Cell(row, 9).Value = l.RecargoEquivalenciaPorcentaje / 100;
+            ws.Cell(row, 10).Value = subtotal;
+            ws.Cell(row, 11).Value = iva;
+            ws.Cell(row, 12).Value = re;
+            ws.Cell(row, 13).Value = subtotal + iva + re;
 
-            ws.Cells[row, 3].Style.Numberformat.Format = "dd/mm/yyyy";
-            ws.Cells[row, 4].Style.Numberformat.Format = "dd/mm/yyyy";
-            ws.Cells[row, 5].Style.Numberformat.Format = "#,##0.000";
-            ws.Cells[row, 6].Style.Numberformat.Format = "#,##0.0000 €";
-            ws.Cells[row, 7].Style.Numberformat.Format = "0.00";
-            ws.Cells[row, 8].Style.Numberformat.Format = "0.00%";
-            ws.Cells[row, 9].Style.Numberformat.Format = "0.00%";
-            ws.Cells[row, 10].Style.Numberformat.Format = "#,##0.0000 €";
-            ws.Cells[row, 11].Style.Numberformat.Format = "#,##0.0000 €";
-            ws.Cells[row, 12].Style.Numberformat.Format = "#,##0.0000 €";
-            ws.Cells[row, 13].Style.Numberformat.Format = "#,##0.0000 €";
+            ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.000";
+            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.0000 €";
+            ws.Cell(row, 7).Style.NumberFormat.Format = "0.00";
+            ws.Cell(row, 8).Style.NumberFormat.Format = "0.00%";
+            ws.Cell(row, 9).Style.NumberFormat.Format = "0.00%";
+            ws.Cell(row, 10).Style.NumberFormat.Format = "#,##0.0000 €";
+            ws.Cell(row, 11).Style.NumberFormat.Format = "#,##0.0000 €";
+            ws.Cell(row, 12).Style.NumberFormat.Format = "#,##0.0000 €";
+            ws.Cell(row, 13).Style.NumberFormat.Format = "#,##0.0000 €";
             row++;
         }
 
-        ws.Cells[row + 1, 11].Value = "BASE";
-        ws.Cells[row + 1, 12].Value = albaran.Subtotal;
-        ws.Cells[row + 2, 11].Value = "IVA";
-        ws.Cells[row + 2, 12].Value = albaran.IvaTotal;
-        ws.Cells[row + 3, 11].Value = "RE";
-        ws.Cells[row + 3, 12].Value = albaran.RecargoEquivalenciaTotal;
-        ws.Cells[row + 4, 11].Value = "RETENCION (-)";
-        ws.Cells[row + 4, 12].Value = albaran.RetencionTotal;
-        ws.Cells[row + 5, 11].Value = "TOTAL";
-        ws.Cells[row + 5, 12].Value = albaran.Total;
+        ws.Cell(row + 1, 11).Value = "BASE";
+        ws.Cell(row + 1, 12).Value = albaran.Subtotal;
+        ws.Cell(row + 2, 11).Value = "IVA";
+        ws.Cell(row + 2, 12).Value = albaran.IvaTotal;
+        ws.Cell(row + 3, 11).Value = "RE";
+        ws.Cell(row + 3, 12).Value = albaran.RecargoEquivalenciaTotal;
+        ws.Cell(row + 4, 11).Value = "RETENCION (-)";
+        ws.Cell(row + 4, 12).Value = albaran.RetencionTotal;
+        ws.Cell(row + 5, 11).Value = "TOTAL";
+        ws.Cell(row + 5, 12).Value = albaran.Total;
 
-        ws.Cells[row + 1, 12, row + 5, 12].Style.Numberformat.Format = "#,##0.00 €";
-        ws.Cells.AutoFitColumns();
+        ws.Range(row + 1, 12, row + 5, 12).Style.NumberFormat.Format = "#,##0.00 €";
+        ws.Columns().AdjustToContents();
 
-        var bytes = package.GetAsByteArray();
-        return File(bytes,
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return File(ms.ToArray(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             $"albaran-{albaran.NumeroAlbaran ?? albaran.Id.ToString()}.xlsx");
     }
@@ -772,49 +793,48 @@ public class AlbaranesController : ControllerBase
     public async Task<IActionResult> ExportarListaExcel(
         [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta, CancellationToken ct)
     {
-        ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-
         var albaranes = (await _uow.Albaranes.GetByEmpresaAsync(EmpresaId, desde, hasta, ct)).ToList();
 
-        using var package = new ExcelPackage();
-        var ws = package.Workbook.Worksheets.Add("Albaranes");
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Albaranes");
 
         string[] headers = { "Nº Albarán", "Fecha", "Cliente", "NIF", "Estado", "Base", "IVA", "RE", "Retención", "Total" };
         for (int i = 0; i < headers.Length; i++)
         {
-            ws.Cells[1, i + 1].Value = headers[i];
-            ws.Cells[1, i + 1].Style.Font.Bold = true;
-            ws.Cells[1, i + 1].Style.Fill.PatternType = ExcelFillStyle.Solid;
-            ws.Cells[1, i + 1].Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(41, 128, 185));
-            ws.Cells[1, i + 1].Style.Font.Color.SetColor(System.Drawing.Color.White);
+            ws.Cell(1, i + 1).Value = headers[i];
+            ws.Cell(1, i + 1).Style.Font.Bold = true;
+            ws.Cell(1, i + 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#2980B9");
+            ws.Cell(1, i + 1).Style.Font.FontColor = XLColor.White;
         }
 
         int row = 2;
         foreach (var a in albaranes)
         {
-            ws.Cells[row, 1].Value = a.NumeroAlbaran;
-            ws.Cells[row, 2].Value = a.FechaAlbaran.ToDateTime(TimeOnly.MinValue);
-            ws.Cells[row, 3].Value = a.Cliente?.NombreCompleto;
-            ws.Cells[row, 4].Value = a.Cliente?.Nif;
-            ws.Cells[row, 5].Value = a.Estado.ToString();
-            ws.Cells[row, 6].Value = a.Subtotal;
-            ws.Cells[row, 7].Value = a.IvaTotal;
-            ws.Cells[row, 8].Value = a.RecargoEquivalenciaTotal;
-            ws.Cells[row, 9].Value = a.RetencionTotal;
-            ws.Cells[row, 10].Value = a.Total;
+            ws.Cell(row, 1).Value = a.NumeroAlbaran;
+            ws.Cell(row, 2).Value = a.FechaAlbaran.ToDateTime(TimeOnly.MinValue);
+            ws.Cell(row, 3).Value = a.Cliente?.NombreCompleto;
+            ws.Cell(row, 4).Value = a.Cliente?.Nif;
+            ws.Cell(row, 5).Value = a.Estado.ToString();
+            ws.Cell(row, 6).Value = a.Subtotal;
+            ws.Cell(row, 7).Value = a.IvaTotal;
+            ws.Cell(row, 8).Value = a.RecargoEquivalenciaTotal;
+            ws.Cell(row, 9).Value = a.RetencionTotal;
+            ws.Cell(row, 10).Value = a.Total;
             row++;
         }
 
-        ws.Cells[2, 2, Math.Max(2, row - 1), 2].Style.Numberformat.Format = "dd/mm/yyyy";
-        ws.Cells[2, 6, Math.Max(2, row - 1), 10].Style.Numberformat.Format = "#,##0.00 €";
-        ws.Cells.AutoFitColumns();
+        ws.Range(2, 2, Math.Max(2, row - 1), 2).Style.NumberFormat.Format = "dd/mm/yyyy";
+        ws.Range(2, 6, Math.Max(2, row - 1), 10).Style.NumberFormat.Format = "#,##0.00 €";
+        ws.Columns().AdjustToContents();
 
-        var bytes = package.GetAsByteArray();
-        var dStr = (desde ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(-1))).ToString("yyyyMMdd");
-        var hStr = (hasta ?? DateOnly.FromDateTime(DateTime.Today)).ToString("yyyyMMdd");
-        return File(bytes,
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        var fileName = (desde.HasValue || hasta.HasValue)
+            ? $"albaranes-{(desde ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(-1))):yyyyMMdd}-{(hasta ?? DateOnly.FromDateTime(DateTime.Today)):yyyyMMdd}.xlsx"
+            : "albaranes.xlsx";
+        return File(ms.ToArray(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            $"albaranes-{dStr}-{hStr}.xlsx");
+            fileName);
     }
 
     // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -861,7 +881,8 @@ public class AlbaranesController : ControllerBase
             Math.Round(l.Cantidad * l.PrecioUnitario * (1 - l.Descuento / 100), 4),
             Math.Round(l.Cantidad * l.PrecioUnitario * (1 - l.Descuento / 100) * l.IvaPorcentaje / 100, 4)
         )).ToList(),
-        a.Cliente?.NoRealizarFacturas ?? false
+        a.Cliente?.NoRealizarFacturas ?? false,
+        a.OrigenStock.ToString()
     );
 }
 
@@ -870,7 +891,7 @@ public class AlbaranesController : ControllerBase
 public record AlbaranResumen(
     int Id, string NumeroAlbaran, string Fecha, string Estado,
     string ClienteNombre, string? ClienteNif, decimal Total, int? PedidoId,
-    bool NoRealizarFacturas = false);
+    bool NoRealizarFacturas = false, string OrigenStock = "Fabrica");
 
 public record AlbaranCreado(int Id, string NumeroAlbaran, decimal Total);
 
@@ -878,7 +899,7 @@ public record AlbaranDetalle(
     int Id, string NumeroAlbaran, string Fecha, string Estado,
     ClienteResumen Cliente, decimal Subtotal, decimal IvaTotal, decimal Total,
     int? PedidoId, string? Notas, List<AlbaranLineaDto> Lineas,
-    bool ClienteNoRealizarFacturas = false);
+    bool ClienteNoRealizarFacturas = false, string OrigenStock = "Fabrica");
 
 public record AlbaranLineaDto(
     int ProductoId, string ProductoNombre, string? CodigoLote,
@@ -895,6 +916,8 @@ public class CrearAlbaranRequest
     public int UsuarioId { get; set; }
     public DateOnly FechaAlbaran { get; set; } = DateOnly.FromDateTime(DateTime.Today);
     public string? Notas { get; set; }
+    /// <summary>Origen de la venta; si es null se hereda del PedidoId (obligatorio si no hay pedido).</summary>
+    public OrigenStock? OrigenStock { get; set; }
     public List<LineaAlbaranRequest> Items { get; set; } = new();
 }
 
@@ -903,7 +926,8 @@ public class LineaAlbaranRequest
     public int ProductoId { get; set; }
     public decimal Cantidad { get; set; }
     public decimal? PrecioUnitario { get; set; }
-    public decimal Descuento { get; set; } = 0;
+    /// <summary>null = sin override (aplica política comercial); valor explícito (incluido 0) = manual.</summary>
+    public decimal? Descuento { get; set; }
 }
 
 public class ConvertirAlbaranRequest

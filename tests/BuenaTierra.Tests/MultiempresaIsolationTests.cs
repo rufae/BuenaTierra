@@ -1,4 +1,5 @@
 using BuenaTierra.Domain.Entities;
+using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using BuenaTierra.Infrastructure.Services;
@@ -29,7 +30,7 @@ public class MultiempresaIsolationTests
         // (simula que empresa 1 no tiene stock — empresa 2 sí tendría, pero no debe devolverse)
         var mockLotes = new Mock<ILoteRepository>();
         mockLotes
-            .Setup(r => r.GetDisponiblesFIFOAsync(EmpresaPropia, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetDisponiblesFIFOAsync(EmpresaPropia, It.IsAny<int>(), It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
         var mockUow = new Mock<IUnitOfWork>();
@@ -46,10 +47,10 @@ public class MultiempresaIsolationTests
 
         // Assert: se llamó al repositorio con empresa propia, NUNCA con empresa ajena
         mockLotes.Verify(
-            r => r.GetDisponiblesFIFOAsync(EmpresaPropia, It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            r => r.GetDisponiblesFIFOAsync(EmpresaPropia, It.IsAny<int>(), It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()),
             Times.Once);
         mockLotes.Verify(
-            r => r.GetDisponiblesFIFOAsync(EmpresaAjena, It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            r => r.GetDisponiblesFIFOAsync(EmpresaAjena, It.IsAny<int>(), It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()),
             Times.Never,
             "FIFO no debe consultar stock de otra empresa");
     }
@@ -99,7 +100,7 @@ public class MultiempresaIsolationTests
 
         var mockLotes = new Mock<ILoteRepository>();
         mockLotes
-            .Setup(r => r.GetDisponiblesFIFOAsync(EmpresaPropia, 10, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetDisponiblesFIFOAsync(EmpresaPropia, 10, It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(lotesEmpresa1);
 
         var mockUow = new Mock<IUnitOfWork>();

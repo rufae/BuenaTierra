@@ -40,6 +40,9 @@ public class Factura : TenantEntity
     public string? PdfUrl { get; set; }
     public string? Notas { get; set; }
 
+    /// <summary>Ubicación de la que sale la mercancía facturada (heredada de pedido/albarán o elegida).</summary>
+    public OrigenStock OrigenStock { get; set; } = OrigenStock.Fabrica;
+
     // Navegación
     public virtual Empresa Empresa { get; set; } = null!;
     public virtual Cliente Cliente { get; set; } = null!;

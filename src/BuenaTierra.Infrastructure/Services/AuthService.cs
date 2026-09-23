@@ -25,13 +25,16 @@ public class AuthService : IAuthService
         _logger = logger;
     }
 
-    public async Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default)
+    public async Task<AuthResult> LoginAsync(string email, string password, int? empresaId = null, CancellationToken ct = default)
     {
         var emailNormalizado = email.Trim().ToLower();
         Domain.Entities.Usuario? usuario;
 
+        // Si el cliente indica empresaId, solo se buscan usuarios de esa empresa:
+        // un login con la empresa equivocada no encuentra candidato → 401.
         var candidatos = (await _uow.Usuarios.FindAsync(
-            u => u.Email == emailNormalizado && u.Activo, ct))
+            u => u.Email == emailNormalizado && u.Activo
+                 && (empresaId == null || u.EmpresaId == empresaId), ct))
             .ToList();
 
         if (candidatos.Count > 1)
@@ -89,7 +92,7 @@ public class AuthService : IAuthService
         return new AuthResult(true, token, newRefreshToken, DateTime.UtcNow.AddMinutes(expiresMinutes), DebeCambiarPassword: usuario.DebeCambiarPassword);
     }
 
-    public async Task EstablecerPasswordAsync(int usuarioId, string nuevaPassword, CancellationToken ct = default)
+    public async Task<AuthResult> EstablecerPasswordAsync(int usuarioId, string nuevaPassword, CancellationToken ct = default)
     {
         var usuario = await _uow.Usuarios.GetByIdAsync(usuarioId, ct)
             ?? throw new EntidadNotFoundException("Usuario", usuarioId);
@@ -100,11 +103,20 @@ public class AuthService : IAuthService
 
         usuario.PasswordHash = BCrypt.Net.BCrypt.HashPassword(nuevaPassword);
         usuario.DebeCambiarPassword = false;
-        usuario.RefreshToken = null;
-        usuario.RefreshTokenExp = null;
+
+        // Rotar refresh token: la sesión anterior queda invalidada con el cambio de contraseña
+        var refreshToken = GenerarRefreshToken();
+        usuario.RefreshToken = HashRefreshToken(refreshToken);
+        usuario.RefreshTokenExp = DateTime.UtcNow.AddDays(int.Parse(_config["Jwt:RefreshExpiresInDays"] ?? "30"));
 
         await _uow.Usuarios.UpdateAsync(usuario, ct);
         await _uow.SaveChangesAsync(ct);
+
+        // Devolver un JWT nuevo: si devolviéramos nada, el token vigente llevaría
+        // el claim debe_cambiar_password=true y el middleware bloquearía la app.
+        var token = GenerarJwt(usuario);
+        int expiresMinutes = int.Parse(_config["Jwt:ExpiresInMinutes"] ?? "30");
+        return new AuthResult(true, token, refreshToken, DateTime.UtcNow.AddMinutes(expiresMinutes));
     }
 
     public async Task LogoutAsync(int usuarioId, CancellationToken ct = default)

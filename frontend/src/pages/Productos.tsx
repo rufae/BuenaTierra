@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
+import { downloadBlob, useDownloading } from '../lib/download'
 import type {
   Producto, FichaAlergenoItem, Alergeno,
   Categoria, Ingrediente, ProductoIngredienteItem,
@@ -107,6 +108,7 @@ interface FormIngrediente {
 export default function Productos() {
   const { user } = useAuth()
   const qc = useQueryClient()
+  const descargando = useDownloading()
 
   // ── List filters ────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('')
@@ -396,26 +398,18 @@ export default function Productos() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={async () => {
-              try {
-                const params = new URLSearchParams()
-                params.set('soloActivos', String(filtroActivo === 'activos'))
-                if (filtroCategoria) params.set('categoriaId', String(filtroCategoria))
-                if (search.trim()) params.set('q', search.trim())
-                const res = await api.get(`/productos/exportar-excel?${params}`, { responseType: 'blob' })
-                const url = window.URL.createObjectURL(new Blob([res.data]))
-                const a = document.createElement('a')
-                a.href = url
-                a.setAttribute('download', 'productos.xlsx')
-                document.body.appendChild(a)
-                a.click()
-                a.remove()
-                window.URL.revokeObjectURL(url)
-              } catch { toast.error('Error al exportar') }
+            onClick={() => {
+              const params = new URLSearchParams()
+              params.set('soloActivos', String(filtroActivo === 'activos'))
+              if (filtroCategoria) params.set('categoriaId', String(filtroCategoria))
+              if (search.trim()) params.set('q', search.trim())
+              downloadBlob(`/productos/exportar-excel?${params}`, 'productos.xlsx', 'Error al exportar')
             }}
-            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            disabled={descargando}
+            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60"
           >
-            <Download className="w-4 h-4" />Exportar Excel
+            {descargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {descargando ? 'Generando…' : 'Exportar Excel'}
           </button>
           <button onClick={openNew}
             className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">

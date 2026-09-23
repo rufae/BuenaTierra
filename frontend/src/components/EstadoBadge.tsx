@@ -25,6 +25,13 @@ const DEFAULT_COLORS: Record<string, string> = {
   Bloqueado: 'bg-red-50 text-red-700 border border-red-200',
   EnProceso: 'bg-amber-50 text-amber-700 border border-amber-200',
   Cancelada: 'bg-red-50 text-red-600 border border-red-200',
+  // Carga/descarga de furgoneta y motivos de devolución
+  Carga: 'bg-sky-50 text-sky-700 border border-sky-200',
+  Descarga: 'bg-orange-50 text-orange-700 border border-orange-200',
+  CargaFurgoneta: 'bg-sky-50 text-sky-700 border border-sky-200',
+  DescargaFurgoneta: 'bg-orange-50 text-orange-700 border border-orange-200',
+  Caducidad: 'bg-orange-50 text-orange-700 border border-orange-200',
+  Merma: 'bg-red-50 text-red-700 border border-red-200',
 }
 
 export function EstadoBadge({

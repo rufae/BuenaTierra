@@ -40,6 +40,13 @@ public class StockService : IStockService
         if (nuevaCantidad < 0)
             throw new DomainException($"El ajuste dejaría el stock en negativo: {nuevaCantidad}");
 
+        // El total no puede bajar por debajo de lo que está cargado en la furgoneta
+        // (invariante del CHECK stock_furgoneta_valida). Mejor un error claro que un 500.
+        if (stock.CantidadFurgoneta > nuevaCantidad)
+            throw new DomainException(
+                $"El ajuste dejaría el total ({nuevaCantidad:0.###}) por debajo de lo cargado en furgoneta " +
+                $"({stock.CantidadFurgoneta:0.###}). Descarga mercancía de la furgoneta antes de ajustar.");
+
         stock.CantidadDisponible = nuevaCantidad;
         stock.UpdatedAt = DateTime.UtcNow;
         await _uow.Stock.UpdateAsync(stock, ct);

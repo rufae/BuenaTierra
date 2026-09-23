@@ -12,6 +12,7 @@ import toast from 'react-hot-toast'
 import Swal from 'sweetalert2'
 import { DateInput } from '../components/DateInput'
 import { EstadoBadge } from '../components/EstadoBadge'
+import { downloadBlob, useDownloading } from '../lib/download'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -282,6 +283,7 @@ function FilterDropdown({
 export default function Clientes() {
   const { user } = useAuth()
   const qc = useQueryClient()
+  const descargando = useDownloading()
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Cliente | null>(null)
   const [historialCliente, setHistorialCliente] = useState<Cliente | null>(null)
@@ -507,22 +509,12 @@ export default function Clientes() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={async () => {
-              try {
-                const res = await api.get('/clientes/exportar-excel', { responseType: 'blob' })
-                const url = window.URL.createObjectURL(new Blob([res.data]))
-                const link = document.createElement('a')
-                link.href = url
-                link.setAttribute('download', 'clientes.xlsx')
-                document.body.appendChild(link)
-                link.click()
-                link.remove()
-                window.URL.revokeObjectURL(url)
-              } catch { toast.error('Error al exportar') }
-            }}
-            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            onClick={() => downloadBlob('/clientes/exportar-excel', 'clientes.xlsx', 'Error al exportar')}
+            disabled={descargando}
+            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60"
           >
-            <Download className="w-4 h-4" />Exportar Excel
+            {descargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {descargando ? 'Generando…' : 'Exportar Excel'}
           </button>
           <button onClick={openNew} className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
             <Plus className="w-4 h-4" />Nuevo cliente

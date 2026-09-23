@@ -75,15 +75,17 @@ function mkForm(empresaId: number, usuarioId: number, todayIso: string): CrearPr
 
 interface ProduccionPageProps {
   modo?: 'produccion' | 'compra'
+  /** false = embebido dentro de otra página (Carga) sin page-shell propio */
+  shell?: boolean
 }
 
-export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
+export function ProduccionPage({ modo = 'produccion', shell = true }: ProduccionPageProps) {
   const { user } = useAuth()
   const qc = useQueryClient()
   const todayIso = new Date().toISOString().split('T')[0]
   const esCompra = modo === 'compra'
-  const moduloNombre = esCompra ? 'Compra' : 'Producción'
-  const moduloNombreLower = esCompra ? 'compra' : 'producción'
+  const moduloNombre = esCompra ? 'Entrada en fábrica' : 'Producción'
+  const moduloNombreLower = esCompra ? 'entrada' : 'producción'
 
   // ── Filtros ──────────────────────────────────────────────────
   const [busqueda, setBusqueda]     = useState('')
@@ -252,7 +254,7 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
 
   // ════════════════════════════════════════════════════════════
   return (
-    <div className="page-shell space-y-5">
+    <div className={shell ? 'page-shell space-y-5' : 'space-y-5'}>
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -260,7 +262,7 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
           <h1 className="text-2xl font-bold text-gray-900">{moduloNombre}</h1>
           <p className="text-gray-500 text-sm mt-0.5">
             {esCompra
-              ? 'Registro de compras por lote — entrada de stock automática'
+              ? 'Entrada de mercancía en fábrica por lote — stock automático'
               : 'Registro de producción — lotes y stock automáticos'}
           </p>
         </div>
@@ -330,7 +332,7 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
           <Factory className="w-4 h-4 text-brand-600" />
-          <h2 className="font-semibold text-gray-900 text-sm">{esCompra ? 'Compras' : 'Producciones'}</h2>
+          <h2 className="font-semibold text-gray-900 text-sm">{esCompra ? 'Entradas en fábrica' : 'Producciones'}</h2>
           {!isLoading && (
             <span className="ml-1 text-xs text-gray-400">
               {producciones.length} registro{producciones.length !== 1 ? 's' : ''}
@@ -365,7 +367,7 @@ export function ProduccionPage({ modo = 'produccion' }: ProduccionPageProps) {
               ) : !producciones.length ? (
                 <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-400">
                   <Cog className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                  No hay {esCompra ? 'compras' : 'producciones'} para los filtros seleccionados
+                  No hay {esCompra ? 'entradas' : 'producciones'} para los filtros seleccionados
                 </td></tr>
               ) : producciones.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">

@@ -4,14 +4,13 @@ using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using BuenaTierra.Domain.Services;
+using ClosedXML;
+using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using OfficeOpenXml;
-using OfficeOpenXml.Style;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
-using DrawingColor = System.Drawing.Color;
 
 
 namespace BuenaTierra.Infrastructure.Services;
@@ -64,7 +63,24 @@ public class FacturaService : IFacturaService
         if (cliente.NoRealizarFacturas)
             throw new InvalidOperationException("Este cliente tiene marcado 'No realizar facturas'. No se puede crear una factura.");
 
-        // Para cada item, obtener info del producto y asignar lotes FIFO
+        // Resolver origen de la venta: explícito o heredado del pedido
+        OrigenStock origen;
+        if (request.OrigenStock.HasValue)
+        {
+            origen = request.OrigenStock.Value;
+        }
+        else if (request.PedidoId.HasValue)
+        {
+            var pedidoOrigen = await _uow.Pedidos.GetByIdAsync(request.PedidoId.Value, ct)
+                ?? throw new EntidadNotFoundException(nameof(Pedido), request.PedidoId.Value);
+            origen = pedidoOrigen.OrigenStock;
+        }
+        else
+        {
+            throw new DomainException("Debe indicar el origen de la venta (Fábrica o Furgoneta)");
+        }
+
+        // Para cada item, obtener info del producto y asignar lotes FIFO en el origen indicado
         var lineasConLotes = new List<(LineaFacturaRequest Item, Producto Producto, List<LoteAsignado> Lotes)>();
 
         foreach (var item in request.Items)
@@ -78,7 +94,7 @@ public class FacturaService : IFacturaService
             {
                 // FIFO automático — aquí está la magia del sistema
                 lotesAsignados = await _loteService.AsignarLotesAsync(
-                    request.EmpresaId, item.ProductoId, item.Cantidad, ct);
+                    request.EmpresaId, item.ProductoId, item.Cantidad, origen, ct);
             }
             else
             {
@@ -128,7 +144,8 @@ public class FacturaService : IFacturaService
                 FechaVencimiento = fechaVencimiento,
                 Estado        = EstadoFactura.Emitida,
                 EsSimplificada = request.EsSimplificada,
-                Notas         = request.Notas
+                Notas         = request.Notas,
+                OrigenStock   = origen
             };
 
             short orden = 0;
@@ -139,8 +156,10 @@ public class FacturaService : IFacturaService
                 var pricing = ComercialPricingPolicy.Resolve(cliente, producto, item.PrecioUnitario, item.Descuento);
                 decimal precioUnitario = pricing.PrecioUnitario;
 
-                decimal ivaPorc = GetIvaPorcentaje(cliente, producto);
-                decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m;
+                // B2: preferir el IVA/RE congelado de la línea (pedido/albarán) si viene informado
+                decimal ivaPorc = item.IvaPorcentaje ?? GetIvaPorcentaje(cliente, producto);
+                decimal rePorc = item.RecargoEquivalenciaPorcentaje
+                    ?? (aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m);
 
                 // Precedencia comercial: línea > condición especial > descuento cliente > descuento producto.
                 var descuentoEfectivo = pricing.Descuento;
@@ -164,12 +183,13 @@ public class FacturaService : IFacturaService
                 }
             }
 
-            // Calcular totales desde las líneas (que ya llevan el descuento efectivo)
-            factura.Subtotal = factura.Lineas.Sum(l => l.Subtotal);
+            // Cabeceras = Σ de los valores de línea redondeados a 2dp (Money.R2)
+            // para que pedido, albarán y factura cuadren exactamente al céntimo.
+            factura.Subtotal = factura.Lineas.Sum(l => BuenaTierra.Domain.Common.Money.R2(l.Subtotal));
             factura.BaseImponible = factura.Subtotal - factura.DescuentoTotal;
-            factura.IvaTotal = factura.Lineas.Sum(l => l.IvaImporte);
+            factura.IvaTotal = factura.Lineas.Sum(l => BuenaTierra.Domain.Common.Money.R2(l.IvaImporte));
             factura.RecargoEquivalenciaTotal = aplicaRE
-                ? Math.Round(factura.Lineas.Sum(l => l.Subtotal * l.RecargoEquivalenciaPorcentaje / 100), 2)
+                ? factura.Lineas.Sum(l => BuenaTierra.Domain.Common.Money.R2(l.RecargoEquivalenciaImporte))
                 : 0m;
             factura.RetencionTotal = Math.Round(factura.BaseImponible * retencionPorc / 100, 2);
             factura.Total = factura.BaseImponible + factura.IvaTotal + factura.RecargoEquivalenciaTotal - factura.RetencionTotal;
@@ -191,7 +211,7 @@ public class FacturaService : IFacturaService
                     if (request.ConsumirStock)
                     {
                         decimal cantidadAntes = stock.CantidadDisponible;
-                        stock.CantidadDisponible -= lote.Cantidad;
+                        stock.Consumir(origen, lote.Cantidad);
                         stock.CantidadReservada = Math.Max(0, stock.CantidadReservada - lote.Cantidad);
                         stock.UpdatedAt = DateTime.UtcNow;
                         await _uow.Stock.UpdateAsync(stock, ct);
@@ -661,8 +681,6 @@ public class FacturaService : IFacturaService
 
     public async Task<byte[]> GetExcelBytesAsync(int facturaId, int empresaId, CancellationToken ct = default)
     {
-        ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-
         var factura = await _uow.Facturas.GetConLineasAsync(empresaId, facturaId, ct)
             ?? throw new EntidadNotFoundException(nameof(Factura), facturaId);
 
@@ -671,68 +689,68 @@ public class FacturaService : IFacturaService
 
         var empresa = await _uow.Empresas.GetByIdAsync(empresaId, ct);
 
-        using var package = new ExcelPackage();
+        using var wb = new XLWorkbook();
 
         // ── Hoja 1: Resumen Factura ──────────────────────────────────────
-        var wsFactura = package.Workbook.Worksheets.Add("Factura");
-        wsFactura.Cells["A1"].Value = "FACTURA";
-        wsFactura.Cells["A1"].Style.Font.Size = 16;
-        wsFactura.Cells["A1"].Style.Font.Bold = true;
+        var wsFactura = wb.Worksheets.Add("Factura");
+        wsFactura.Cell("A1").Value = "FACTURA";
+        wsFactura.Cell("A1").Style.Font.FontSize = 16;
+        wsFactura.Cell("A1").Style.Font.Bold = true;
 
-        wsFactura.Cells["A3"].Value = "Empresa:";
-        wsFactura.Cells["B3"].Value = empresa?.RazonSocial ?? empresa?.Nombre;
-        wsFactura.Cells["A4"].Value = "NIF Empresa:";
-        wsFactura.Cells["B4"].Value = empresa?.Nif;
-        wsFactura.Cells["A5"].Value = "Dirección:";
-        wsFactura.Cells["B5"].Value = $"{empresa?.Direccion}, {empresa?.CodigoPostal} {empresa?.Ciudad}";
+        wsFactura.Cell("A3").Value = "Empresa:";
+        wsFactura.Cell("B3").Value = empresa?.RazonSocial ?? empresa?.Nombre;
+        wsFactura.Cell("A4").Value = "NIF Empresa:";
+        wsFactura.Cell("B4").Value = empresa?.Nif;
+        wsFactura.Cell("A5").Value = "Dirección:";
+        wsFactura.Cell("B5").Value = $"{empresa?.Direccion}, {empresa?.CodigoPostal} {empresa?.Ciudad}";
 
-        wsFactura.Cells["A7"].Value = "Nº Factura:";
-        wsFactura.Cells["B7"].Value = factura.NumeroFactura;
-        wsFactura.Cells["A8"].Value = "Fecha:";
-        wsFactura.Cells["B8"].Value = factura.FechaFactura.ToDateTime(TimeOnly.MinValue);
-        wsFactura.Cells["B8"].Style.Numberformat.Format = "dd/mm/yyyy";
-        wsFactura.Cells["A9"].Value = "Estado:";
-        wsFactura.Cells["B9"].Value = factura.Estado.ToString();
-        wsFactura.Cells["A10"].Value = "Tipo:";
-        wsFactura.Cells["B10"].Value = factura.EsSimplificada ? "Factura Simplificada" : "Factura Ordinaria";
+        wsFactura.Cell("A7").Value = "Nº Factura:";
+        wsFactura.Cell("B7").Value = factura.NumeroFactura;
+        wsFactura.Cell("A8").Value = "Fecha:";
+        wsFactura.Cell("B8").Value = factura.FechaFactura.ToDateTime(TimeOnly.MinValue);
+        wsFactura.Cell("B8").Style.DateFormat.Format = "dd/mm/yyyy";
+        wsFactura.Cell("A9").Value = "Estado:";
+        wsFactura.Cell("B9").Value = factura.Estado.ToString();
+        wsFactura.Cell("A10").Value = "Tipo:";
+        wsFactura.Cell("B10").Value = factura.EsSimplificada ? "Factura Simplificada" : "Factura Ordinaria";
 
-        wsFactura.Cells["A12"].Value = "Cliente:";
-        wsFactura.Cells["B12"].Value = factura.Cliente?.NombreCompleto;
-        wsFactura.Cells["A13"].Value = "NIF Cliente:";
-        wsFactura.Cells["B13"].Value = factura.Cliente?.Nif;
-        wsFactura.Cells["A14"].Value = "Dirección Cliente:";
-        wsFactura.Cells["B14"].Value = $"{factura.Cliente?.Direccion}, {factura.Cliente?.CodigoPostal} {factura.Cliente?.Ciudad}";
+        wsFactura.Cell("A12").Value = "Cliente:";
+        wsFactura.Cell("B12").Value = factura.Cliente?.NombreCompleto;
+        wsFactura.Cell("A13").Value = "NIF Cliente:";
+        wsFactura.Cell("B13").Value = factura.Cliente?.Nif;
+        wsFactura.Cell("A14").Value = "Dirección Cliente:";
+        wsFactura.Cell("B14").Value = $"{factura.Cliente?.Direccion}, {factura.Cliente?.CodigoPostal} {factura.Cliente?.Ciudad}";
 
-        wsFactura.Cells["A16"].Value = "Base Imponible:";
-        wsFactura.Cells["B16"].Value = factura.BaseImponible;
-        wsFactura.Cells["B16"].Style.Numberformat.Format = "#,##0.00 €";
-        wsFactura.Cells["A17"].Value = "IVA Total:";
-        wsFactura.Cells["B17"].Value = factura.IvaTotal;
-        wsFactura.Cells["B17"].Style.Numberformat.Format = "#,##0.00 €";
-        wsFactura.Cells["A18"].Value = "Recargo Equivalencia:";
-        wsFactura.Cells["B18"].Value = factura.RecargoEquivalenciaTotal;
-        wsFactura.Cells["B18"].Style.Numberformat.Format = "#,##0.00 €";
-        wsFactura.Cells["A19"].Value = "Retención (-):";
-        wsFactura.Cells["B19"].Value = factura.RetencionTotal;
-        wsFactura.Cells["B19"].Style.Numberformat.Format = "#,##0.00 €";
-        wsFactura.Cells["A20"].Value = "TOTAL FACTURA:";
-        wsFactura.Cells["B20"].Value = factura.Total;
-        wsFactura.Cells["B20"].Style.Numberformat.Format = "#,##0.00 €";
-        wsFactura.Cells["A20:B20"].Style.Font.Bold = true;
+        wsFactura.Cell("A16").Value = "Base Imponible:";
+        wsFactura.Cell("B16").Value = factura.BaseImponible;
+        wsFactura.Cell("B16").Style.NumberFormat.Format = "#,##0.00 €";
+        wsFactura.Cell("A17").Value = "IVA Total:";
+        wsFactura.Cell("B17").Value = factura.IvaTotal;
+        wsFactura.Cell("B17").Style.NumberFormat.Format = "#,##0.00 €";
+        wsFactura.Cell("A18").Value = "Recargo Equivalencia:";
+        wsFactura.Cell("B18").Value = factura.RecargoEquivalenciaTotal;
+        wsFactura.Cell("B18").Style.NumberFormat.Format = "#,##0.00 €";
+        wsFactura.Cell("A19").Value = "Retención (-):";
+        wsFactura.Cell("B19").Value = factura.RetencionTotal;
+        wsFactura.Cell("B19").Style.NumberFormat.Format = "#,##0.00 €";
+        wsFactura.Cell("A20").Value = "TOTAL FACTURA:";
+        wsFactura.Cell("B20").Value = factura.Total;
+        wsFactura.Cell("B20").Style.NumberFormat.Format = "#,##0.00 €";
+        wsFactura.Range("A20:B20").Style.Font.Bold = true;
 
         wsFactura.Column(1).Width = 20;
         wsFactura.Column(2).Width = 35;
 
         // ── Hoja 2: Líneas con Trazabilidad ─────────────────────────────
-        var wsLineas = package.Workbook.Worksheets.Add("Trazabilidad Lotes");
+        var wsLineas = wb.Worksheets.Add("Trazabilidad Lotes");
 
         // Título Ministerio de Sanidad
-        wsLineas.Cells["A1"].Value = "REGISTRO DE TRAZABILIDAD - LÍNEAS DE FACTURA";
-        wsLineas.Cells["A1"].Style.Font.Size = 12;
-        wsLineas.Cells["A1"].Style.Font.Bold = true;
-        wsLineas.Cells["A2"].Value = $"Conforme al Reglamento (CE) Nº 178/2002 | Empresa: {empresa?.Nif} | Factura: {factura.NumeroFactura} | Fecha: {factura.FechaFactura:dd/MM/yyyy}";
-        wsLineas.Cells["A2"].Style.Font.Size = 8;
-        wsLineas.Cells["A2"].Style.Font.Italic = true;
+        wsLineas.Cell("A1").Value = "REGISTRO DE TRAZABILIDAD - LÍNEAS DE FACTURA";
+        wsLineas.Cell("A1").Style.Font.FontSize = 12;
+        wsLineas.Cell("A1").Style.Font.Bold = true;
+        wsLineas.Cell("A2").Value = $"Conforme al Reglamento (CE) Nº 178/2002 | Empresa: {empresa?.Nif} | Factura: {factura.NumeroFactura} | Fecha: {factura.FechaFactura:dd/MM/yyyy}";
+        wsLineas.Cell("A2").Style.Font.FontSize = 8;
+        wsLineas.Cell("A2").Style.Font.Italic = true;
 
         string[] headers = new[]
         {
@@ -744,12 +762,11 @@ public class FacturaService : IFacturaService
         int col = 1;
         foreach (var h in headers)
         {
-            wsLineas.Cells[4, col].Value = h;
-            wsLineas.Cells[4, col].Style.Font.Bold = true;
-            wsLineas.Cells[4, col].Style.Fill.PatternType = ExcelFillStyle.Solid;
-            wsLineas.Cells[4, col].Style.Fill.BackgroundColor.SetColor(DrawingColor.FromArgb(230, 126, 34));
-            wsLineas.Cells[4, col].Style.Font.Color.SetColor(DrawingColor.White);
-            wsLineas.Cells[4, col].Style.Border.BorderAround(ExcelBorderStyle.Thin);
+            wsLineas.Cell(4, col).Value = h;
+            wsLineas.Cell(4, col).Style.Font.Bold = true;
+            wsLineas.Cell(4, col).Style.Fill.BackgroundColor = XLColor.FromHtml("#E67E22");
+            wsLineas.Cell(4, col).Style.Font.FontColor = XLColor.White;
+            wsLineas.Cell(4, col).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
             col++;
         }
 
@@ -761,63 +778,64 @@ public class FacturaService : IFacturaService
             decimal ivaImporte = Math.Round(subtotal * linea.IvaPorcentaje / 100, 4);
             decimal reImporte = Math.Round(subtotal * linea.RecargoEquivalenciaPorcentaje / 100, 4);
 
-            wsLineas.Cells[row, 1].Value = lineaNum++;
-            wsLineas.Cells[row, 2].Value = linea.Producto?.Nombre ?? linea.Descripcion;
-            wsLineas.Cells[row, 3].Value = linea.Lote?.CodigoLote ?? "";
-            wsLineas.Cells[row, 4].Value = linea.Lote != null ? linea.Lote.FechaFabricacion.ToDateTime(TimeOnly.MinValue) : (object)"";
-            wsLineas.Cells[row, 4].Style.Numberformat.Format = "dd/mm/yyyy";
-            wsLineas.Cells[row, 5].Value = linea.Lote?.FechaCaducidad.HasValue == true
-                ? linea.Lote.FechaCaducidad.Value.ToDateTime(TimeOnly.MinValue) : (object)"";
-            wsLineas.Cells[row, 5].Style.Numberformat.Format = "dd/mm/yyyy";
-            wsLineas.Cells[row, 6].Value = linea.Cantidad;
-            wsLineas.Cells[row, 6].Style.Numberformat.Format = "#,##0.00";
-            wsLineas.Cells[row, 7].Value = linea.PrecioUnitario;
-            wsLineas.Cells[row, 7].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 8].Value = linea.Descuento / 100;
-            wsLineas.Cells[row, 8].Style.Numberformat.Format = "0.00%";
-            wsLineas.Cells[row, 9].Value = GetDiscountOriginText(linea, factura.Cliente, linea.Producto);
-            wsLineas.Cells[row, 10].Value = linea.IvaPorcentaje / 100;
-            wsLineas.Cells[row, 10].Style.Numberformat.Format = "0.00%";
-            wsLineas.Cells[row, 11].Value = linea.RecargoEquivalenciaPorcentaje / 100;
-            wsLineas.Cells[row, 11].Style.Numberformat.Format = "0.00%";
-            wsLineas.Cells[row, 12].Value = subtotal;
-            wsLineas.Cells[row, 12].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 13].Value = ivaImporte;
-            wsLineas.Cells[row, 13].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 14].Value = reImporte;
-            wsLineas.Cells[row, 14].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 15].Value = subtotal + ivaImporte + reImporte;
-            wsLineas.Cells[row, 15].Style.Numberformat.Format = "#,##0.0000 €";
-            wsLineas.Cells[row, 16].Value = empresa?.RazonSocial ?? empresa?.Nombre;
-            wsLineas.Cells[row, 17].Value = empresa?.Nif;
-            wsLineas.Cells[row, 18].Value = factura.Cliente?.NombreCompleto;
-            wsLineas.Cells[row, 19].Value = factura.Cliente?.Nif;
-            wsLineas.Cells[row, 20].Value = factura.NumeroFactura;
-            wsLineas.Cells[row, 21].Value = factura.FechaFactura.ToDateTime(TimeOnly.MinValue);
-            wsLineas.Cells[row, 21].Style.Numberformat.Format = "dd/mm/yyyy";
+            wsLineas.Cell(row, 1).Value = lineaNum++;
+            wsLineas.Cell(row, 2).Value = linea.Producto?.Nombre ?? linea.Descripcion;
+            wsLineas.Cell(row, 3).Value = linea.Lote?.CodigoLote ?? "";
+            if (linea.Lote != null)
+            {
+                wsLineas.Cell(row, 4).Value = linea.Lote.FechaFabricacion.ToDateTime(TimeOnly.MinValue);
+                if (linea.Lote.FechaCaducidad.HasValue)
+                    wsLineas.Cell(row, 5).Value = linea.Lote.FechaCaducidad.Value.ToDateTime(TimeOnly.MinValue);
+            }
+            wsLineas.Cell(row, 4).Style.DateFormat.Format = "dd/mm/yyyy";
+            wsLineas.Cell(row, 5).Style.DateFormat.Format = "dd/mm/yyyy";
+            wsLineas.Cell(row, 6).Value = linea.Cantidad;
+            wsLineas.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+            wsLineas.Cell(row, 7).Value = linea.PrecioUnitario;
+            wsLineas.Cell(row, 7).Style.NumberFormat.Format = "#,##0.0000 €";
+            wsLineas.Cell(row, 8).Value = linea.Descuento / 100;
+            wsLineas.Cell(row, 8).Style.NumberFormat.Format = "0.00%";
+            wsLineas.Cell(row, 9).Value = GetDiscountOriginText(linea, factura.Cliente, linea.Producto);
+            wsLineas.Cell(row, 10).Value = linea.IvaPorcentaje / 100;
+            wsLineas.Cell(row, 10).Style.NumberFormat.Format = "0.00%";
+            wsLineas.Cell(row, 11).Value = linea.RecargoEquivalenciaPorcentaje / 100;
+            wsLineas.Cell(row, 11).Style.NumberFormat.Format = "0.00%";
+            wsLineas.Cell(row, 12).Value = subtotal;
+            wsLineas.Cell(row, 12).Style.NumberFormat.Format = "#,##0.0000 €";
+            wsLineas.Cell(row, 13).Value = ivaImporte;
+            wsLineas.Cell(row, 13).Style.NumberFormat.Format = "#,##0.0000 €";
+            wsLineas.Cell(row, 14).Value = reImporte;
+            wsLineas.Cell(row, 14).Style.NumberFormat.Format = "#,##0.0000 €";
+            wsLineas.Cell(row, 15).Value = subtotal + ivaImporte + reImporte;
+            wsLineas.Cell(row, 15).Style.NumberFormat.Format = "#,##0.0000 €";
+            wsLineas.Cell(row, 16).Value = empresa?.RazonSocial ?? empresa?.Nombre;
+            wsLineas.Cell(row, 17).Value = empresa?.Nif;
+            wsLineas.Cell(row, 18).Value = factura.Cliente?.NombreCompleto;
+            wsLineas.Cell(row, 19).Value = factura.Cliente?.Nif;
+            wsLineas.Cell(row, 20).Value = factura.NumeroFactura;
+            wsLineas.Cell(row, 21).Value = factura.FechaFactura.ToDateTime(TimeOnly.MinValue);
+            wsLineas.Cell(row, 21).Style.DateFormat.Format = "dd/mm/yyyy";
 
             // Alternar color fila
             if (row % 2 == 0)
             {
-                var range = wsLineas.Cells[row, 1, row, headers.Length];
-                range.Style.Fill.PatternType = ExcelFillStyle.Solid;
-                range.Style.Fill.BackgroundColor.SetColor(DrawingColor.FromArgb(252, 243, 233));
+                var range = wsLineas.Range(row, 1, row, headers.Length);
+                range.Style.Fill.BackgroundColor = XLColor.FromHtml("#FCF3E9");
             }
 
             row++;
         }
 
         // Autofit
-        for (int c = 1; c <= headers.Length; c++)
-            wsLineas.Column(c).AutoFit();
+        wsLineas.Columns().AdjustToContents();
 
-        return package.GetAsByteArray();
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
     }
 
     public async Task<byte[]> GetExcelTrazabilidadAsync(int empresaId, DateOnly desde, DateOnly hasta, CancellationToken ct = default)
     {
-        ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-
         var empresa = await _uow.Empresas.GetByIdAsync(empresaId, ct);
 
         // Cargar registros de trazabilidad con nav props
@@ -836,19 +854,19 @@ public class FacturaService : IFacturaService
             .OrderByDescending(t => t.FechaOperacion)
             .ToListAsync(ct);
 
-        using var package = new ExcelPackage();
-        var ws = package.Workbook.Worksheets.Add("Trazabilidad");
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("Trazabilidad");
 
-        ws.Cells["A1"].Value = "INFORME DE TRAZABILIDAD ALIMENTARIA";
-        ws.Cells["A1"].Style.Font.Size = 14;
-        ws.Cells["A1"].Style.Font.Bold = true;
-        ws.Cells["A2"].Value = $"Empresa: {empresa?.RazonSocial ?? empresa?.Nombre} | NIF: {empresa?.Nif} | Período: {desde:dd/MM/yyyy} - {hasta:dd/MM/yyyy}";
-        ws.Cells["A2"].Style.Font.Size = 9;
-        ws.Cells["A2"].Style.Font.Italic = true;
-        ws.Cells["A3"].Value = "Conforme al Reglamento (CE) Nº 178/2002 del Parlamento Europeo y del Consejo";
-        ws.Cells["A3"].Style.Font.Size = 8;
-        ws.Cells["A3"].Style.Font.Italic = true;
-        ws.Cells["A3"].Style.Font.Color.SetColor(DrawingColor.Gray);
+        ws.Cell("A1").Value = "INFORME DE TRAZABILIDAD ALIMENTARIA";
+        ws.Cell("A1").Style.Font.FontSize = 14;
+        ws.Cell("A1").Style.Font.Bold = true;
+        ws.Cell("A2").Value = $"Empresa: {empresa?.RazonSocial ?? empresa?.Nombre} | NIF: {empresa?.Nif} | Período: {desde:dd/MM/yyyy} - {hasta:dd/MM/yyyy}";
+        ws.Cell("A2").Style.Font.FontSize = 9;
+        ws.Cell("A2").Style.Font.Italic = true;
+        ws.Cell("A3").Value = "Conforme al Reglamento (CE) Nº 178/2002 del Parlamento Europeo y del Consejo";
+        ws.Cell("A3").Style.Font.FontSize = 8;
+        ws.Cell("A3").Style.Font.Italic = true;
+        ws.Cell("A3").Style.Font.FontColor = XLColor.Gray;
 
         string[] headers = new[]
         {
@@ -859,51 +877,56 @@ public class FacturaService : IFacturaService
         int col = 1;
         foreach (var h in headers)
         {
-            ws.Cells[5, col].Value = h;
-            ws.Cells[5, col].Style.Font.Bold = true;
-            ws.Cells[5, col].Style.Fill.PatternType = ExcelFillStyle.Solid;
-            ws.Cells[5, col].Style.Fill.BackgroundColor.SetColor(DrawingColor.FromArgb(230, 126, 34));
-            ws.Cells[5, col].Style.Font.Color.SetColor(DrawingColor.White);
-            ws.Cells[5, col].Style.Border.BorderAround(ExcelBorderStyle.Thin);
+            ws.Cell(5, col).Value = h;
+            ws.Cell(5, col).Style.Font.Bold = true;
+            ws.Cell(5, col).Style.Fill.BackgroundColor = XLColor.FromHtml("#E67E22");
+            ws.Cell(5, col).Style.Font.FontColor = XLColor.White;
+            ws.Cell(5, col).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
             col++;
         }
 
         int row = 6;
         foreach (var t in trazabilidades)
         {
-            ws.Cells[row, 1].Value = t.FechaOperacion.ToLocalTime();
-            ws.Cells[row, 1].Style.Numberformat.Format = "dd/mm/yyyy hh:mm";
-            ws.Cells[row, 2].Value = t.TipoOperacion;
-            ws.Cells[row, 3].Value = t.Producto?.Nombre;
-            ws.Cells[row, 4].Value = t.Lote?.CodigoLote;
-            ws.Cells[row, 5].Value = t.Lote != null ? t.Lote.FechaFabricacion.ToDateTime(TimeOnly.MinValue) : (object)"";
-            ws.Cells[row, 5].Style.Numberformat.Format = "dd/mm/yyyy";
-            ws.Cells[row, 6].Value = t.Lote?.FechaCaducidad.HasValue == true
-                ? t.Lote.FechaCaducidad.Value.ToDateTime(TimeOnly.MinValue) : (object)"";
-            ws.Cells[row, 6].Style.Numberformat.Format = "dd/mm/yyyy";
-            ws.Cells[row, 7].Value = t.Cantidad;
-            ws.Cells[row, 7].Style.Numberformat.Format = "#,##0.00";
-            ws.Cells[row, 8].Value = t.Cliente?.NombreCompleto;
-            ws.Cells[row, 9].Value = t.Cliente?.Nif;
-            ws.Cells[row, 10].Value = t.Factura?.NumeroFactura;
-            ws.Cells[row, 11].Value = t.Factura != null ? t.Factura.FechaFactura.ToDateTime(TimeOnly.MinValue) : (object)"";
-            ws.Cells[row, 11].Style.Numberformat.Format = "dd/mm/yyyy";
-            ws.Cells[row, 12].Value = t.DatosAdicionales;
+            ws.Cell(row, 1).Value = t.FechaOperacion.ToLocalTime();
+            ws.Cell(row, 1).Style.DateFormat.Format = "dd/mm/yyyy hh:mm";
+            ws.Cell(row, 2).Value = t.TipoOperacion;
+            ws.Cell(row, 3).Value = t.Producto?.Nombre;
+            ws.Cell(row, 4).Value = t.Lote?.CodigoLote;
+            if (t.Lote != null)
+            {
+                ws.Cell(row, 5).Value = t.Lote.FechaFabricacion.ToDateTime(TimeOnly.MinValue);
+                if (t.Lote.FechaCaducidad.HasValue)
+                    ws.Cell(row, 6).Value = t.Lote.FechaCaducidad.Value.ToDateTime(TimeOnly.MinValue);
+            }
+            ws.Cell(row, 5).Style.DateFormat.Format = "dd/mm/yyyy";
+            ws.Cell(row, 6).Style.DateFormat.Format = "dd/mm/yyyy";
+            ws.Cell(row, 7).Value = t.Cantidad;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 8).Value = t.Cliente?.NombreCompleto;
+            ws.Cell(row, 9).Value = t.Cliente?.Nif;
+            ws.Cell(row, 10).Value = t.Factura?.NumeroFactura;
+            if (t.Factura != null)
+            {
+                ws.Cell(row, 11).Value = t.Factura.FechaFactura.ToDateTime(TimeOnly.MinValue);
+                ws.Cell(row, 11).Style.DateFormat.Format = "dd/mm/yyyy";
+            }
+            ws.Cell(row, 12).Value = t.DatosAdicionales;
 
             if (row % 2 == 0)
             {
-                var range = ws.Cells[row, 1, row, headers.Length];
-                range.Style.Fill.PatternType = ExcelFillStyle.Solid;
-                range.Style.Fill.BackgroundColor.SetColor(DrawingColor.FromArgb(252, 243, 233));
+                var range = ws.Range(row, 1, row, headers.Length);
+                range.Style.Fill.BackgroundColor = XLColor.FromHtml("#FCF3E9");
             }
 
             row++;
         }
 
-        for (int c = 1; c <= headers.Length; c++)
-            ws.Column(c).AutoFit();
+        ws.Columns().AdjustToContents();
 
-        return package.GetAsByteArray();
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
     }
 
     private static FacturaDto MapToDto(Factura f, Empresa? empresa) => new()
@@ -925,6 +948,7 @@ public class FacturaService : IFacturaService
         Total = f.Total,
         FechaVencimiento = f.FechaVencimiento,
         PdfUrl = f.PdfUrl,
+        OrigenStock = f.OrigenStock.ToString(),
         Lineas = f.Lineas.OrderBy(l => l.Orden).Select(l => new FacturaLineaDto
         {
             ProductoId = l.ProductoId,

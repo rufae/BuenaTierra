@@ -34,6 +34,8 @@ export interface Empresa {
   esObrador?: boolean
   tipoEmpresa?: 'Obrador' | 'Distribucion'
   configuracion?: string | null
+  /** Tabla RE de la empresa (tipos_iva_re) — la usan los previews de precios */
+  tiposIvaRe?: { ivaPorcentaje: number; recargoEquivalenciaPorcentaje: number }[]
 }
 
 // ── Categorias ────────────────────────────────────────────────────────────────────
@@ -143,6 +145,8 @@ export interface ClienteCondicionEspecial {
   tipo: TipoCondicionEspecial
   precio: number
   descuento: number
+  /** ISO date — desempate de condiciones, igual que el backend (UpdatedAt desc) */
+  updatedAt?: string
 }
 
 export interface Cliente {
@@ -256,6 +260,10 @@ export interface StockItem {
   fechaCaducidad: string | null
   cantidadDisponible: number
   cantidadReservada: number
+  /** Unidades de este lote actualmente en la furgoneta */
+  cantidadFurgoneta: number
+  /** Unidades de este lote en fábrica (disponible - furgoneta) */
+  cantidadFabrica: number
 }
 
 // ── Series ────────────────────────────────────────────────────────────────────
@@ -290,14 +298,22 @@ export interface Factura {
   cliente: { id: number; nombre: string; nif: string | null }
   baseImponible: number
   ivaTotal: number
+  recargoEquivalenciaTotal?: number
+  retencionTotal?: number
   total: number
   lineas: FacturaLinea[]
   pdfUrl: string | null
+  /** Origen de la venta (Fabrica/Furgoneta) */
+  origenStock?: string
 }
 
 export interface CreateFacturaItemDto {
   productoId: number
   cantidad: number
+  precioUnitario?: number
+  descuento?: number
+  ivaPorcentaje?: number
+  recargoEquivalenciaPorcentaje?: number
 }
 
 export interface CreateFacturaDto {
@@ -306,6 +322,7 @@ export interface CreateFacturaDto {
   serieId: number
   esSimplificada?: boolean
   observaciones?: string
+  origenStock?: 'Fabrica' | 'Furgoneta'
   items: CreateFacturaItemDto[]
 }
 
@@ -334,6 +351,7 @@ export interface AlbaranResumen {
   total: number
   pedidoId: number | null
   noRealizarFacturas: boolean
+  origenStock?: string
 }
 
 export interface AlbaranLinea {
@@ -363,6 +381,7 @@ export interface AlbaranDetalle {
   notas: string | null
   lineas: AlbaranLinea[]
   clienteNoRealizarFacturas: boolean
+  origenStock?: string
 }
 
 export interface CreateAlbaranItemDto {
@@ -378,6 +397,7 @@ export interface CreateAlbaranDto {
   serieId?: number
   fechaAlbaran?: string
   notas?: string
+  origenStock?: 'Fabrica' | 'Furgoneta'
   items: CreateAlbaranItemDto[]
 }
 
@@ -391,6 +411,7 @@ export interface PedidoResumen {
   clienteNombre: string
   total: number
   noRealizarFacturas: boolean
+  origenStock?: string
 }
 
 export interface PedidoLinea {
@@ -426,6 +447,7 @@ export interface PedidoDetalle {
   notas: string | null
   lineas: PedidoLinea[]
   noRealizarFacturas: boolean
+  origenStock?: string
 }
 
 export interface CreatePedidoItemDto {
@@ -440,6 +462,8 @@ export interface CreatePedidoDto {
   fechaPedido?: string
   fechaEntrega?: string
   notas?: string
+  /** Origen de la venta — obligatorio, sin preselección */
+  origenStock: 'Fabrica' | 'Furgoneta'
   items: CreatePedidoItemDto[]
 }
 

@@ -182,6 +182,14 @@ public class EmpresaController : ControllerBase
             ? BuenaTierra.API.Services.ConfiguracionCrypto.UnprotectJson(e.Configuracion)
             : BuenaTierra.API.Services.ConfiguracionSanitizer.Sanitize(e.Configuracion);
 
+        // Tabla RE de la empresa: la usan los previews de precios del frontend
+        // para cuadrar con el backend (GetRecargoEquivalenciaPorcentaje).
+        var tiposIvaRe = await _uow.TiposIvaRe.GetQueryable()
+            .Where(t => t.EmpresaId == EmpresaId && t.Activo)
+            .OrderBy(t => t.IvaPorcentaje)
+            .Select(t => new { t.IvaPorcentaje, t.RecargoEquivalenciaPorcentaje })
+            .ToListAsync(ct);
+
         return Ok(ApiResponse<object>.Ok(new
         {
             e.Id,
@@ -201,6 +209,7 @@ public class EmpresaController : ControllerBase
             e.EsObrador,
             e.Activa,
             Configuracion = configuracion,
+            TiposIvaRe = tiposIvaRe,
         }));
     }
 

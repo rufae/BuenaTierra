@@ -3,14 +3,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
 import type { Producto, StockItem } from '../types'
-import { Search, Lock, AlertTriangle, Eye, RefreshCw, Loader2, Layers } from 'lucide-react'
+import { Search, Lock, AlertTriangle, Eye, RefreshCw, Loader2, Layers, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate, parseDate } from '../lib/dates'
 import { EstadoBadge } from '../components/EstadoBadge'
+import { downloadBlob, useDownloading } from '../lib/download'
 
 export default function Lotes() {
   const { user } = useAuth()
   const qc = useQueryClient()
+  const descargando = useDownloading()
   const [search, setSearch] = useState('')
   const [filterEstado, setFilterEstado] = useState<string>('todos')
   const [fifoProductoId, setFifoProductoId] = useState<number | null>(null)
@@ -103,9 +105,19 @@ export default function Lotes() {
           <h1 className="text-xl font-bold text-gray-900">Gestión de Lotes</h1>
           <p className="text-sm text-gray-500 mt-0.5">Stock por lote · trazabilidad · asignación FIFO</p>
         </div>
-        <button onClick={() => refetch()} className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border rounded-lg hover:bg-gray-50">
-          <RefreshCw className="w-4 h-4" />Actualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => downloadBlob('/lotes/exportar-excel', 'lotes.xlsx', 'Error al exportar lotes')}
+            disabled={descargando}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-green-700 hover:text-green-900 border border-green-300 rounded-lg hover:bg-green-50 disabled:opacity-60 transition-colors"
+          >
+            {descargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {descargando ? 'Generando…' : 'Excel'}
+          </button>
+          <button onClick={() => refetch()} className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border rounded-lg hover:bg-gray-50">
+            <RefreshCw className="w-4 h-4" />Actualizar
+          </button>
+        </div>
       </div>
 
       {/* Stats */}

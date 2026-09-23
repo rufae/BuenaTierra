@@ -6,7 +6,7 @@ interface AuthContextValue {
   user: AuthUser | null
   login: (email: string, password: string) => Promise<void>
   logout: () => void
-  updateUser: (patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email' | 'debeCambiarPassword'>>) => void
+  updateUser: (patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email' | 'debeCambiarPassword' | 'token' | 'refreshToken' | 'expira'>>) => void
   isAuthenticated: boolean
 }
 
@@ -82,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
-  const updateUser = useCallback((patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email' | 'debeCambiarPassword'>>) => {
+  const updateUser = useCallback((patch: Partial<Pick<AuthUser, 'nombre' | 'apellidos' | 'email' | 'debeCambiarPassword' | 'token' | 'refreshToken' | 'expira'>>) => {
     setUser(prev => {
       if (!prev) return prev
       const updated = { ...prev, ...patch }

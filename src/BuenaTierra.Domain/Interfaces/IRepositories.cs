@@ -1,4 +1,5 @@
 using BuenaTierra.Domain.Entities;
+using BuenaTierra.Domain.Enums;
 using System.Linq.Expressions;
 
 namespace BuenaTierra.Domain.Interfaces;
@@ -45,7 +46,7 @@ public interface IClienteRepository : IRepository<Cliente>
 /// </summary>
 public interface ILoteRepository : IRepository<Lote>
 {
-    Task<IEnumerable<Lote>> GetDisponiblesFIFOAsync(int empresaId, int productoId, CancellationToken ct = default);
+    Task<IEnumerable<Lote>> GetDisponiblesFIFOAsync(int empresaId, int productoId, OrigenStock origen = OrigenStock.Fabrica, CancellationToken ct = default);
     Task<IEnumerable<Lote>> GetByProductoAsync(int empresaId, int productoId, CancellationToken ct = default);
     Task<Lote?> GetByCodigoAsync(int empresaId, string codigoLote, CancellationToken ct = default);
 }
@@ -58,6 +59,7 @@ public interface IStockRepository : IRepository<Stock>
     Task<Stock?> GetByProductoLoteAsync(int empresaId, int productoId, int loteId, CancellationToken ct = default);
     Task<IEnumerable<Stock>> GetByProductoAsync(int empresaId, int productoId, CancellationToken ct = default);
     Task<decimal> GetTotalDisponibleAsync(int empresaId, int productoId, CancellationToken ct = default);
+    Task<decimal> GetTotalDisponibleOrigenAsync(int empresaId, int productoId, OrigenStock origen, CancellationToken ct = default);
     Task<IEnumerable<Stock>> GetStockBajoMinimoAsync(int empresaId, CancellationToken ct = default);
     Task<IEnumerable<StockDetalle>> GetAllConDetalleAsync(int empresaId, CancellationToken ct = default);
 }
@@ -170,5 +172,7 @@ public record StockDetalle(
     string FechaLote,
     string? FechaCaducidad,
     decimal CantidadDisponible,
-    decimal CantidadReservada
+    decimal CantidadReservada,
+    decimal CantidadFurgoneta = 0,
+    decimal CantidadFabrica = 0
 );

@@ -332,12 +332,14 @@ CREATE TABLE IF NOT EXISTS stock (
     lote_id             INTEGER NOT NULL REFERENCES lotes(id),
     cantidad_disponible NUMERIC(10,3) NOT NULL DEFAULT 0,
     cantidad_reservada  NUMERIC(10,3) NOT NULL DEFAULT 0,
+    cantidad_furgoneta  NUMERIC(10,3) NOT NULL DEFAULT 0,
     stock_minimo        NUMERIC(10,3) DEFAULT 0,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, producto_id, lote_id),
     CONSTRAINT stock_disponible_positivo CHECK (cantidad_disponible >= 0),
-    CONSTRAINT stock_reservada_positivo CHECK (cantidad_reservada >= 0)
+    CONSTRAINT stock_reservada_positivo CHECK (cantidad_reservada >= 0),
+    CONSTRAINT stock_furgoneta_valida CHECK (cantidad_furgoneta >= 0 AND cantidad_furgoneta <= cantidad_disponible)
 );
 CREATE INDEX IF NOT EXISTS idx_stock_empresa_producto ON stock(empresa_id, producto_id);
 CREATE INDEX IF NOT EXISTS idx_stock_lote ON stock(lote_id);
@@ -352,7 +354,7 @@ CREATE TABLE IF NOT EXISTS movimientos_stock (
     empresa_id      INTEGER NOT NULL REFERENCES empresas(id),
     producto_id     INTEGER NOT NULL REFERENCES productos(id),
     lote_id         INTEGER NOT NULL REFERENCES lotes(id),
-    tipo            TEXT NOT NULL CHECK (tipo IN ('EntradaProduccion','Venta','AjustePositivo','AjusteNegativo','Devolucion','Caducidad')),
+    tipo            TEXT NOT NULL CHECK (tipo IN ('EntradaProduccion','Venta','AjustePositivo','AjusteNegativo','Devolucion','Caducidad','CargaFurgoneta','DescargaFurgoneta','Merma')),
     cantidad        NUMERIC(10,3) NOT NULL,
     cantidad_antes  NUMERIC(10,3) NOT NULL,
     cantidad_despues NUMERIC(10,3) NOT NULL,
@@ -403,6 +405,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     retencion_total NUMERIC(12,4) NOT NULL DEFAULT 0,
     total           NUMERIC(12,4) DEFAULT 0,
     notas           TEXT,
+    origen_stock    VARCHAR(10) NOT NULL DEFAULT 'Fabrica' CHECK (origen_stock IN ('Fabrica','Furgoneta')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -509,6 +512,7 @@ CREATE TABLE IF NOT EXISTS albaranes (
     retencion_total NUMERIC(12,4) DEFAULT 0,
     total           NUMERIC(12,4) DEFAULT 0,
     notas           TEXT,
+    origen_stock    VARCHAR(10) NOT NULL DEFAULT 'Fabrica' CHECK (origen_stock IN ('Fabrica','Furgoneta')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -565,6 +569,7 @@ CREATE TABLE IF NOT EXISTS facturas (
     total           NUMERIC(12,4) NOT NULL DEFAULT 0,
     pdf_url         VARCHAR(500),
     notas           TEXT,
+    origen_stock    VARCHAR(10) NOT NULL DEFAULT 'Fabrica' CHECK (origen_stock IN ('Fabrica','Furgoneta')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(empresa_id, numero_factura)

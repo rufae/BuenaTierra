@@ -1302,7 +1302,7 @@ function GenerarTab() {
         if (pdfUrl) URL.revokeObjectURL(pdfUrl)
         setPdfUrl(URL.createObjectURL(blob))
         toast.success('PDF generado correctamente')
-      } catch (err) {
+      } catch {
         toast.error('Error al generar PDF')
       } finally {
         setGenerating(false)
@@ -1329,7 +1329,7 @@ function GenerarTab() {
         a.click()
         URL.revokeObjectURL(url)
         toast.success('ODT generado y descargado')
-      } catch (err) {
+      } catch {
         toast.error('Error al generar etiqueta')
       } finally {
         setGenerating(false)

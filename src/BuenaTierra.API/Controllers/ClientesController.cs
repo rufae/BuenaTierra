@@ -129,6 +129,13 @@ public class ClientesController : ControllerBase
 
     private int EmpresaId => int.Parse(User.FindFirstValue("empresa_id")!);
 
+    /// <summary>Aislamiento multiempresa: true si el cliente existe y pertenece a la empresa del usuario.</summary>
+    private async Task<bool> EsClientePropioAsync(int id, CancellationToken ct)
+    {
+        var cliente = await _uow.Clientes.GetByIdAsync(id, ct);
+        return cliente != null && cliente.EmpresaId == EmpresaId;
+    }
+
     // ── CLIENTES ─────────────────────────────────────────────────────────────
 
     [HttpGet]
@@ -154,48 +161,46 @@ public class ClientesController : ControllerBase
         var clientes = await _uow.Clientes.GetByEmpresaAsync(EmpresaId, false, ct);
         var list = clientes.ToList();
 
-        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-        using var package = new OfficeOpenXml.ExcelPackage();
-        var ws = package.Workbook.Worksheets.Add("Clientes");
+        using var wb = new ClosedXML.Excel.XLWorkbook();
+        var ws = wb.Worksheets.Add("Clientes");
 
         string[] headers = { "Código", "Tipo", "Nombre", "NIF", "Teléfono", "Email", "Ciudad", "Estado", "R.E.", "Activo" };
         for (int i = 0; i < headers.Length; i++)
-            ws.Cells[1, i + 1].Value = headers[i];
+            ws.Cell(1, i + 1).Value = headers[i];
 
-        using (var hr = ws.Cells[1, 1, 1, headers.Length])
-        {
-            hr.Style.Font.Bold = true;
-            hr.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
-            hr.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(68, 114, 196));
-            hr.Style.Font.Color.SetColor(System.Drawing.Color.White);
-        }
+        var hr = ws.Range(1, 1, 1, headers.Length);
+        hr.Style.Font.Bold = true;
+        hr.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#4472C4");
+        hr.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
 
         int row = 2;
         foreach (var c in list)
         {
-            ws.Cells[row, 1].Value = c.CodigoClienteInterno;
-            ws.Cells[row, 2].Value = c.Tipo.ToString();
-            ws.Cells[row, 3].Value = c.NombreCompleto;
-            ws.Cells[row, 4].Value = c.Nif;
-            ws.Cells[row, 5].Value = c.Telefono;
-            ws.Cells[row, 6].Value = c.Email;
-            ws.Cells[row, 7].Value = c.Ciudad;
-            ws.Cells[row, 8].Value = c.EstadoCliente.ToString();
-            ws.Cells[row, 9].Value = c.RecargoEquivalencia ? "Sí" : "No";
-            ws.Cells[row, 10].Value = c.Activo ? "Sí" : "No";
+            ws.Cell(row, 1).Value = c.CodigoClienteInterno;
+            ws.Cell(row, 2).Value = c.Tipo.ToString();
+            ws.Cell(row, 3).Value = c.NombreCompleto;
+            ws.Cell(row, 4).Value = c.Nif;
+            ws.Cell(row, 5).Value = c.Telefono;
+            ws.Cell(row, 6).Value = c.Email;
+            ws.Cell(row, 7).Value = c.Ciudad;
+            ws.Cell(row, 8).Value = c.EstadoCliente.ToString();
+            ws.Cell(row, 9).Value = c.RecargoEquivalencia ? "Sí" : "No";
+            ws.Cell(row, 10).Value = c.Activo ? "Sí" : "No";
             row++;
         }
-        ws.Cells.AutoFitColumns();
+        ws.Columns().AdjustToContents();
 
-        var bytes = package.GetAsByteArray();
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "clientes.xlsx");
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "clientes.xlsx");
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ApiResponse<Cliente>>> Get(int id, CancellationToken ct)
     {
-        var cliente = await _uow.Clientes.GetByIdAsync(id, ct)
-            ?? throw new EntidadNotFoundException(nameof(Cliente), id);
+        var cliente = await _uow.Clientes.GetByIdAsync(id, ct);
+        if (cliente == null || cliente.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<Cliente>.Fail("Cliente no encontrado"));
         return Ok(ApiResponse<Cliente>.Ok(cliente));
     }
 
@@ -237,6 +242,11 @@ public class ClientesController : ControllerBase
     public async Task<ActionResult<ApiResponse<Cliente>>> Update(
         int id, [FromBody] UpdateClienteDto dto, CancellationToken ct)
     {
+        // Aislamiento multiempresa: comprobar propiedad ANTES de cualquier validación
+        var existente = await _uow.Clientes.GetByIdAsync(id, ct);
+        if (existente == null || existente.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<Cliente>.Fail("Cliente no encontrado"));
+
         // Validación NIF/CIF/NIE
         if (!string.IsNullOrWhiteSpace(dto.Nif))
         {
@@ -244,9 +254,6 @@ public class ClientesController : ControllerBase
             if (!nifValido)
                 return UnprocessableEntity(ApiResponse<Cliente>.Fail($"NIF/CIF/NIE no válido: {nifError}"));
         }
-
-        var existente = await _uow.Clientes.GetByIdAsync(id, ct)
-            ?? throw new EntidadNotFoundException(nameof(Cliente), id);
 
         MapToEntity(existente, dto);
 
@@ -258,8 +265,9 @@ public class ClientesController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<ActionResult<ApiResponse<bool>>> Delete(int id, CancellationToken ct)
     {
-        var existente = await _uow.Clientes.GetByIdAsync(id, ct)
-            ?? throw new EntidadNotFoundException(nameof(Cliente), id);
+        var existente = await _uow.Clientes.GetByIdAsync(id, ct);
+        if (existente == null || existente.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<bool>.Fail("Cliente no encontrado"));
         existente.Activo = false;
         existente.EstadoCliente = EstadoCliente.Inactivo;
         await _uow.Clientes.UpdateAsync(existente, ct);
@@ -273,6 +281,9 @@ public class ClientesController : ControllerBase
     public async Task<ActionResult<ApiResponse<IEnumerable<ClienteCondicionEspecial>>>> GetCondiciones(
         int id, CancellationToken ct)
     {
+        if (!await EsClientePropioAsync(id, ct))
+            return NotFound(ApiResponse<IEnumerable<ClienteCondicionEspecial>>.Fail("Cliente no encontrado"));
+
         var condiciones = await _db.ClienteCondicionesEspeciales
             .Where(c => c.ClienteId == id)
             .ToListAsync(ct);
@@ -283,8 +294,14 @@ public class ClientesController : ControllerBase
     public async Task<ActionResult<ApiResponse<ClienteCondicionEspecial>>> AddCondicion(
         int id, [FromBody] UpsertCondicionEspecialDto dto, CancellationToken ct)
     {
+        if (!await EsClientePropioAsync(id, ct))
+            return NotFound(ApiResponse<ClienteCondicionEspecial>.Fail("Cliente no encontrado"));
+
         if (dto.ArticuloFamilia == TipoArticuloFamilia.Familia)
             return BadRequest(ApiResponse<ClienteCondicionEspecial>.Fail("No se admite alcance por familia/categoría. Use producto específico o '*' para todos los productos."));
+
+        if (string.IsNullOrWhiteSpace(dto.Codigo))
+            return BadRequest(ApiResponse<ClienteCondicionEspecial>.Fail("Indique el código del producto, o '*' / TODOS / ALL para todos los productos. No se admite código vacío."));
 
         var condicion = new ClienteCondicionEspecial
         {
@@ -305,8 +322,14 @@ public class ClientesController : ControllerBase
     public async Task<ActionResult<ApiResponse<ClienteCondicionEspecial>>> UpdateCondicion(
         int id, int condicionId, [FromBody] UpsertCondicionEspecialDto dto, CancellationToken ct)
     {
+        if (!await EsClientePropioAsync(id, ct))
+            return NotFound(ApiResponse<ClienteCondicionEspecial>.Fail("Cliente no encontrado"));
+
         if (dto.ArticuloFamilia == TipoArticuloFamilia.Familia)
             return BadRequest(ApiResponse<ClienteCondicionEspecial>.Fail("No se admite alcance por familia/categoría. Use producto específico o '*' para todos los productos."));
+
+        if (string.IsNullOrWhiteSpace(dto.Codigo))
+            return BadRequest(ApiResponse<ClienteCondicionEspecial>.Fail("Indique el código del producto, o '*' / TODOS / ALL para todos los productos. No se admite código vacío."));
 
         var condicion = await _db.ClienteCondicionesEspeciales
             .FirstOrDefaultAsync(c => c.Id == condicionId && c.ClienteId == id, ct)
@@ -327,6 +350,9 @@ public class ClientesController : ControllerBase
     public async Task<ActionResult<ApiResponse<bool>>> DeleteCondicion(
         int id, int condicionId, CancellationToken ct)
     {
+        if (!await EsClientePropioAsync(id, ct))
+            return NotFound(ApiResponse<bool>.Fail("Cliente no encontrado"));
+
         var condicion = await _db.ClienteCondicionesEspeciales
             .FirstOrDefaultAsync(c => c.Id == condicionId && c.ClienteId == id, ct)
             ?? throw new EntidadNotFoundException(nameof(ClienteCondicionEspecial), condicionId);

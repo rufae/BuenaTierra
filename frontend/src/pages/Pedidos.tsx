@@ -8,15 +8,10 @@ import { fmtDate } from '../lib/dates'
 import { DateInput } from '../components/DateInput'
 import { EstadoBadge } from '../components/EstadoBadge'
 import { formatCurrency } from '../lib/format'
+import { downloadBlob, useDownloading } from '../lib/download'
+import { resolvePreviewPricing, getIvaPorcentaje, getRecargoEquivalenciaPorcentaje, roundMoney, useEmpresaPrecios } from '../lib/pricing'
 
 interface ItemForm { productoId: number; cantidad: number }
-
-interface PreviewPricing {
-  precioUnitario: number
-  descuento: number
-  origenPrecio: string
-  origenDescuento: string
-}
 
 interface DevolucionLoteForm {
   loteId: number
@@ -25,8 +20,9 @@ interface DevolucionLoteForm {
   maxCantidad: number
   cantidadOriginal: number
   cantidadDevuelta: number
-  esCaducidad: boolean
-  /** Para MILHOJAS: si true la cantidad está en cajas (1 caja = 12 uds) */
+  /** Motivo de devolución (enum del backend): decide si repone stock */
+  motivo: string
+  /** Para MILHOJAS / productos con unidadesPorCaja: si true la cantidad está en cajas */
   esCaja: boolean
 }
 
@@ -38,103 +34,6 @@ interface DevolucionItemForm {
   lotes: DevolucionLoteForm[]
 }
 
-function normalizeCode(value?: string | null) {
-  return value?.trim().toUpperCase() ?? ''
-}
-
-function isGlobalCodigo(value?: string | null) {
-  if (!value || !value.trim()) return true
-  const normalized = value.trim().toUpperCase()
-  return normalized === '*' || normalized === 'TODOS' || normalized === 'ALL'
-}
-
-function getSpecificity(codigo: string | null | undefined, producto: Producto) {
-  if (isGlobalCodigo(codigo)) return 1
-
-  const normalized = normalizeCode(codigo)
-  const keys = [producto.codigo, producto.referencia, String(producto.id)].map(normalizeCode)
-  return keys.includes(normalized) ? 2 : 0
-}
-
-function findBestCondicion(
-  condiciones: ClienteCondicionEspecial[] | undefined,
-  producto: Producto,
-  type: 'Precio' | 'Descuento'
-) {
-  if (!condiciones?.length) return null
-
-  const filtered = condiciones
-    .filter(c => c.articuloFamilia !== 'Familia')
-    .filter(c => type === 'Precio'
-      ? (c.tipo === 'Precio' || c.tipo === 'PrecioEspecial')
-      : c.tipo === 'Descuento')
-    .map(c => ({ condicion: c, specificity: getSpecificity(c.codigo, producto) }))
-    .filter(x => x.specificity > 0)
-    .sort((a, b) => {
-      if (b.specificity !== a.specificity) return b.specificity - a.specificity
-      return b.condicion.id - a.condicion.id
-    })
-
-  return filtered[0]?.condicion ?? null
-}
-
-function resolvePreviewPricing(
-  cliente: Cliente | null,
-  producto: Producto,
-  condiciones: ClienteCondicionEspecial[] | undefined
-): PreviewPricing {
-  const condicionPrecio = findBestCondicion(condiciones, producto, 'Precio')
-  const condicionDescuento = findBestCondicion(condiciones, producto, 'Descuento')
-
-  const precioUnitario = condicionPrecio && condicionPrecio.precio > 0
-    ? condicionPrecio.precio
-    : producto.precioVenta
-
-  const origenPrecio = condicionPrecio && condicionPrecio.precio > 0
-    ? 'Condición especial'
-    : 'Precio base'
-
-  let descuento = 0
-  let origenDescuento = 'Sin descuento'
-
-  if (condicionDescuento && condicionDescuento.descuento > 0) {
-    descuento = condicionDescuento.descuento
-    origenDescuento = 'Condición especial'
-  } else if ((cliente?.descuentoGeneral ?? 0) > 0) {
-    descuento = cliente?.descuentoGeneral ?? 0
-    origenDescuento = 'Cliente'
-  } else if ((producto.descuentoPorDefecto ?? 0) > 0) {
-    descuento = producto.descuentoPorDefecto ?? 0
-    origenDescuento = 'Producto'
-  }
-
-  return { precioUnitario, descuento, origenPrecio, origenDescuento }
-}
-
-function getIvaPorcentaje(cliente: Cliente | null, producto: Producto) {
-  if (!cliente) return producto.ivaPorcentaje ?? 0
-
-  switch (cliente.tipoImpuesto) {
-    case 'Exento':
-      return 0
-    case 'IGIC':
-      return 7
-    default:
-      return cliente.aplicarImpuesto ? (producto.ivaPorcentaje ?? 0) : 0
-  }
-}
-
-function getRecargoEquivalenciaPorcentaje(cliente: Cliente | null, ivaPorcentaje: number) {
-  const aplicaRE = cliente?.tipoImpuesto === 'RecargoEquivalencia' || cliente?.recargoEquivalencia
-  if (!aplicaRE) return 0
-  switch (ivaPorcentaje) {
-    case 21: return 5.2
-    case 10: return 1.4
-    case 4: return 0.5
-    default: return 0
-  }
-}
-
 export default function Pedidos() {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
@@ -142,6 +41,7 @@ export default function Pedidos() {
   const [clienteId, setClienteId] = useState('')
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [notas, setNotas] = useState('')
+  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('')
   const [items, setItems] = useState<ItemForm[]>([{ productoId: 0, cantidad: 1 }])
 
   // Modal: crear factura desde pedido
@@ -152,6 +52,8 @@ export default function Pedidos() {
   // Devolución
   const [showDevolucion, setShowDevolucion] = useState<number | null>(null)
   const [devolucionItems, setDevolucionItems] = useState<DevolucionItemForm[]>([])
+  const [destinoDevolucion, setDestinoDevolucion] = useState<'Fabrica' | 'Furgoneta'>('Fabrica')
+  const [motivoTextoDevolucion, setMotivoTextoDevolucion] = useState('')
 
   // Edición de precios en detalle
   const [showEditPrecios, setShowEditPrecios] = useState(false)
@@ -163,38 +65,23 @@ export default function Pedidos() {
   const [fifoPreviews, setFifoPreviews] = useState<Record<string, any[]>>({})
   const [fifoLoading, setFifoLoading] = useState<Record<string, boolean>>({})
 
+  // F2: la edición de precios no debe fugarse de un pedido a otro
+  useEffect(() => {
+    setShowEditPrecios(false)
+    setEditPrecios({})
+  }, [detailOpen])
+
   const { data: pedidos, isLoading } = useQuery({
     queryKey: ['pedidos'],
     queryFn: async () => (await api.get<{ data: PedidoResumen[] }>('/pedidos')).data.data,
   })
 
-  const downloadExcel = async () => {
-    try {
-      const resp = await api.get('/pedidos/exportar-excel', { responseType: 'blob' })
-      const url = URL.createObjectURL(new Blob([resp.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'pedidos.xlsx'
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Error al exportar Excel de pedidos')
-    }
-  }
+  const downloadExcel = () => downloadBlob('/pedidos/exportar-excel', 'pedidos.xlsx', 'Error al exportar Excel de pedidos')
 
-  const downloadPdf = async (id: number, numero: string) => {
-    try {
-      const resp = await api.get(`/pedidos/${id}/pdf`, { responseType: 'blob' })
-      const url = URL.createObjectURL(new Blob([resp.data], { type: 'application/pdf' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `Pedido_${numero}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Error al generar el PDF')
-    }
-  }
+  const downloadPdf = (id: number, numero: string) =>
+    downloadBlob(`/pedidos/${id}/pdf`, `Pedido_${numero}.pdf`, 'Error al generar el PDF')
+
+  const descargando = useDownloading()
 
   const { data: detalle } = useQuery({
     queryKey: ['pedido', detailOpen],
@@ -222,6 +109,9 @@ export default function Pedidos() {
     queryFn: async () => (await api.get<{ data: ClienteCondicionEspecial[] }>(`/clientes/${clienteId}/condiciones`)).data.data,
     enabled: !!clienteId,
   })
+
+  // Tabla RE de la empresa — para que el preview cuadre con el backend
+  const { data: empresaPrecios } = useEmpresaPrecios()
 
   const { data: series } = useQuery({
     queryKey: ['series'],
@@ -335,7 +225,9 @@ export default function Pedidos() {
     mutationFn: ({ id, items }: { id: number; items: { productoId: number; precioUnitario?: number; descuento?: number; motivo?: string }[] }) =>
       api.put(`/pedidos/${id}/actualizar-lineas`, { items }),
     onSuccess: () => {
+      // F1: invalidar también la query del detalle (['pedido', id]) — hoy no refrescaba
       qc.invalidateQueries({ queryKey: ['pedidos'] })
+      qc.invalidateQueries({ queryKey: ['pedido'] })
       setShowEditPrecios(false)
       setEditPrecios({})
       toast.success('Precios actualizados')
@@ -344,20 +236,24 @@ export default function Pedidos() {
   })
 
   const devolverMutation = useMutation({
-    mutationFn: ({ id, items }: { id: number; items: { productoId: number; loteId: number; cantidad: number; esCaducidad: boolean }[] }) =>
-      api.post(`/pedidos/${id}/devolver`, { items }),
-    onSuccess: () => {
+    mutationFn: ({ id, items }: { id: number; items: { productoId: number; loteId: number; cantidad: number; motivo: string; motivoTexto?: string; destino: string }[] }) =>
+      api.post<{ data: string; message: string | null }>(`/pedidos/${id}/devolver`, { items }),
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['pedidos'] })
       qc.invalidateQueries({ queryKey: ['stock'] })
-      toast.success('Devolución registrada correctamente')
+      qc.invalidateQueries({ queryKey: ['trazabilidad'] })
+      toast.success(res.data?.message ?? 'Devolución registrada correctamente')
       setShowDevolucion(null)
+      setDevolucionItems([])
     },
-    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? e.response?.data?.message ?? 'Error al registrar devolución'),
+    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al registrar devolución'),
   })
 
   // Inicializar items de devolución con sus lotes cuando se carga el detalle
   useEffect(() => {
     if (detalleDevolucion && showDevolucion !== null) {
+      setDestinoDevolucion((detalleDevolucion.origenStock as 'Fabrica' | 'Furgoneta') ?? 'Fabrica')
+      setMotivoTextoDevolucion('')
       const init: DevolucionItemForm[] = (detalleDevolucion.lineas ?? [])
         .filter(l => l.lotesAsignados && l.lotesAsignados.length > 0)
         .map(l => {
@@ -376,7 +272,7 @@ export default function Pedidos() {
                 maxCantidad: Math.max(0, original - devuelto),
                 cantidadOriginal: original,
                 cantidadDevuelta: devuelto,
-                esCaducidad: false,
+                motivo: 'DevolucionVoluntaria',
                 esCaja: unidadesPorCaja > 0,
               }
             }),
@@ -407,7 +303,7 @@ export default function Pedidos() {
       for (const [k, v] of entries) {
         ;(async () => {
           try {
-            const res = await api.get<ApiResponse<any[]>>(`/lotes/producto/${v.productoId}/fifo`, { params: { cantidad: v.cantidad } })
+            const res = await api.get<ApiResponse<any[]>>(`/lotes/producto/${v.productoId}/fifo`, { params: { cantidad: v.cantidad, origen: detalle.origenStock ?? 'Fabrica' } })
             const r = res.data
             setFifoPreviews(prev => ({ ...prev, [k]: r.success && Array.isArray(r.data) ? r.data : [] }))
           } catch {
@@ -420,7 +316,7 @@ export default function Pedidos() {
     }
   }, [detalle, detailOpen])
 
-  function resetForm() { setShowForm(false); setClienteId(''); setFechaEntrega(''); setNotas(''); setItems([{ productoId: 0, cantidad: 1 }]) }
+  function resetForm() { setShowForm(false); setClienteId(''); setFechaEntrega(''); setNotas(''); setOrigenVenta(''); setItems([{ productoId: 0, cantidad: 1 }]) }
 
   function addItem() { setItems(prev => [...prev, { productoId: 0, cantidad: 1 }]) }
   function removeItem(i: number) { setItems(prev => prev.filter((_, idx) => idx !== i)) }
@@ -431,11 +327,13 @@ export default function Pedidos() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!clienteId) { toast.error('Selecciona un cliente'); return }
+    if (!origenVenta) { toast.error('Indica el origen de la venta (Fábrica o Furgoneta)'); return }
     if (items.some(it => !it.productoId || it.cantidad <= 0)) { toast.error('Completa todos los items'); return }
     crearMutation.mutate({
       clienteId: +clienteId,
       fechaEntrega: fechaEntrega || undefined,
       notas,
+      origenStock: origenVenta,
       items: items.map(it => ({ productoId: it.productoId, cantidad: it.cantidad })),
     })
   }
@@ -452,11 +350,12 @@ export default function Pedidos() {
         if (!producto || item.cantidad <= 0) return null
 
         const pricing = resolvePreviewPricing(selectedCliente, producto, clienteCondiciones)
-        const subtotal = item.cantidad * pricing.precioUnitario * (1 - pricing.descuento / 100)
         const ivaPorcentaje = getIvaPorcentaje(selectedCliente, producto)
-        const recargoPorcentaje = getRecargoEquivalenciaPorcentaje(selectedCliente, ivaPorcentaje)
-        const ivaImporte = subtotal * ivaPorcentaje / 100
-        const recargoImporte = subtotal * recargoPorcentaje / 100
+        const recargoPorcentaje = getRecargoEquivalenciaPorcentaje(selectedCliente, ivaPorcentaje, empresaPrecios?.tiposIvaRe)
+        // Mismo redondeo que el backend (Money.R2): subtotal 2dp y luego IVA/RE calculados sobre ese subtotal
+        const subtotal = roundMoney(item.cantidad * pricing.precioUnitario * (1 - pricing.descuento / 100))
+        const ivaImporte = roundMoney(subtotal * ivaPorcentaje / 100)
+        const recargoImporte = roundMoney(subtotal * recargoPorcentaje / 100)
 
         return {
           key: `${index}-${producto.id}`,
@@ -472,7 +371,7 @@ export default function Pedidos() {
         }
       })
       .filter((linea): linea is NonNullable<typeof linea> => linea !== null)
-  }, [clienteCondiciones, items, productos, selectedCliente])
+  }, [clienteCondiciones, empresaPrecios, items, productos, selectedCliente])
 
   const previewTotales = useMemo(() => {
     const subtotal = previewLineas.reduce((acc, linea) => acc + linea.subtotal, 0)
@@ -481,7 +380,8 @@ export default function Pedidos() {
     const retencionPorcentaje = selectedCliente && !selectedCliente.noAplicarRetenciones
       ? selectedCliente.porcentajeRetencion
       : 0
-    const retencionTotal = subtotal * retencionPorcentaje / 100
+    // Igual que el backend: RetencionTotal = R2(Subtotal * %)
+    const retencionTotal = roundMoney(subtotal * retencionPorcentaje / 100)
 
     return {
       subtotal,
@@ -503,9 +403,11 @@ export default function Pedidos() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={downloadExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700"
+            disabled={descargando}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
           >
-            <Download className="w-4 h-4" /> Exportar Excel
+            {descargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {descargando ? 'Generando…' : 'Exportar Excel'}
           </button>
           <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">
             <Plus className="w-4 h-4" />Nuevo pedido
@@ -582,7 +484,15 @@ export default function Pedidos() {
               : filteredPedidos.map(p => (
                 <React.Fragment key={p.id}>
                   <tr className="hover:bg-gray-50/50">
-                    <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{p.numeroPedido}</td>
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">
+                      {p.numeroPedido}
+                      {p.origenStock === 'Furgoneta' && (
+                        <span className="ml-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-50 text-sky-700 border border-sky-200 align-middle"
+                          title="Venta desde furgoneta">
+                          Furgoneta
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{fmtDate(p.fecha)}</td>
                     <td className="px-4 py-3 text-gray-500">{fmtDate(p.fechaEntrega)}</td>
                     <td className="px-4 py-3">
@@ -641,8 +551,9 @@ export default function Pedidos() {
                         )}
                         <button
                           onClick={() => downloadPdf(p.id, p.numeroPedido)}
-                          className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
-                          <Download className="w-3 h-3" /> PDF
+                          disabled={descargando}
+                          className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1 disabled:opacity-50">
+                          {descargando ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />} PDF
                         </button>
                         {p.estado !== 'Cancelado' && p.estado !== 'Servido' && p.estado !== 'Entregado' && (
                           <button onClick={() => cancelarMutation.mutate(p.id)} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
@@ -687,7 +598,11 @@ export default function Pedidos() {
                               const ed = editPrecios[l.productoId] ?? { precioUnitario: l.precioUnitario, descuento: l.descuento }
                               const precio = isPending && showEditPrecios ? ed.precioUnitario : l.precioUnitario
                               const descuento = isPending && showEditPrecios ? ed.descuento : l.descuento
-                              const importeLinea = l.cantidad * precio * (1 - descuento / 100) + (l.cantidad * precio * (1 - descuento / 100)) * l.ivaPorcentaje / 100
+                              // Importe de línea = R2(neto) + R2(IVA) + R2(R.Eq.) — misma regla que backend
+                              const netoLinea = roundMoney(l.cantidad * precio * (1 - descuento / 100))
+                              const ivaLinea = roundMoney(netoLinea * l.ivaPorcentaje / 100)
+                              const reLinea = roundMoney(netoLinea * l.recargoEquivalenciaPorcentaje / 100)
+                              const importeLinea = netoLinea + ivaLinea + reLinea
 
                               return (
                                 <tr key={i} className="border-t border-blue-100">
@@ -782,7 +697,8 @@ export default function Pedidos() {
                                     setShowEditPrecios(true)
                                       const init: Record<string, { precioUnitario: number; descuento: number; motivo: string }> = {}
                                       for (const l of detalle.lineas ?? []) {
-                                        init[l.productoId] = { precioUnitario: l.precioUnitario, descuento: l.descuento, motivo: '' }
+                                        // B6: partir del motivo existente para poder limpiarlo editándolo
+                                        init[l.productoId] = { precioUnitario: l.precioUnitario, descuento: l.descuento, motivo: l.motivoPrecioEspecial ?? '' }
                                       }
                                     setEditPrecios(init)
                                   }}
@@ -793,15 +709,15 @@ export default function Pedidos() {
                               ) : (
                                 <>
                                   <button
-                                    onClick={() => {
-                                      const items = Object.entries(editPrecios).map(([productoId, v]) => ({
-                                        productoId: parseInt(productoId),
-                                        precioUnitario: v.precioUnitario,
-                                        descuento: v.descuento,
-                                        motivo: v.motivo || undefined,
-                                      }))
-                                      actualizarLineasMutation.mutate({ id: p.id, items })
-                                    }}
+                                  onClick={() => {
+                                    const items = Object.entries(editPrecios).map(([productoId, v]) => ({
+                                      productoId: parseInt(productoId),
+                                      precioUnitario: v.precioUnitario,
+                                      descuento: v.descuento,
+                                      motivo: v.motivo,
+                                    }))
+                                    actualizarLineasMutation.mutate({ id: p.id, items })
+                                  }}
                                     disabled={actualizarLineasMutation.isPending}
                                     className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800"
                                   >
@@ -819,18 +735,62 @@ export default function Pedidos() {
                             </div>
                           )}
                           <div className="flex flex-wrap justify-end gap-3 text-xs ml-auto">
-                            <span>Base: <b>{formatCurrency(detalle.subtotal)}</b></span>
-                            {(detalle.descuentoTotal ?? 0) > 0 && (
-                              <span className="text-emerald-700">Descuento: <b>-{formatCurrency(detalle.descuentoTotal)}</b></span>
-                            )}
-                            <span>IVA: <b>{formatCurrency(detalle.ivaTotal)}</b></span>
-                            {(detalle.recargoEquivalenciaTotal ?? 0) > 0 && (
-                              <span>R.Eq.: <b>{formatCurrency(detalle.recargoEquivalenciaTotal)}</b></span>
-                            )}
-                            {(detalle.retencionTotal ?? 0) > 0 && (
-                              <span className="text-red-600">Retención: <b>-{formatCurrency(detalle.retencionTotal)}</b></span>
-                            )}
-                            <span className="font-bold text-brand-700">TOTAL: {formatCurrency(detalle.total)}</span>
+                            {(() => {
+                              // Mientras se editan precios, el pie se recalcula en vivo con los
+                              // valores de edición (misma regla R2 que el backend).
+                              const editing = p.estado === 'Pendiente' && showEditPrecios
+                              if (!editing) {
+                                return (
+                                  <>
+                                    <span>Base: <b>{formatCurrency(detalle.subtotal)}</b></span>
+                                    {(detalle.descuentoTotal ?? 0) > 0 && (
+                                      <span className="text-emerald-700">Descuento: <b>-{formatCurrency(detalle.descuentoTotal)}</b></span>
+                                    )}
+                                    <span>IVA: <b>{formatCurrency(detalle.ivaTotal)}</b></span>
+                                    {(detalle.recargoEquivalenciaTotal ?? 0) > 0 && (
+                                      <span>R.Eq.: <b>{formatCurrency(detalle.recargoEquivalenciaTotal)}</b></span>
+                                    )}
+                                    {(detalle.retencionTotal ?? 0) > 0 && (
+                                      <span className="text-red-600">Retención: <b>-{formatCurrency(detalle.retencionTotal)}</b></span>
+                                    )}
+                                    <span className="font-bold text-brand-700">TOTAL: {formatCurrency(detalle.total)}</span>
+                                  </>
+                                )
+                              }
+                              let subtotal = 0
+                              let descuentoTotal = 0
+                              let ivaTotal = 0
+                              let recargoTotal = 0
+                              for (const l of detalle.lineas ?? []) {
+                                const ed = editPrecios[l.productoId] ?? { precioUnitario: l.precioUnitario, descuento: l.descuento }
+                                const bruto = roundMoney(l.cantidad * ed.precioUnitario)
+                                const neto = roundMoney(l.cantidad * ed.precioUnitario * (1 - ed.descuento / 100))
+                                subtotal += neto
+                                descuentoTotal += bruto - neto
+                                ivaTotal += roundMoney(neto * l.ivaPorcentaje / 100)
+                                recargoTotal += roundMoney(neto * l.recargoEquivalenciaPorcentaje / 100)
+                              }
+                              const clienteDetalle = (clientes ?? []).find(c => c.id === detalle.cliente.id)
+                              const retencionPct = clienteDetalle && !clienteDetalle.noAplicarRetenciones ? clienteDetalle.porcentajeRetencion : 0
+                              const retencionTotal = roundMoney(subtotal * retencionPct / 100)
+                              const total = subtotal + ivaTotal + recargoTotal - retencionTotal
+                              return (
+                                <>
+                                  <span>Base: <b>{formatCurrency(subtotal)}</b></span>
+                                  {descuentoTotal > 0 && (
+                                    <span className="text-emerald-700">Descuento: <b>-{formatCurrency(descuentoTotal)}</b></span>
+                                  )}
+                                  <span>IVA: <b>{formatCurrency(ivaTotal)}</b></span>
+                                  {recargoTotal > 0 && (
+                                    <span>R.Eq.: <b>{formatCurrency(recargoTotal)}</b></span>
+                                  )}
+                                  {retencionTotal > 0 && (
+                                    <span className="text-red-600">Retención: <b>-{formatCurrency(retencionTotal)}</b></span>
+                                  )}
+                                  <span className="font-bold text-brand-700">TOTAL: {formatCurrency(total)}</span>
+                                </>
+                              )
+                            })()}
                           </div>
                         </div>
                         {detalle.notas && <p className="text-xs text-gray-500 mt-2 italic">Notas: {detalle.notas}</p>}
@@ -875,6 +835,17 @@ export default function Pedidos() {
                     <label className="block text-xs font-medium text-gray-700 mb-1">Fecha entrega prevista</label>
                     <DateInput value={fechaEntrega} onChange={setFechaEntrega} className="w-full" />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Origen de la venta *</label>
+                  <select value={origenVenta} onChange={e => setOrigenVenta(e.target.value as 'Fabrica' | 'Furgoneta' | '')}
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    <option value="">Seleccionar de dónde sale la mercancía…</option>
+                    <option value="Fabrica">Fábrica</option>
+                    <option value="Furgoneta">Furgoneta</option>
+                  </select>
+                  <p className="text-[11px] text-gray-400 mt-1">La mercancía se descontará de esta ubicación al confirmar.</p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Notas</label>
@@ -1058,12 +1029,12 @@ export default function Pedidos() {
                             <input
                               type="number"
                               min="0"
-                              max={item.unidadesPorCaja > 0 && lote.esCaja ? Math.ceil(lote.maxCantidad / item.unidadesPorCaja) : lote.maxCantidad}
+                              max={item.unidadesPorCaja > 0 && lote.esCaja ? Math.floor(lote.maxCantidad / item.unidadesPorCaja) : lote.maxCantidad}
                               step="1"
                               value={lote.cantidad}
                               onChange={e => {
                                 const val = Math.min(Math.max(0, parseInt(e.target.value || '0', 10)),
-                                  item.unidadesPorCaja > 0 && lote.esCaja ? Math.ceil(lote.maxCantidad / item.unidadesPorCaja) : lote.maxCantidad)
+                                  item.unidadesPorCaja > 0 && lote.esCaja ? Math.floor(lote.maxCantidad / item.unidadesPorCaja) : lote.maxCantidad)
                                 setDevolucionItems(prev => prev.map((d, di) =>
                                   di === pIdx
                                     ? { ...d, lotes: d.lotes.map((ld, li) => li === lIdx ? { ...ld, cantidad: val } : ld) }
@@ -1098,39 +1069,29 @@ export default function Pedidos() {
                           </td>
                         )}
                         <td className="py-1.5 text-center" colSpan={2}>
-                          <div className="flex items-center justify-center gap-3">
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`motivo-${lote.loteId}`}
-                                checked={!lote.esCaducidad}
-                                onChange={() => {
-                                  setDevolucionItems(prev => prev.map((d, di) =>
-                                    di === pIdx
-                                      ? { ...d, lotes: d.lotes.map((ld, li) => li === lIdx ? { ...ld, esCaducidad: false } : ld) }
-                                      : d
-                                  ))
-                                }}
-                                className="w-3.5 h-3.5 text-green-600 focus:ring-green-500"
-                              />
-                              <span className="text-[11px] text-gray-600">Normal</span>
-                            </label>
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`motivo-${lote.loteId}`}
-                                checked={lote.esCaducidad}
-                                onChange={() => {
-                                  setDevolucionItems(prev => prev.map((d, di) =>
-                                    di === pIdx
-                                      ? { ...d, lotes: d.lotes.map((ld, li) => li === lIdx ? { ...ld, esCaducidad: true } : ld) }
-                                      : d
-                                  ))
-                                }}
-                                className="w-3.5 h-3.5 text-orange-600 focus:ring-orange-500"
-                              />
-                              <span className="text-[11px] text-orange-600">Caducidad</span>
-                            </label>
+                          <div className="flex items-center justify-center">
+                            <select
+                              value={lote.motivo}
+                              onChange={e => {
+                                setDevolucionItems(prev => prev.map((d, di) =>
+                                  di === pIdx
+                                    ? { ...d, lotes: d.lotes.map((ld, li) => li === lIdx ? { ...ld, motivo: e.target.value } : ld) }
+                                    : d
+                                ))
+                              }}
+                              className={`text-[11px] border rounded-lg px-1.5 py-1 focus:ring-2 focus:ring-brand-500 ${
+                                lote.motivo === 'Caducidad' ? 'border-orange-200 text-orange-700 bg-orange-50'
+                                : ['ProductoDaniado', 'Otro'].includes(lote.motivo) ? 'border-red-200 text-red-700 bg-red-50'
+                                : 'border-green-200 text-green-700 bg-green-50'
+                              }`}
+                            >
+                              <option value="DevolucionVoluntaria">Devolución voluntaria</option>
+                              <option value="ErrorPreparacion">Error de preparación</option>
+                              <option value="CalidadObrador">Calidad del obrador</option>
+                              <option value="Caducidad">Caducidad</option>
+                              <option value="ProductoDaniado">Producto dañado</option>
+                              <option value="Otro">Otro</option>
+                            </select>
                           </div>
                         </td>
                       </tr>
@@ -1139,6 +1100,43 @@ export default function Pedidos() {
                 </table>
               </div>
             ))}
+
+            {/* Destino del repuesto + descripción si motivo = Otro */}
+            {devolucionItems.length > 0 && (() => {
+              const hayConCantidad = devolucionItems.some(item => item.lotes.some(l => l.cantidad > 0))
+              const reponeAlguno = devolucionItems.some(item => item.lotes.some(l =>
+                l.cantidad > 0 && !['Caducidad', 'ProductoDaniado', 'Otro'].includes(l.motivo)))
+              const hayOtro = devolucionItems.some(item => item.lotes.some(l => l.cantidad > 0 && l.motivo === 'Otro'))
+              if (!hayConCantidad) return null
+              return (
+                <div className="bg-gray-50 rounded-xl p-4 space-y-3 mt-3">
+                  {reponeAlguno && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Devolver a *</label>
+                      <select
+                        value={destinoDevolucion}
+                        onChange={e => setDestinoDevolucion(e.target.value as 'Fabrica' | 'Furgoneta')}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                        <option value="Fabrica">Fábrica (vuelve al almacén)</option>
+                        <option value="Furgoneta">Furgoneta</option>
+                      </select>
+                      <p className="text-[11px] text-gray-400 mt-1">Solo afecta a los motivos que repuesto de stock.</p>
+                    </div>
+                  )}
+                  {hayOtro && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Descripción del motivo (Otro) *</label>
+                      <input
+                        value={motivoTextoDevolucion}
+                        onChange={e => setMotivoTextoDevolucion(e.target.value)}
+                        maxLength={500}
+                        placeholder="Describe por qué se devuelve…"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             <div className="flex items-center justify-between pt-3 border-t border-gray-200">
               <p className="text-xs text-gray-500">
@@ -1153,7 +1151,12 @@ export default function Pedidos() {
                 </button>
                 <button
                   onClick={() => {
-                    const items: { productoId: number; loteId: number; cantidad: number; esCaducidad: boolean }[] = []
+                    const hayOtro = devolucionItems.some(item => item.lotes.some(l => l.cantidad > 0 && l.motivo === 'Otro'))
+                    if (hayOtro && !motivoTextoDevolucion.trim()) {
+                      toast.error('Describe el motivo de la devolución (Otro)')
+                      return
+                    }
+                    const items: { productoId: number; loteId: number; cantidad: number; motivo: string; motivoTexto?: string; destino: string }[] = []
                     for (const item of devolucionItems) {
                       for (const lote of item.lotes) {
                         if (lote.cantidad > 0) {
@@ -1165,7 +1168,9 @@ export default function Pedidos() {
                             productoId: item.productoId,
                             loteId: lote.loteId,
                             cantidad: cantidadFinal,
-                            esCaducidad: lote.esCaducidad,
+                            motivo: lote.motivo,
+                            motivoTexto: lote.motivo === 'Otro' ? motivoTextoDevolucion.trim() : undefined,
+                            destino: destinoDevolucion,
                           })
                         }
                       }
@@ -1185,8 +1190,8 @@ export default function Pedidos() {
               </div>
             </div>
             <p className="text-[11px] text-gray-400 mt-2.5 leading-relaxed">
-              Marca <strong>Caducidad</strong> si la devolución es por producto caducado (no repondrá stock).
-              Si no, la devolución repondrá el stock automáticamente.
+              El <strong>motivo</strong> decide si la mercancía vuelve al stock: los motivos de caducidad o daño
+              <strong> no repondrán</strong>; los demás sí, en la ubicación indicada.
             </p>
           </div>
         </div>

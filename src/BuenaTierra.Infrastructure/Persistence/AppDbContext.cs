@@ -241,10 +241,12 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.EmpresaId, x.ProductoId, x.LoteId }).IsUnique();
             e.Property(x => x.CantidadDisponible).HasPrecision(10, 3);
             e.Property(x => x.CantidadReservada).HasPrecision(10, 3);
+            e.Property(x => x.CantidadFurgoneta).HasPrecision(10, 3);
             e.ToTable(t =>
             {
                 t.HasCheckConstraint("stock_disponible_positivo", "cantidad_disponible >= 0");
                 t.HasCheckConstraint("stock_reservada_positivo", "cantidad_reservada >= 0");
+                t.HasCheckConstraint("stock_furgoneta_valida", "cantidad_furgoneta >= 0 AND cantidad_furgoneta <= cantidad_disponible");
             });
             e.HasOne(x => x.Lote).WithOne(x => x.Stock).HasForeignKey<Stock>(x => x.LoteId);
             e.HasOne(x => x.Producto).WithMany(x => x.Stocks).HasForeignKey(x => x.ProductoId);
@@ -265,6 +267,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.NumeroFactura).HasMaxLength(50).IsRequired();
             e.HasIndex(x => new { x.EmpresaId, x.NumeroFactura }).IsUnique();
             e.Property(x => x.Estado).HasConversion(new EnumToStringConverter<EstadoFactura>()).HasMaxLength(20);
+            e.Property(x => x.OrigenStock).HasConversion(new EnumToStringConverter<OrigenStock>()).HasMaxLength(10);
             e.Property(x => x.Subtotal).HasPrecision(12, 4);
             e.Property(x => x.DescuentoTotal).HasPrecision(12, 4);
             e.Property(x => x.BaseImponible).HasPrecision(12, 4);
@@ -296,6 +299,7 @@ public class AppDbContext : DbContext
         mb.Entity<Pedido>(e =>
         {
             e.Property(x => x.Estado).HasConversion(new EnumToStringConverter<EstadoPedido>()).HasMaxLength(20);
+            e.Property(x => x.OrigenStock).HasConversion(new EnumToStringConverter<OrigenStock>()).HasMaxLength(10);
             e.Property(x => x.Subtotal).HasPrecision(12, 4);
             e.Property(x => x.Total).HasPrecision(12, 4);
             e.HasOne(x => x.Empresa).WithMany().HasForeignKey(x => x.EmpresaId);
@@ -351,6 +355,7 @@ public class AppDbContext : DbContext
         mb.Entity<Albaran>(e =>
         {
             e.Property(x => x.Estado).HasConversion(new EnumToStringConverter<EstadoAlbaran>()).HasMaxLength(20);
+            e.Property(x => x.OrigenStock).HasConversion(new EnumToStringConverter<OrigenStock>()).HasMaxLength(10);
             e.Property(x => x.Subtotal).HasPrecision(12, 4);
             e.Property(x => x.IvaTotal).HasPrecision(12, 4);
             e.Property(x => x.RecargoEquivalenciaTotal).HasPrecision(12, 4);

@@ -31,7 +31,7 @@ function isoToDisplay(iso: string): string {
 
 /** DD/MM/YYYY (o variantes con -) → YYYY-MM-DD, '' si inválido */
 function displayToIso(raw: string): string {
-  const r = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  const r = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
   if (!r) return ''
   const [, d, m, y] = r
   return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`

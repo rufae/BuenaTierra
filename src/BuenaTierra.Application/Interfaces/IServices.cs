@@ -1,3 +1,5 @@
+using BuenaTierra.Domain.Enums;
+
 namespace BuenaTierra.Application.Interfaces;
 
 // ============================================================
@@ -6,10 +8,12 @@ namespace BuenaTierra.Application.Interfaces;
 
 public interface IAuthService
 {
-    Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default);
+    /// <summary>empresaId: si se indica, el login solo tiene en cuenta usuarios de esa empresa (404/401 si no coincide).</summary>
+    Task<AuthResult> LoginAsync(string email, string password, int? empresaId = null, CancellationToken ct = default);
     Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default);
     Task LogoutAsync(int usuarioId, CancellationToken ct = default);
-    Task EstablecerPasswordAsync(int usuarioId, string nuevaPassword, CancellationToken ct = default);
+    /// <summary>Cambia la contraseña forzada en primer login y devuelve un JWT nuevo (claim sin el flag) + refresh rotado.</summary>
+    Task<AuthResult> EstablecerPasswordAsync(int usuarioId, string nuevaPassword, CancellationToken ct = default);
 }
 
 public record AuthResult(bool Success, string? Token, string? RefreshToken, DateTime? Expira, string? Error = null, bool DebeCambiarPassword = false);
@@ -21,10 +25,12 @@ public record AuthResult(bool Success, string? Token, string? RefreshToken, Date
 public interface ILoteAsignacionService
 {
     /// <summary>
-    /// Asigna lotes automáticamente por FIFO para la cantidad solicitada.
-    /// Lanza StockInsuficienteException si no hay stock suficiente.
+    /// Asigna lotes automáticamente por FIFO para la cantidad solicitada,
+    /// usando solo el stock disponible en la ubicación de origen indicada
+    /// (Fábrica o Furgoneta). Lanza DomainException/StockInsuficienteException
+    /// si no hay stock suficiente en ese origen (error bloqueante).
     /// </summary>
-    Task<List<LoteAsignado>> AsignarLotesAsync(int empresaId, int productoId, decimal cantidad, CancellationToken ct = default);
+    Task<List<LoteAsignado>> AsignarLotesAsync(int empresaId, int productoId, decimal cantidad, OrigenStock origen = OrigenStock.Fabrica, CancellationToken ct = default);
 
     /// <summary>
     /// Consulta stock disponible real (sin lotes caducados ni bloqueados).
@@ -81,6 +87,8 @@ public class CrearFacturaRequest
     public bool ConsumirStock { get; set; } = true;
     public int UsuarioId { get; set; }
     public string? Notas { get; set; }
+    /// <summary>Origen de la venta; si es null se hereda del pedido o se exige explícito.</summary>
+    public OrigenStock? OrigenStock { get; set; }
     public List<LineaFacturaRequest> Items { get; set; } = new();
 }
 
@@ -89,7 +97,12 @@ public class LineaFacturaRequest
     public int ProductoId { get; set; }
     public decimal Cantidad { get; set; }
     public decimal? PrecioUnitario { get; set; }  // Si null, usa precio del producto
-    public decimal Descuento { get; set; } = 0;
+    /// <summary>null = sin override (aplica política comercial); valor explícito (incluido 0) = manual.</summary>
+    public decimal? Descuento { get; set; }
+    /// <summary>IVA congelado de la línea (pedido/albarán). Si null, se calcula con el producto actual.</summary>
+    public decimal? IvaPorcentaje { get; set; }
+    /// <summary>Recargo de equivalencia congelado de la línea. Si null, se calcula con la tabla RE.</summary>
+    public decimal? RecargoEquivalenciaPorcentaje { get; set; }
 }
 
 public record FacturaCreada(int FacturaId, string NumeroFactura, decimal Total);
@@ -111,6 +124,8 @@ public class FacturaDto
     public DateOnly? FechaVencimiento { get; set; }
     public List<FacturaLineaDto> Lineas { get; set; } = new();
     public string? PdfUrl { get; set; }
+    /// <summary>Origen de la venta (Fabrica/Furgoneta).</summary>
+    public string OrigenStock { get; set; } = "Fabrica";
 }
 
 public class FacturaLineaDto

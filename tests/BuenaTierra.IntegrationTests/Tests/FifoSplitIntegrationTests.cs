@@ -114,6 +114,7 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
         {
             clienteId,
             serieId,
+            origenStock = "Fabrica",
             items = new[] { new { productoId, cantidad = 10, descuento = 0 } },
         };
 
@@ -159,6 +160,7 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
         {
             clienteId,
             serieId,
+            origenStock = "Fabrica",
             items = new[] { new { productoId, cantidad = 3, descuento = 0 } },
         });
 
@@ -187,6 +189,7 @@ public class FifoSplitIntegrationTests : IClassFixture<BuenaTierraWebAppFactory>
         {
             clienteId,
             serieId,
+            origenStock = "Fabrica",
             items = new[] { new { productoId, cantidad = 999, descuento = 0 } },
         });
 

@@ -13,7 +13,6 @@ import Dashboard from './pages/Dashboard'
 import Productos from './pages/Productos'
 import Clientes from './pages/Clientes'
 import Produccion from './pages/Produccion'
-import Compra from './pages/Compra'
 import Facturacion from './pages/Facturacion'
 import Lotes from './pages/Lotes'
 import Albaranes from './pages/Albaranes'
@@ -21,6 +20,7 @@ import Pedidos from './pages/Pedidos'
 import Preventa from './pages/Preventa'
 import Trazabilidad from './pages/Trazabilidad'
 import FacturacionRapida from './pages/FacturacionRapida'
+import Carga from './pages/Carga'
 import Reportes from './pages/Reportes'
 import Ingredientes from './pages/Ingredientes'
 import Usuarios from './pages/Usuarios'
@@ -74,7 +74,9 @@ function AppRoutes() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const homePath = user?.rol === 'Admin' ? '/usuarios' : '/dashboard'
   const esEmpresaObrador = user?.empresaEsObrador ?? true
-  const allowedOperativo = esEmpresaObrador ? ['Obrador'] : ['Obrador', 'Repartidor']
+  // Mismo rol disponible en toda la cuenta unificada (fábrica + repartidor):
+  // todas las tareas visibles, se divide el trabajo por pantalla.
+  const allowedOperativo = ['Obrador', 'Repartidor']
 
   const { data: empresa } = useQuery({
     queryKey: ['empresa-tema', user?.empresaId],
@@ -88,7 +90,7 @@ function AppRoutes() {
   useKeyboardShortcuts({
     onShowHelp: () => setShortcutsOpen(true),
     enabled: isAuthenticated,
-    operationPath: esEmpresaObrador ? '/produccion' : '/compra',
+    operationPath: esEmpresaObrador ? '/produccion' : '/carga',
   })
 
   return (
@@ -116,27 +118,26 @@ function AppRoutes() {
             <RoleGuard allowed={allowedOperativo}>
               {esEmpresaObrador
                 ? <ErrorBoundary><Produccion /></ErrorBoundary>
-                : <Navigate to="/compra" replace />}
+                : <Navigate to="/carga" replace />}
             </RoleGuard>
           }
         />
         <Route
-          path="compra"
+          path="carga"
           element={
-            <RoleGuard allowed={allowedOperativo}>
-              {esEmpresaObrador
-                ? <Navigate to="/produccion" replace />
-                : <ErrorBoundary><Compra /></ErrorBoundary>}
+            <RoleGuard allowed={['Admin', 'Obrador', 'Repartidor']}>
+              <ErrorBoundary><Carga /></ErrorBoundary>
             </RoleGuard>
           }
         />
+        <Route path="compra" element={<Navigate to="/carga" replace />} />
         <Route path="facturacion" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Facturacion /></ErrorBoundary></RoleGuard>} />
         <Route path="lotes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Lotes /></ErrorBoundary></RoleGuard>} />
         <Route path="albaranes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Albaranes /></ErrorBoundary></RoleGuard>} />
         <Route path="pedidos" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Pedidos /></ErrorBoundary></RoleGuard>} />
         <Route path="preventa" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Preventa /></ErrorBoundary></RoleGuard>} />
         <Route path="trazabilidad" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><Trazabilidad /></ErrorBoundary></RoleGuard>} />
-        <Route path="facturacion-rapida" element={<RoleGuard allowed={['Repartidor']}><ErrorBoundary><FacturacionRapida /></ErrorBoundary></RoleGuard>} />
+        <Route path="facturacion-rapida" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><FacturacionRapida /></ErrorBoundary></RoleGuard>} />
         <Route path="reportes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Reportes /></ErrorBoundary></RoleGuard>} />
         <Route path="balance" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><Balance /></ErrorBoundary></RoleGuard>} />
         <Route

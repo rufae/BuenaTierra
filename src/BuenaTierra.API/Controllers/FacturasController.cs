@@ -202,7 +202,8 @@ public class FacturasController : ControllerBase
     // ═══════════════════════════════════════════════════════
 
     /// <summary>
-    /// GET /api/facturas/exportar-excel — Exporta la lista de facturas a Excel
+    /// GET /api/facturas/exportar-excel — Exporta la lista de facturas a Excel.
+    /// Sin fechas exporta TODAS las facturas de la empresa; desde/hasta son opcionales.
     /// </summary>
     [HttpGet("exportar-excel")]
     public async Task<IActionResult> ExportarListaExcel(
@@ -218,28 +219,24 @@ public class FacturasController : ControllerBase
         if (hasta.HasValue) q = q.Where(f => f.FechaFactura <= hasta.Value);
         var list = await q.OrderByDescending(f => f.FechaFactura).ToListAsync(ct);
 
-        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-        using var package = new OfficeOpenXml.ExcelPackage();
-        var ws = package.Workbook.Worksheets.Add("Facturas");
+        using var wb = new ClosedXML.Excel.XLWorkbook();
+        var ws = wb.Worksheets.Add("Facturas");
 
         // Cabeceras (formato sanitario: 1 fila por producto-lote)
-        ws.Cells[1, 1].Value = "Nº Factura";
-        ws.Cells[1, 2].Value = "Fecha";
-        ws.Cells[1, 3].Value = "Cliente";
-        ws.Cells[1, 4].Value = "NIF Cliente";
-        ws.Cells[1, 5].Value = "Dirección";
-        ws.Cells[1, 6].Value = "Estado";
-        ws.Cells[1, 7].Value = "Producto";
-        ws.Cells[1, 8].Value = "Lote";
-        ws.Cells[1, 9].Value = "Cantidad";
+        ws.Cell(1, 1).Value = "Nº Factura";
+        ws.Cell(1, 2).Value = "Fecha";
+        ws.Cell(1, 3).Value = "Cliente";
+        ws.Cell(1, 4).Value = "NIF Cliente";
+        ws.Cell(1, 5).Value = "Dirección";
+        ws.Cell(1, 6).Value = "Estado";
+        ws.Cell(1, 7).Value = "Producto";
+        ws.Cell(1, 8).Value = "Lote";
+        ws.Cell(1, 9).Value = "Cantidad";
 
-        using (var headerRange = ws.Cells[1, 1, 1, 9])
-        {
-            headerRange.Style.Font.Bold = true;
-            headerRange.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
-            headerRange.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(68, 114, 196));
-            headerRange.Style.Font.Color.SetColor(System.Drawing.Color.White);
-        }
+        var headerRange = ws.Range(1, 1, 1, 9);
+        headerRange.Style.Font.Bold = true;
+        headerRange.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#4472C4");
+        headerRange.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
 
         int row = 2;
         foreach (var f in list)
@@ -254,45 +251,45 @@ public class FacturasController : ControllerBase
             var lineas = f.Lineas.Any() ? f.Lineas : new List<BuenaTierra.Domain.Entities.FacturaLinea>();
             if (!lineas.Any())
             {
-                ws.Cells[row, 1].Value = f.NumeroFactura;
-                ws.Cells[row, 2].Value = f.FechaFactura.ToString("dd/MM/yyyy");
-                ws.Cells[row, 3].Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
-                ws.Cells[row, 4].Value = cli?.Nif ?? "—";
-                ws.Cells[row, 5].Value = direccion;
-                ws.Cells[row, 6].Value = f.Estado.ToString();
-                ws.Cells[row, 7].Value = "—";
-                ws.Cells[row, 8].Value = "—";
-                ws.Cells[row, 9].Value = 0;
+                ws.Cell(row, 1).Value = f.NumeroFactura;
+                ws.Cell(row, 2).Value = f.FechaFactura.ToString("dd/MM/yyyy");
+                ws.Cell(row, 3).Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
+                ws.Cell(row, 4).Value = cli?.Nif ?? "—";
+                ws.Cell(row, 5).Value = direccion;
+                ws.Cell(row, 6).Value = f.Estado.ToString();
+                ws.Cell(row, 7).Value = "—";
+                ws.Cell(row, 8).Value = "—";
+                ws.Cell(row, 9).Value = 0;
                 row++;
                 continue;
             }
 
             foreach (var l in lineas.OrderBy(x => x.Orden))
             {
-                ws.Cells[row, 1].Value = f.NumeroFactura;
-                ws.Cells[row, 2].Value = f.FechaFactura.ToString("dd/MM/yyyy");
-                ws.Cells[row, 3].Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
-                ws.Cells[row, 4].Value = cli?.Nif ?? "—";
-                ws.Cells[row, 5].Value = direccion;
-                ws.Cells[row, 6].Value = f.Estado.ToString();
-                ws.Cells[row, 7].Value = l.Producto?.Nombre ?? l.Descripcion ?? "Producto";
-                ws.Cells[row, 8].Value = l.Lote?.CodigoLote ?? "Sin lote";
-                ws.Cells[row, 9].Value = (int)Math.Round(l.Cantidad, 0, MidpointRounding.AwayFromZero);
+                ws.Cell(row, 1).Value = f.NumeroFactura;
+                ws.Cell(row, 2).Value = f.FechaFactura.ToString("dd/MM/yyyy");
+                ws.Cell(row, 3).Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
+                ws.Cell(row, 4).Value = cli?.Nif ?? "—";
+                ws.Cell(row, 5).Value = direccion;
+                ws.Cell(row, 6).Value = f.Estado.ToString();
+                ws.Cell(row, 7).Value = l.Producto?.Nombre ?? l.Descripcion ?? "Producto";
+                ws.Cell(row, 8).Value = l.Lote?.CodigoLote ?? "Sin lote";
+                ws.Cell(row, 9).Value = (int)Math.Round(l.Cantidad, 0, MidpointRounding.AwayFromZero);
                 row++;
             }
         }
 
-        ws.Cells.AutoFitColumns();
-        // Limitar ancho de columnas largas
-        if (ws.Cells[1, 5].Value != null) ws.Column(5).Width = Math.Min(ws.Column(5).Width, 55);
-        if (ws.Cells[1, 7].Value != null) ws.Column(7).Width = Math.Min(ws.Column(7).Width, 40);
-        if (ws.Cells[1, 8].Value != null) ws.Column(8).Width = Math.Min(ws.Column(8).Width, 35);
+        ws.Columns().AdjustToContents();
+        ws.Column(5).Width = Math.Min(ws.Column(5).Width, 55);
+        ws.Column(7).Width = Math.Min(ws.Column(7).Width, 40);
+        ws.Column(8).Width = Math.Min(ws.Column(8).Width, 35);
 
-        var bytes = package.GetAsByteArray();
-        var dStr = (desde ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(-1))).ToString("yyyyMMdd");
-        var hStr = (hasta ?? DateOnly.FromDateTime(DateTime.Today)).ToString("yyyyMMdd");
-        var fileName = $"facturas-{dStr}-{hStr}.xlsx";
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        var fileName = (desde.HasValue || hasta.HasValue)
+            ? $"facturas-{(desde ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(-1))):yyyyMMdd}-{(hasta ?? DateOnly.FromDateTime(DateTime.Today)):yyyyMMdd}.xlsx"
+            : "facturas.xlsx";
+        return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -303,36 +300,33 @@ public class FacturasController : ControllerBase
     [HttpGet("importar-plantilla")]
     public IActionResult DescargarPlantilla()
     {
-        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-        using var package = new OfficeOpenXml.ExcelPackage();
-        var ws = package.Workbook.Worksheets.Add("Facturas");
+        using var wb = new ClosedXML.Excel.XLWorkbook();
+        var ws = wb.Worksheets.Add("Facturas");
 
-        ws.Cells[1, 1].Value = "NumeroFactura";
-        ws.Cells[1, 2].Value = "Fecha";
-        ws.Cells[1, 3].Value = "ClienteNIF";
-        ws.Cells[1, 4].Value = "ClienteNombre";
-        ws.Cells[1, 5].Value = "Total";
-        ws.Cells[1, 6].Value = "Descripcion";
+        ws.Cell(1, 1).Value = "NumeroFactura";
+        ws.Cell(1, 2).Value = "Fecha";
+        ws.Cell(1, 3).Value = "ClienteNIF";
+        ws.Cell(1, 4).Value = "ClienteNombre";
+        ws.Cell(1, 5).Value = "Total";
+        ws.Cell(1, 6).Value = "Descripcion";
 
-        using (var r = ws.Cells[1, 1, 1, 6])
-        {
-            r.Style.Font.Bold = true;
-            r.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
-            r.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(68, 114, 196));
-            r.Style.Font.Color.SetColor(System.Drawing.Color.White);
-        }
+        var r = ws.Range(1, 1, 1, 6);
+        r.Style.Font.Bold = true;
+        r.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#4472C4");
+        r.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
 
         // Fila de ejemplo
-        ws.Cells[2, 1].Value = "F2026001";
-        ws.Cells[2, 2].Value = "15/01/2026";
-        ws.Cells[2, 3].Value = "12345678A";
-        ws.Cells[2, 4].Value = "Panadería Demo";
-        ws.Cells[2, 5].Value = "125.50";
-        ws.Cells[2, 6].Value = "Palmeras x10, Tortas x5";
+        ws.Cell(2, 1).Value = "F2026001";
+        ws.Cell(2, 2).Value = "15/01/2026";
+        ws.Cell(2, 3).Value = "12345678A";
+        ws.Cell(2, 4).Value = "Panadería Demo";
+        ws.Cell(2, 5).Value = "125.50";
+        ws.Cell(2, 6).Value = "Palmeras x10, Tortas x5";
 
-        ws.Cells.AutoFitColumns();
-        var bytes = package.GetAsByteArray();
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "plantilla-importar-facturas.xlsx");
+        ws.Columns().AdjustToContents();
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "plantilla-importar-facturas.xlsx");
     }
 
     /// <summary>POST /api/facturas/importar — Importa facturas históricas desde CSV o Excel</summary>
@@ -345,7 +339,9 @@ public class FacturasController : ControllerBase
             return BadRequest(ApiResponse<ImportarFacturasResultado>.Fail("No se ha proporcionado ningún archivo."));
 
         var ext = Path.GetExtension(archivo.FileName).ToLowerInvariant();
-        if (ext != ".csv" && ext != ".xlsx" && ext != ".xls")
+        if (ext == ".xls")
+            return BadRequest(ApiResponse<ImportarFacturasResultado>.Fail("El formato .xls (antiguo) no está soportado. Convierta el archivo a .xlsx o .csv."));
+        if (ext != ".csv" && ext != ".xlsx")
             return BadRequest(ApiResponse<ImportarFacturasResultado>.Fail("Formato no admitido. Use .csv o .xlsx"));
 
         var serie = await _uow.SeriesFacturacion.GetQueryable()
@@ -449,20 +445,20 @@ public class FacturasController : ControllerBase
 
     private static List<ImportarFacturaFila> ParseExcelImport(Stream stream)
     {
-        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-        using var package = new OfficeOpenXml.ExcelPackage(stream);
-        var ws = package.Workbook.Worksheets[0]
+        using var wb = new ClosedXML.Excel.XLWorkbook(stream);
+        var ws = wb.Worksheet(1)
             ?? throw new InvalidOperationException("El archivo Excel no tiene hojas.");
 
         var headers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int col = 1; col <= (ws.Dimension?.Columns ?? 0); col++)
+        var lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
+        for (int col = 1; col <= lastCol; col++)
         {
-            var h = ws.Cells[1, col].GetValue<string>()?.Trim();
+            var h = ws.Cell(1, col).GetString().Trim();
             if (!string.IsNullOrEmpty(h)) headers[NormalizeHeader(h)] = col;
         }
 
         var filas = new List<ImportarFacturaFila>();
-        int lastRow = ws.Dimension?.Rows ?? 1;
+        int lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
         for (int row = 2; row <= lastRow; row++)
         {
             var num = GetExcelCell(ws, row, headers, "numerofactura", "numero", "factura", "nfactura");
@@ -532,11 +528,14 @@ public class FacturasController : ControllerBase
          .Replace("á", "a").Replace("é", "e").Replace("í", "i").Replace("ó", "o").Replace("ú", "u")
          .Replace("ñ", "n").Replace("ü", "u").Replace("ó", "o");
 
-    private static string? GetExcelCell(OfficeOpenXml.ExcelWorksheet ws, int row, Dictionary<string, int> headers, params string[] keys)
+    private static string? GetExcelCell(ClosedXML.Excel.IXLWorksheet ws, int row, Dictionary<string, int> headers, params string[] keys)
     {
         foreach (var k in keys)
             if (headers.TryGetValue(k, out var col))
-                return ws.Cells[row, col].GetValue<string>();
+            {
+                var value = ws.Cell(row, col).GetString();
+                return string.IsNullOrWhiteSpace(value) ? null : value;
+            }
         return null;
     }
 

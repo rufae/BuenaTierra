@@ -6,6 +6,7 @@ import { Plus, FileText, X, Loader2, Truck, ChevronDown, ChevronUp, Download, Pa
 import { EstadoBadge } from '../components/EstadoBadge'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
+import { downloadBlob, useDownloading } from '../lib/download'
 
 interface ItemForm { productoId: number; cantidad: number }
 
@@ -20,6 +21,7 @@ export default function Albaranes() {
   const [pickingOpen, setPickingOpen] = useState<number | null>(null)
 
   const [clienteId, setClienteId] = useState('')
+  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('')
   const [notas, setNotas] = useState('')
   const [items, setItems] = useState<ItemForm[]>([{ productoId: 0, cantidad: 1 }])
 
@@ -129,21 +131,11 @@ export default function Albaranes() {
     onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al convertir'),
   })
 
-  function resetForm() { setShowForm(false); setClienteId(''); setNotas(''); setItems([{ productoId: 0, cantidad: 1 }]) }
+  function resetForm() { setShowForm(false); setClienteId(''); setNotas(''); setOrigenVenta(''); setItems([{ productoId: 0, cantidad: 1 }]) }
 
-  async function descargarPdf(id: number, numero: string) {
-    try {
-      const res = await api.get(`/albaranes/${id}/pdf`, { responseType: 'blob' })
-      const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'application/pdf' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `Albaran_${numero}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Error al descargar el PDF del albarán')
-    }
-  }
+  const descargando = useDownloading()
+  const descargarPdf = (id: number, numero: string) =>
+    downloadBlob(`/albaranes/${id}/pdf`, `Albaran_${numero}.pdf`, 'Error al descargar el PDF del albarán')
 
   function addItem() { setItems(prev => [...prev, { productoId: 0, cantidad: 1 }]) }
   function removeItem(i: number) { setItems(prev => prev.filter((_, idx) => idx !== i)) }
@@ -154,8 +146,9 @@ export default function Albaranes() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!clienteId) { toast.error('Selecciona un cliente'); return }
+    if (!origenVenta) { toast.error('Indica el origen de la venta (Fábrica o Furgoneta)'); return }
     if (items.some(it => !it.productoId || it.cantidad <= 0)) { toast.error('Completa todos los items'); return }
-    crearMutation.mutate({ clienteId: +clienteId, notas, items: items.map(it => ({ productoId: it.productoId, cantidad: it.cantidad })) })
+    crearMutation.mutate({ clienteId: +clienteId, notas, origenStock: origenVenta, items: items.map(it => ({ productoId: it.productoId, cantidad: it.cantidad })) })
   }
 
   const total = (albaranes ?? []).reduce((s, a) => s + a.total, 0)
@@ -239,7 +232,14 @@ export default function Albaranes() {
               : filteredAlbaranes.map(a => (
                 <Fragment key={a.id}>
                   <tr className="hover:bg-gray-50/50">
-                    <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">{a.numeroAlbaran}</td>
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-900">
+                      {a.numeroAlbaran}
+                      {a.origenStock === 'Furgoneta' && (
+                        <span className="ml-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-50 text-sky-700 border border-sky-200 align-middle" title="Venta desde furgoneta">
+                          Furgoneta
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha)}</td>
                     <td className="px-4 py-3">
                       <EstadoBadge estado={a.estado} />
@@ -253,9 +253,10 @@ export default function Albaranes() {
                         </button>
                         <button
                           onClick={() => descargarPdf(a.id, a.numeroAlbaran)}
+                          disabled={descargando}
                           title="Descargar PDF del albarán"
-                          className="text-xs text-gray-600 hover:text-gray-800 flex items-center gap-1">
-                          <Download className="w-3 h-3" /> PDF
+                          className="text-xs text-gray-600 hover:text-gray-800 flex items-center gap-1 disabled:opacity-50">
+                          {descargando ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />} PDF
                         </button>
                         <button
                           onClick={() => setPickingOpen(a.id)}
@@ -356,6 +357,15 @@ export default function Albaranes() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
                     <option value="">Seleccionar cliente…</option>
                     {(clientes ?? []).map(c => <option key={c.id} value={c.id}>{c.nombre}{c.nif ? ` — ${c.nif}` : ''}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Origen de la venta *</label>
+                  <select value={origenVenta} onChange={e => setOrigenVenta(e.target.value as 'Fabrica' | 'Furgoneta' | '')}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                    <option value="">Seleccionar de dónde sale la mercancía…</option>
+                    <option value="Fabrica">Fábrica</option>
+                    <option value="Furgoneta">Furgoneta</option>
                   </select>
                 </div>
                 <div>

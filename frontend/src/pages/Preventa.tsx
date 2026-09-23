@@ -98,6 +98,7 @@ export default function Preventa() {
     preventaId: number | null
     data: ValidacionConversion | null
   }>({ open: false, preventaId: null, data: null })
+  const [origenConvert, setOrigenConvert] = useState<'Fabrica' | 'Furgoneta' | ''>('')
 
   const { data: clientes } = useQuery({
     queryKey: ['clientes'],
@@ -373,21 +374,22 @@ export default function Preventa() {
       const data = (await api.post<{ data: ValidacionConversion }>(`/preventas/${preventaId}/validar-conversion`, {})).data.data
       return { preventaId, data }
     },
-    onSuccess: ({ preventaId, data }) => setModal({ open: true, preventaId, data }),
+    onSuccess: ({ preventaId, data }) => { setOrigenConvert(''); setModal({ open: true, preventaId, data }) },
     onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al validar'),
   })
 
   const convertirMutation = useMutation({
-    mutationFn: async (preventaId: number) => {
+    mutationFn: async ({ preventaId, origenStock }: { preventaId: number; origenStock: 'Fabrica' | 'Furgoneta' }) => {
       return (await api.post<{ data: { pedidoId: number } }>(`/preventas/${preventaId}/convertir`, {
         alertaConfirmada: true,
+        origenStock,
       })).data.data
     },
-    onSuccess: async (data, preventaId) => {
+    onSuccess: async (data, vars) => {
       setModal({ open: false, preventaId: null, data: null })
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['preventas'] }),
-        qc.invalidateQueries({ queryKey: ['preventa-detalle', preventaId] }),
+        qc.invalidateQueries({ queryKey: ['preventa-detalle', vars.preventaId] }),
         qc.invalidateQueries({ queryKey: ['pedidos'] }),
       ])
       toast.success(`Pedido #${data.pedidoId} creado correctamente`)
@@ -824,6 +826,16 @@ export default function Preventa() {
                 </div>
               )}
 
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Origen de la venta *</label>
+                <select value={origenConvert} onChange={e => setOrigenConvert(e.target.value as 'Fabrica' | 'Furgoneta' | '')}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+                  <option value="">Seleccionar de dónde sale la mercancía…</option>
+                  <option value="Fabrica">Fábrica</option>
+                  <option value="Furgoneta">Furgoneta</option>
+                </select>
+              </div>
+
               <div className="flex gap-3 pt-1">
                 <button
                   onClick={() => setModal({ open: false, preventaId: null, data: null })}
@@ -832,7 +844,11 @@ export default function Preventa() {
                   Cancelar
                 </button>
                 <button
-                  onClick={() => modal.preventaId && convertirMutation.mutate(modal.preventaId)}
+                  onClick={() => {
+                    if (!modal.preventaId) return
+                    if (!origenConvert) { toast.error('Indica el origen de la venta (Fábrica o Furgoneta)'); return }
+                    convertirMutation.mutate({ preventaId: modal.preventaId, origenStock: origenConvert })
+                  }}
                   disabled={convertirMutation.isPending}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-bold hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-sm"
                 >

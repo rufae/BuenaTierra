@@ -19,6 +19,9 @@ public class Pedido : TenantEntity
     public decimal Total { get; set; }
     public string? Notas { get; set; }
 
+    /// <summary>Ubicación de la que sale la mercancía de este pedido (fábrica o furgoneta).</summary>
+    public OrigenStock OrigenStock { get; set; } = OrigenStock.Fabrica;
+
     // Navegación
     public virtual Cliente Cliente { get; set; } = null!;
     public virtual Usuario Usuario { get; set; } = null!;
@@ -78,6 +81,9 @@ public class Albaran : TenantEntity
     public decimal RetencionTotal { get; set; } = 0;
     public decimal Total { get; set; }
     public string? Notas { get; set; }
+
+    /// <summary>Ubicación de la que sale la mercancía (heredada del pedido o elegida al crear).</summary>
+    public OrigenStock OrigenStock { get; set; } = OrigenStock.Fabrica;
 
     // Navegación
     public virtual Cliente Cliente { get; set; } = null!;

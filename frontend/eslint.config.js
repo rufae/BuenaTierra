@@ -5,7 +5,16 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist'] },
+  {
+    ignores: [
+      'dist',
+      // Artefactos generados de Capacitor/Android (no son código del proyecto)
+      'android/**',
+      'node_modules/**',
+      'capacitor-cordova-android-plugins/**',
+      'electron/dist/**',
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
@@ -22,6 +31,18 @@ export default tseslint.config(
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },
+      ],
+      // Convención del proyecto: los manejadores de error usan `any` con accesso
+      // opcional (e.response?.data). Se mantiene como warning para no bloquear
+      // el lint mientras se migra gradualmente a tipos estrictos.
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
       ],
     },
   },

@@ -1,4 +1,5 @@
 using BuenaTierra.Application.Interfaces;
+using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -27,20 +28,25 @@ public class LoteAsignacionService : ILoteAsignacionService
     }
 
     public async Task<List<LoteAsignado>> AsignarLotesAsync(
-        int empresaId, int productoId, decimal cantidad, CancellationToken ct = default)
+        int empresaId, int productoId, decimal cantidad, OrigenStock origen = OrigenStock.Fabrica, CancellationToken ct = default)
     {
         if (cantidad <= 0)
             throw new DomainException($"La cantidad solicitada debe ser mayor que 0. Recibido: {cantidad}");
 
-        _logger.LogInformation("Iniciando asignación FIFO: empresa={EmpresaId}, producto={ProductoId}, cantidad={Cantidad}",
-            empresaId, productoId, cantidad);
+        _logger.LogInformation("Iniciando asignación FIFO: empresa={EmpresaId}, producto={ProductoId}, cantidad={Cantidad}, origen={Origen}",
+            empresaId, productoId, cantidad, origen);
 
-        // Obtener lotes ordenados FIFO con stock disponible
-        var lotes = await _uow.Lotes.GetDisponiblesFIFOAsync(empresaId, productoId, ct);
+        // Obtener lotes ordenados FIFO con stock disponible en la ubicación de origen
+        var lotes = await _uow.Lotes.GetDisponiblesFIFOAsync(empresaId, productoId, origen, ct);
         var lotesLista = lotes.ToList();
 
         if (!lotesLista.Any())
+        {
+            if (origen == OrigenStock.Furgoneta)
+                throw new DomainException(
+                    $"No hay stock en furgoneta para el producto {productoId}. Carga mercancía a la furgoneta antes de confirmar.");
             throw new NoHayLotesDisponiblesException(productoId);
+        }
 
         var asignaciones = new List<LoteAsignado>();
         decimal restante = cantidad;
@@ -50,11 +56,14 @@ public class LoteAsignacionService : ILoteAsignacionService
             if (restante <= 0) break;
 
             var stockLote = lote.Stock!;
-            decimal disponibleReal = stockLote.CantidadDisponible - stockLote.CantidadReservada;
+            // Disponible en la ubicación de origen para este lote
+            decimal disponibleOrigen = origen == OrigenStock.Furgoneta
+                ? stockLote.CantidadFurgoneta
+                : Math.Max(0, stockLote.CantidadDisponible - stockLote.CantidadReservada - stockLote.CantidadFurgoneta);
 
-            if (disponibleReal <= 0) continue;
+            if (disponibleOrigen <= 0) continue;
 
-            decimal asignar = Math.Min(disponibleReal, restante);
+            decimal asignar = Math.Min(disponibleOrigen, restante);
 
             asignaciones.Add(new LoteAsignado(
                 LoteId: lote.Id,
@@ -75,13 +84,21 @@ public class LoteAsignacionService : ILoteAsignacionService
         {
             decimal disponibleTotal = cantidad - restante;
             var productoNombre = lotesLista.FirstOrDefault()?.Producto?.Nombre;
-            _logger.LogWarning("Stock insuficiente para producto {ProductoId}: solicitado={Solicitado}, disponible={Disponible}",
-                productoId, cantidad, disponibleTotal);
+            _logger.LogWarning("Stock insuficiente ({Origen}) para producto {ProductoId}: solicitado={Solicitado}, disponible={Disponible}",
+                origen, productoId, cantidad, disponibleTotal);
+
+            // Error bloqueante: no hay fallback al otro origen
+            if (origen == OrigenStock.Furgoneta)
+                throw new DomainException(
+                    $"No hay stock suficiente en furgoneta{(productoNombre != null ? $" para '{productoNombre}'" : "")}. " +
+                    $"Solicitado: {cantidad}, disponible en furgoneta: {disponibleTotal}. " +
+                    "Carga mercancía a la furgoneta antes de confirmar.");
+
             throw new StockInsuficienteException(productoId, cantidad, disponibleTotal, productoNombre);
         }
 
-        _logger.LogInformation("Asignación FIFO completada: {NumLotes} lotes para {Cantidad} unidades",
-            asignaciones.Count, cantidad);
+        _logger.LogInformation("Asignación FIFO completada: {NumLotes} lotes para {Cantidad} unidades (origen {Origen})",
+            asignaciones.Count, cantidad, origen);
 
         return asignaciones;
     }

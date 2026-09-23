@@ -118,16 +118,17 @@ public class MultiempresaIsolationTests : IClassFixture<BuenaTierraWebAppFactory
     }
 
     // ═══════════════════════════════════════════════════════
-    // TEST 1: Endpoint público de lista de empresas
+    // TEST 1: Listado de empresas (requiere Admin)
     // ═══════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ListaEmpresas_SinAuth_RetornaEmpresasActivas()
+    public async Task ListaEmpresas_ConAdmin_RetornaEmpresasActivas()
     {
         // Asegurar que existe al menos una empresa activa
         SeedEmpresaAjena();
 
-        var client = _factory.CreateClient(); // sin autenticar
+        // El endpoint /api/empresa/lista es solo Admin
+        var client = await _factory.CreateAuthenticatedClientAsync();
         var res = await client.GetAsync("/api/empresa/lista");
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);

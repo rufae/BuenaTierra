@@ -356,7 +356,7 @@ function FormPanel({
   function toggleAlergeno(id: number) {
     setSelectedAlergenos(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
       return next
     })
   }
@@ -1345,7 +1345,7 @@ function TabStockMP() {
   function toggle(producto: string) {
     setExpandidos(prev => {
       const next = new Set(prev)
-      next.has(producto) ? next.delete(producto) : next.add(producto)
+      if (next.has(producto)) { next.delete(producto) } else { next.add(producto) }
       return next
     })
   }

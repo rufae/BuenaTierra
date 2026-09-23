@@ -1,5 +1,6 @@
 using BuenaTierra.Application.Interfaces;
 using BuenaTierra.Domain.Entities;
+using BuenaTierra.Domain.Enums;
 using BuenaTierra.Domain.Exceptions;
 using BuenaTierra.Domain.Interfaces;
 using BuenaTierra.Infrastructure.Services;
@@ -49,7 +50,7 @@ public class LoteAsignacionServiceTests
         var lotes = new List<Lote> { CreateLote(1, "L001", 10m) };
 
         var mockLoteRepo = new Mock<ILoteRepository>();
-        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, default))
+        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(lotes);
 
         var mockUow = new Mock<IUnitOfWork>();
@@ -76,7 +77,7 @@ public class LoteAsignacionServiceTests
         };
 
         var mockLoteRepo = new Mock<ILoteRepository>();
-        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, default))
+        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(lotes);
 
         var mockUow = new Mock<IUnitOfWork>();
@@ -99,7 +100,7 @@ public class LoteAsignacionServiceTests
         var lotes = new List<Lote> { CreateLote(1, "LOTE-X", 5m) };
 
         var mockLoteRepo = new Mock<ILoteRepository>();
-        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, default))
+        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(lotes);
 
         var mockUow = new Mock<IUnitOfWork>();
@@ -116,7 +117,7 @@ public class LoteAsignacionServiceTests
     public async Task AsignarLotes_SinLotes_LanzaNoHayLotesDisponiblesException()
     {
         var mockLoteRepo = new Mock<ILoteRepository>();
-        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, default))
+        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Lote>());
 
         var mockUow = new Mock<IUnitOfWork>();
@@ -155,7 +156,7 @@ public class LoteAsignacionServiceTests
         };
 
         var mockLoteRepo = new Mock<ILoteRepository>();
-        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, default))
+        mockLoteRepo.Setup(r => r.GetDisponiblesFIFOAsync(1, 1, It.IsAny<OrigenStock>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(lotes);
 
         var mockUow = new Mock<IUnitOfWork>();

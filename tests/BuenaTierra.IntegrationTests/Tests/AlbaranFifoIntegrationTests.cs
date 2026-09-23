@@ -100,6 +100,7 @@ public class AlbaranFifoIntegrationTests : IClassFixture<BuenaTierraWebAppFactor
         {
             clienteId,
             serieId,
+            origenStock = "Fabrica",
             items = new[] { new { productoId, cantidad = 5, descuento = 0 } },
         });
 
@@ -120,6 +121,7 @@ public class AlbaranFifoIntegrationTests : IClassFixture<BuenaTierraWebAppFactor
         {
             clienteId,
             serieId,
+            origenStock = "Fabrica",
             items = new[] { new { productoId, cantidad = 8, descuento = 0 } },
         });
         crearRes.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -161,6 +163,7 @@ public class AlbaranFifoIntegrationTests : IClassFixture<BuenaTierraWebAppFactor
         {
             clienteId,
             serieId,
+            origenStock = "Fabrica",
             items = new[] { new { productoId, cantidad = 3, descuento = 0 } },
         });
         var albaran = (await crearRes.Content.ReadFromJsonAsync<AlbaranEnvelope>())!.Data;

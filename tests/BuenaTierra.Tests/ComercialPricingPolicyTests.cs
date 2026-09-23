@@ -61,7 +61,7 @@ public class ComercialPricingPolicyTests
         var cliente  = ClienteBase();
         var producto = ProductoBase(precio: 5m);
 
-        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, 0);
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, null);
 
         Assert.Equal(5m, result.PrecioUnitario);
         Assert.Equal("producto_base", result.OrigenPrecio);
@@ -77,7 +77,7 @@ public class ComercialPricingPolicyTests
         ];
         var producto = ProductoBase(precio: 10m);
 
-        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, 0);
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, null);
 
         Assert.Equal(7m, result.PrecioUnitario);
         Assert.Equal("condicion_especial", result.OrigenPrecio);
@@ -93,7 +93,7 @@ public class ComercialPricingPolicyTests
         ];
         var producto = ProductoBase(precio: 10m);
 
-        var result = ComercialPricingPolicy.Resolve(cliente, producto, precioManualLinea: 3m, 0);
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, precioManualLinea: 3m, null);
 
         Assert.Equal(3m, result.PrecioUnitario);
         Assert.Equal("linea_manual", result.OrigenPrecio);
@@ -107,7 +107,7 @@ public class ComercialPricingPolicyTests
         var cliente  = ClienteBase(descuentoGeneral: 0);
         var producto = ProductoBase();
 
-        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, 0);
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, null);
 
         Assert.Equal(0m, result.Descuento);
         Assert.Equal("sin_descuento", result.OrigenDescuento);
@@ -119,7 +119,7 @@ public class ComercialPricingPolicyTests
         var cliente  = ClienteBase(descuentoGeneral: 15m);
         var producto = ProductoBase();
 
-        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, 0);
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, null);
 
         Assert.Equal(15m, result.Descuento);
         Assert.Equal("cliente_general", result.OrigenDescuento);
@@ -131,7 +131,7 @@ public class ComercialPricingPolicyTests
         var cliente  = ClienteBase(descuentoGeneral: 0);
         var producto = ProductoBase(descuentoDefault: 5m);
 
-        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, 0);
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, null);
 
         Assert.Equal(5m, result.Descuento);
         Assert.Equal("producto_defecto", result.OrigenDescuento);
@@ -147,7 +147,7 @@ public class ComercialPricingPolicyTests
         ];
         var producto = ProductoBase();
 
-        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, 0);
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, null);
 
         Assert.Equal(25m, result.Descuento);
         Assert.Equal("condicion_especial", result.OrigenDescuento);
@@ -167,6 +167,36 @@ public class ComercialPricingPolicyTests
 
         Assert.Equal(50m, result.Descuento);
         Assert.Equal("linea_manual", result.OrigenDescuento);
+    }
+
+    // B1: el descuento manual con valor 0 debe respetarse (no "revivir" el descuento del cliente)
+    [Fact]
+    public void Descuento_ManualCero_RespetaCeroSobreDescuentoCliente()
+    {
+        var cliente = ClienteBase(descuentoGeneral: 15m);
+        cliente.CondicionesEspeciales =
+        [
+            Condicion(TipoCondicionEspecial.Descuento, "PALM001", descuento: 25m)
+        ];
+        var producto = ProductoBase(descuentoDefault: 5m);
+
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, descuentoManualLinea: 0m);
+
+        Assert.Equal(0m, result.Descuento);
+        Assert.Equal("linea_manual", result.OrigenDescuento);
+    }
+
+    // B1: sin override (null) sí aplica la política comercial
+    [Fact]
+    public void Descuento_SinOverrideNull_AplicaPoliticaComercial()
+    {
+        var cliente = ClienteBase(descuentoGeneral: 15m);
+        var producto = ProductoBase();
+
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, descuentoManualLinea: null);
+
+        Assert.Equal(15m, result.Descuento);
+        Assert.Equal("cliente_general", result.OrigenDescuento);
     }
 
     // ─── Totales (cálculo final base imponible + IVA) ────────────────────────
@@ -205,7 +235,7 @@ public class ComercialPricingPolicyTests
         ];
         var producto = ProductoBase();
 
-        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, 0);
+        var result = ComercialPricingPolicy.Resolve(cliente, producto, null, null);
 
         Assert.Equal(8m, result.Descuento);
         Assert.Equal("condicion_especial", result.OrigenDescuento);

@@ -344,6 +344,21 @@ app.MapControllers();
             ALTER TABLE IF EXISTS pedidos_lineas ADD COLUMN IF NOT EXISTS motivo_precio_especial VARCHAR(500);
         ");
         await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS stock ADD COLUMN IF NOT EXISTS cantidad_furgoneta NUMERIC(10,3) NOT NULL DEFAULT 0;
+        ");
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS pedidos ADD COLUMN IF NOT EXISTS origen_stock VARCHAR(10) NOT NULL DEFAULT 'Fabrica';
+        ");
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS albaranes ADD COLUMN IF NOT EXISTS origen_stock VARCHAR(10) NOT NULL DEFAULT 'Fabrica';
+        ");
+        await migCtx.Database.ExecuteSqlRawAsync(@"
+            ALTER TABLE IF EXISTS facturas ADD COLUMN IF NOT EXISTS origen_stock VARCHAR(10) NOT NULL DEFAULT 'Fabrica';
+        ");
+        // CHECK de movimientos_stock.tipo — ampliado con CargaFurgoneta/DescargaFurgoneta/Merma
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE movimientos_stock DROP CONSTRAINT IF EXISTS movimientos_stock_tipo_check;"); } catch { }
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE movimientos_stock ADD CONSTRAINT movimientos_stock_tipo_check CHECK (tipo IN ('EntradaProduccion','Venta','AjustePositivo','AjusteNegativo','Devolucion','Caducidad','CargaFurgoneta','DescargaFurgoneta','Merma'));"); } catch { }
+        await migCtx.Database.ExecuteSqlRawAsync(@"
             ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS configuracion TEXT;
         ");
         await migCtx.Database.ExecuteSqlRawAsync(@"

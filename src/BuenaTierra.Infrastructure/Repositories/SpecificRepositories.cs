@@ -67,20 +67,28 @@ public class LoteRepository : Repository<Lote>, ILoteRepository
     /// Obtiene lotes disponibles para asignación FIFO:
     /// - No bloqueados
     /// - No caducados
-    /// - Con stock disponible > reservado
+    /// - Con stock disponible > 0 en la ubicación de origen indicada
+    ///   (Fábrica: disponible - furgoneta; Furgoneta: cantidad en furgoneta)
     /// - Ordenados por fecha fabricación ASC, luego ID ASC
     /// </summary>
-    public async Task<IEnumerable<Lote>> GetDisponiblesFIFOAsync(int empresaId, int productoId, CancellationToken ct = default)
-        => await _context.Lotes
+    public async Task<IEnumerable<Lote>> GetDisponiblesFIFOAsync(int empresaId, int productoId, OrigenStock origen = OrigenStock.Fabrica, CancellationToken ct = default)
+    {
+        var query = _context.Lotes
             .Include(l => l.Stock)
             .Where(l => l.EmpresaId == empresaId
                      && l.ProductoId == productoId
                      && !l.Bloqueado
                      && (l.FechaCaducidad == null || l.FechaCaducidad > DateOnly.FromDateTime(DateTime.Today))
-                     && l.Stock != null
-                     && (l.Stock.CantidadDisponible - l.Stock.CantidadReservada) > 0)
+                     && l.Stock != null);
+
+        query = origen == OrigenStock.Furgoneta
+            ? query.Where(l => l.Stock!.CantidadFurgoneta > 0)
+            : query.Where(l => (l.Stock!.CantidadDisponible - l.Stock.CantidadReservada - l.Stock.CantidadFurgoneta) > 0);
+
+        return await query
             .OrderBy(l => l.FechaFabricacion).ThenBy(l => l.Id)
             .ToListAsync(ct);
+    }
 
     public async Task<IEnumerable<Lote>> GetByProductoAsync(int empresaId, int productoId, CancellationToken ct = default)
         => await _set.Include(l => l.Stock)
@@ -113,6 +121,20 @@ public class StockRepository : Repository<Stock>, IStockRepository
             .SumAsync(s => s.CantidadDisponible - s.CantidadReservada, ct);
     }
 
+    public async Task<decimal> GetTotalDisponibleOrigenAsync(int empresaId, int productoId, OrigenStock origen, CancellationToken ct = default)
+    {
+        var lotes = await _context.Lotes
+            .Where(l => l.EmpresaId == empresaId && l.ProductoId == productoId && !l.Bloqueado
+                     && (l.FechaCaducidad == null || l.FechaCaducidad > DateOnly.FromDateTime(DateTime.Today)))
+            .Select(l => l.Id).ToListAsync(ct);
+
+        var query = _set.Where(s => s.EmpresaId == empresaId && s.ProductoId == productoId && lotes.Contains(s.LoteId));
+
+        return origen == OrigenStock.Furgoneta
+            ? await query.SumAsync(s => (decimal?)s.CantidadFurgoneta, ct) ?? 0m
+            : await query.SumAsync(s => (decimal?)(s.CantidadDisponible - s.CantidadReservada - s.CantidadFurgoneta), ct) ?? 0m;
+    }
+
     public async Task<IEnumerable<Stock>> GetStockBajoMinimoAsync(int empresaId, CancellationToken ct = default)
         => await _set.Include(s => s.Producto).Include(s => s.Lote)
             .Where(s => s.EmpresaId == empresaId && s.CantidadDisponible <= s.StockMinimo && s.StockMinimo > 0)
@@ -133,7 +155,9 @@ public class StockRepository : Repository<Stock>, IStockRepository
                 s.Lote.FechaFabricacion.ToString("yyyy-MM-dd"),
                 s.Lote.FechaCaducidad != null ? s.Lote.FechaCaducidad.Value.ToString("yyyy-MM-dd") : null,
                 s.CantidadDisponible,
-                s.CantidadReservada
+                s.CantidadReservada,
+                s.CantidadFurgoneta,
+                s.CantidadDisponible - s.CantidadFurgoneta
             ))
             .ToListAsync(ct);
 }

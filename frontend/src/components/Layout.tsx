@@ -66,10 +66,12 @@ const NAV_OBRADOR_BASE: NavItem[] = [
   { to: '/facturacion', icon: <FileText className="w-[18px] h-[18px]" />,        label: 'Facturación' },
   { to: '/albaranes',   icon: <Truck className="w-[18px] h-[18px]" />,           label: 'Albaranes' },
   { to: '/pedidos',     icon: <ClipboardList className="w-[18px] h-[18px]" />,   label: 'Pedidos' },
+  { to: '/facturacion-rapida', icon: <Zap className="w-[18px] h-[18px]" />,      label: 'Facturación rápida' },
   { to: '/preventa',    icon: <CalendarDays className="w-[18px] h-[18px]" />,    label: 'Preventa' },
   { to: '/clientes',    icon: <Users className="w-[18px] h-[18px]" />,           label: 'Clientes',    separator: true },
   { to: '/productos',   icon: <Package className="w-[18px] h-[18px]" />,         label: 'Productos' },
   { to: '/produccion',  icon: <Factory className="w-[18px] h-[18px]" />,         label: 'Producción' },
+  { to: '/carga',       icon: <ShoppingCart className="w-[18px] h-[18px]" />,    label: 'Carga' },
   { to: '/lotes',       icon: <Layers className="w-[18px] h-[18px]" />,          label: 'Lotes' },
   { to: '/ingredientes',icon: <Leaf className="w-[18px] h-[18px]" />,            label: 'Ingredientes' },
   { to: '/trazabilidad',icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad', separator: true },
@@ -79,17 +81,6 @@ const NAV_OBRADOR_BASE: NavItem[] = [
   { to: '/ia',          icon: <Bot className="w-[18px] h-[18px]" />,             label: 'IA' },
   { to: '/etiquetas',   icon: <Tag className="w-[18px] h-[18px]" />,             label: 'Etiquetas' },
   { to: '/ajustes',     icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',     separator: true },
-]
-
-const NAV_REPARTIDOR: NavItem[] = [
-  { to: '/dashboard',          icon: <LayoutDashboard className="w-[18px] h-[18px]" />, label: 'Panel' },
-  { to: '/facturacion-rapida', icon: <Zap className="w-[18px] h-[18px]" />,             label: 'Facturación rápida' },
-  { to: '/preventa',           icon: <CalendarDays className="w-[18px] h-[18px]" />,    label: 'Preventa' },
-  { to: '/clientes',           icon: <Users className="w-[18px] h-[18px]" />,           label: 'Mis clientes', separator: true },
-  { to: '/trazabilidad',       icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad' },
-  { to: '/balance',            icon: <Wallet className="w-[18px] h-[18px]" />,          label: 'Balance' },
-  { to: '/ia',                 icon: <Bot className="w-[18px] h-[18px]" />,             label: 'IA' },
-  { to: '/ajustes',            icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',       separator: true },
 ]
 
 const NAV_ADMIN: NavItem[] = [
@@ -111,20 +102,16 @@ export default function Layout() {
   const empresaNombre = empresaData?.nombre || 'Mi empresa'
   const esEmpresaObrador = empresaData?.esObrador ?? (user?.empresaEsObrador ?? true)
 
+  const isAdmin = user?.rol === 'Admin'
   const isRepartidor = user?.rol === 'Repartidor'
-  const isAdmin      = user?.rol === 'Admin'
-  const navObrador = NAV_OBRADOR_BASE
-    .map((item) => {
-      if (item.to !== '/produccion') return item
-      return esEmpresaObrador
-        ? item
-        : { ...item, to: '/compra', icon: <ShoppingCart className="w-[18px] h-[18px]" />, label: 'Compra' }
-    })
-    .filter((item) => esEmpresaObrador || item.to !== '/ingredientes')
+  // Tareas divididas pero todas visibles en la misma cuenta:
+  // - Empresa obrador unificada → lista completa (Producción, Carga, Facturación rápida…).
+  // - Empresa de distribución → sin Producción/Ingredientes (Carga las sustituye).
+  const navObrador = NAV_OBRADOR_BASE.filter((item) =>
+    esEmpresaObrador || (item.to !== '/produccion' && item.to !== '/ingredientes')
+  )
 
-  const navItems = isAdmin
-    ? NAV_ADMIN
-    : (isRepartidor && esEmpresaObrador ? NAV_REPARTIDOR : navObrador)
+  const navItems = isAdmin ? NAV_ADMIN : navObrador
 
   function handleLogout() {
     logout()

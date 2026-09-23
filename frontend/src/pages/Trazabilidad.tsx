@@ -26,6 +26,68 @@ const ALERGENO_EMOJI: Record<string, string> = {
 }
 
 function today() { return new Date().toISOString().slice(0, 10) }
+
+/**
+ * Badge de operación para Trazabilidad con colores por repuesta de stock:
+ * - Verde: venta o devolución que REPOne stock
+ * - Naranja: caducidad (no repone)
+ * - Rojo: devolución que NO repone (dañado, otro, sin repuesto) o merma
+ * - Azul: producción/entrada. Lee el motivo real de datosAdicionales.motivo.
+ */
+function badgeOperacion(tipoOperacion: string, datosAdicionales?: string | null): { cls: string; label: string } {
+  let motivo: string | null = null
+  if (datosAdicionales) {
+    try { motivo = JSON.parse(datosAdicionales)?.motivo ?? null } catch { motivo = null }
+  }
+
+  if (motivo) {
+    switch (motivo) {
+      case 'DevolucionVoluntaria':
+      case 'ErrorPreparacion':
+      case 'CalidadObrador':
+      case 'devolucion_voluntaria':
+        return { cls: 'bg-green-50 text-green-700', label: motivo === 'devolucion_voluntaria' ? 'Devolución normal' : motivo === 'ErrorPreparacion' ? 'Error preparación' : motivo === 'CalidadObrador' ? 'Calidad obrador' : 'Devolución voluntaria' }
+      case 'Caducidad':
+      case 'caducidad':
+        return { cls: 'bg-orange-50 text-orange-700', label: 'Caducidad' }
+      case 'ProductoDaniado':
+        return { cls: 'bg-red-50 text-red-700', label: 'Producto dañado' }
+      case 'Otro':
+        return { cls: 'bg-red-50 text-red-700', label: 'Otro motivo' }
+    }
+  }
+
+  switch (tipoOperacion) {
+    case 'Venta':
+    case 'venta_pedido':
+    case 'venta_factura':
+    case 'factura_desde_pedido':
+      return { cls: 'bg-green-50 text-green-700', label: 'Venta' }
+    case 'Produccion':
+    case 'EntradaProduccion':
+      return { cls: 'bg-blue-50 text-blue-700', label: 'Producción' }
+    case 'Compra':
+      return { cls: 'bg-teal-50 text-teal-700', label: 'Compra' }
+    case 'devolucion_pedido':
+      return { cls: 'bg-green-50 text-green-700', label: 'Devolución' }
+    case 'devolucion_sin_stock':
+      return { cls: 'bg-red-50 text-red-700', label: 'Devolución (sin stock)' }
+    case 'caducidad_pedido':
+      return { cls: 'bg-orange-50 text-orange-700', label: 'Caducidad' }
+    case 'Merma':
+      return { cls: 'bg-red-50 text-red-700', label: 'Merma' }
+    case 'CargaFurgoneta':
+      return { cls: 'bg-sky-50 text-sky-700', label: 'Carga furgoneta' }
+    case 'DescargaFurgoneta':
+      return { cls: 'bg-orange-50 text-orange-700', label: 'Descarga furgoneta' }
+    case 'AjustePositivo':
+      return { cls: 'bg-green-50 text-green-700', label: 'Ajuste +' }
+    case 'AjusteNegativo':
+      return { cls: 'bg-red-50 text-red-700', label: 'Ajuste −' }
+    default:
+      return { cls: 'bg-gray-100 text-gray-600', label: tipoOperacion }
+  }
+}
 function daysAgo(n: number) {
   const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10)
 }
@@ -186,25 +248,20 @@ function TabMovimientos() {
                   <tr key={i} className="hover:bg-gray-50/50">
                     <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{fmtDate(row.fecha)}</td>
                     <td className="px-3 py-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        row.tipoOperacion === 'Venta' ? 'bg-green-50 text-green-700' :
-                        row.tipoOperacion === 'Produccion' ? 'bg-blue-50 text-blue-700' :
-                        row.tipoOperacion === 'Compra' ? 'bg-teal-50 text-teal-700' :
-                        row.tipoOperacion === 'devolucion_pedido' ? 'bg-red-50 text-red-700' :
-                        row.tipoOperacion === 'caducidad_pedido' ? 'bg-orange-50 text-orange-700' :
-                        row.tipoOperacion?.toLowerCase().includes('devol') ? 'bg-red-50 text-red-700' :
-                        row.tipoOperacion?.toLowerCase().includes('caduc') ? 'bg-orange-50 text-orange-700' :
-                        'bg-gray-100 text-gray-600'}`}>
-                        {row.tipoOperacion === 'devolucion_pedido' ? 'Devolución normal' :
-                         row.tipoOperacion === 'caducidad_pedido' ? 'Devolución por caducidad' :
-                         row.tipoOperacion}
-                      </span>
+                      {(() => {
+                        const badge = badgeOperacion(row.tipoOperacion, row.datosAdicionales)
+                        return (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge.cls}`}>
+                            {badge.label}
+                          </span>
+                        )
+                      })()}
                       {row.datosAdicionales && (
                         <span className="block text-[10px] text-gray-400 mt-0.5 max-w-[160px] truncate" title={row.datosAdicionales}>
                           {(() => {
                             try {
                               const d = JSON.parse(row.datosAdicionales)
-                              return d.motivo === 'caducidad' ? 'Caducidad' : d.motivo === 'devolucion_voluntaria' ? 'Voluntaria' : ''
+                              return d.destino ? `→ ${d.destino}` : ''
                             } catch { return '' }
                           })()}
                         </span>
@@ -262,7 +319,11 @@ function TabProducto() {
   const traza: TrazaProducto | null = (rawData as { success: boolean; data: TrazaProducto } | undefined)?.data ?? null
 
   function toggleLote(id: number) {
-    setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+    setExpanded(prev => {
+      const n = new Set(prev)
+      if (n.has(id)) { n.delete(id) } else { n.add(id) }
+      return n
+    })
   }
 
   async function downloadRecallPdf(loteId: number, codigoLote: string) {
@@ -366,17 +427,14 @@ function TabProducto() {
                           <tr key={m.id} className="hover:bg-gray-50">
                             <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(m.fecha)}</td>
                             <td className="px-4 py-2.5">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                m.tipoOperacion === 'Venta' ? 'bg-green-50 text-green-700' :
-                                m.tipoOperacion === 'devolucion_pedido' ? 'bg-red-50 text-red-700' :
-                                m.tipoOperacion === 'caducidad_pedido' ? 'bg-orange-50 text-orange-700' :
-                                m.tipoOperacion?.toLowerCase().includes('devol') ? 'bg-red-50 text-red-700' :
-                                m.tipoOperacion?.toLowerCase().includes('caduc') ? 'bg-orange-50 text-orange-700' :
-                                'bg-blue-50 text-blue-700'}`}>
-                                {m.tipoOperacion === 'devolucion_pedido' ? 'Devolución normal' :
-                                 m.tipoOperacion === 'caducidad_pedido' ? 'Devolución por caducidad' :
-                                 m.tipoOperacion}
-                              </span>
+                              {(() => {
+                                const badge = badgeOperacion(m.tipoOperacion, (m as { datosAdicionales?: string }).datosAdicionales)
+                                return (
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge.cls}`}>
+                                    {badge.label}
+                                  </span>
+                                )
+                              })()}
                             </td>
                             <td className="px-4 py-2.5 font-semibold text-right">{m.cantidad}</td>
                             <td className="px-4 py-2.5 text-gray-900">{m.clienteNombre ?? '—'}</td>

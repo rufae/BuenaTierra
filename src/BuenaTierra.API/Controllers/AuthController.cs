@@ -35,7 +35,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<ApiResponse<LoginResponse>>> Login(
         [FromBody] LoginRequest request, CancellationToken ct)
     {
-        var result = await _authService.LoginAsync(request.Email, request.Password, ct);
+        var result = await _authService.LoginAsync(request.Email, request.Password, request.EmpresaId, ct);
         if (!result.Success)
             return Unauthorized(ApiResponse<LoginResponse>.Fail(result.Error ?? "Credenciales inválidas"));
 
@@ -132,15 +132,18 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<string>.Ok("Contraseña restablecida correctamente"));
     }
 
-    /// <summary>POST /api/auth/establecer-password — Cambio de contraseña forzado en primer login</summary>
+    /// <summary>POST /api/auth/establecer-password — Cambio de contraseña forzado en primer login.
+    /// Devuelve un JWT nuevo (sin el flag) y un refresh token rotado.</summary>
     [HttpPost("establecer-password")]
     [Authorize]
-    public async Task<ActionResult<ApiResponse<string>>> EstablecerPassword(
+    public async Task<ActionResult<ApiResponse<LoginResponse>>> EstablecerPassword(
         [FromBody] EstablecerPasswordRequest request, CancellationToken ct)
     {
         var usuarioId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        await _authService.EstablecerPasswordAsync(usuarioId, request.NuevaPassword, ct);
-        return Ok(ApiResponse<string>.Ok("Contraseña establecida correctamente"));
+        var result = await _authService.EstablecerPasswordAsync(usuarioId, request.NuevaPassword, ct);
+        return Ok(ApiResponse<LoginResponse>.Ok(
+            new LoginResponse(result.Token!, result.RefreshToken!, result.Expira!.Value, result.DebeCambiarPassword),
+            "Contraseña establecida correctamente"));
     }
 
     /// <summary>GET /api/auth/me — Info del usuario actual</summary>
@@ -188,7 +191,7 @@ public class AuthController : ControllerBase
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(codigo ?? "")));
 }
 
-public record LoginRequest(string Email, string Password);
+public record LoginRequest(string Email, string Password, int? EmpresaId = null);
 public record RefreshRequest(string RefreshToken);
 public record EstablecerPasswordRequest(string NuevaPassword);
 public record SolicitarResetRequest(string Email);

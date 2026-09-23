@@ -15,7 +15,7 @@ public static class ComercialPricingPolicy
         Cliente cliente,
         Producto producto,
         decimal? precioManualLinea,
-        decimal descuentoManualLinea)
+        decimal? descuentoManualLinea)
     {
         var condicionPrecio = FindBestCondicion(cliente, producto,
             c => c.Tipo is TipoCondicionEspecial.Precio or TipoCondicionEspecial.PrecioEspecial);
@@ -45,9 +45,10 @@ public static class ComercialPricingPolicy
         decimal descuento;
         string origenDescuento;
 
-        if (descuentoManualLinea > 0)
+        // B1: el descuento manual cuenta AUNQUE SEA 0 (null = sin override → aplica la política).
+        if (descuentoManualLinea.HasValue)
         {
-            descuento = descuentoManualLinea;
+            descuento = descuentoManualLinea.Value;
             origenDescuento = "linea_manual";
         }
         else if (condicionDescuento is not null && condicionDescuento.Descuento > 0)

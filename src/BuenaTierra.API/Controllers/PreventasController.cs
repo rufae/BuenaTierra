@@ -362,6 +362,9 @@ public class PreventasController : ControllerBase
         if (!request.AlertaConfirmada)
             return BadRequest(ApiResponse<PreventaConvertidaDto>.Fail("Debe confirmar la revision de preventa antes de convertir"));
 
+        if (request.OrigenStock is null)
+            return BadRequest(ApiResponse<PreventaConvertidaDto>.Fail("Debe indicar el origen de la venta (Fábrica o Furgoneta)"));
+
         var preventa = await GetPreventaConDetalleAsync(id, ct);
         if (preventa == null)
             return NotFound(ApiResponse<PreventaConvertidaDto>.Fail("Preventa no encontrada"));
@@ -406,6 +409,7 @@ public class PreventasController : ControllerBase
             FechaEntrega = preventa.FechaPreventa,
             Estado = EstadoPedido.Confirmado,
             Notas = $"Generado desde preventa #{preventa.Id}" + (string.IsNullOrWhiteSpace(preventa.Notas) ? string.Empty : $". {preventa.Notas}"),
+            OrigenStock = request.OrigenStock!.Value
         };
 
         decimal subtotal = 0;
@@ -420,8 +424,10 @@ public class PreventasController : ControllerBase
         {
             var l = item.Linea;
             var cantidad = item.Cantidad;
-            var precio = l.Producto.PrecioVenta;
-            var descuento = Math.Max(0, cliente.DescuentoGeneral);
+            // B7: usar la política comercial (igual que un pedido nuevo) en vez de precio directo
+            var pricing = BuenaTierra.Domain.Services.ComercialPricingPolicy.Resolve(cliente, l.Producto, null, null);
+            var precio = pricing.PrecioUnitario;
+            var descuento = pricing.Descuento;
             var ivaPorc = GetIvaPorcentaje(cliente, l.Producto);
             var rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0;
 
@@ -459,37 +465,112 @@ public class PreventasController : ControllerBase
         pedido.RetencionTotal = retencionTotal;
         pedido.Total = subtotal + ivaTotal + recargoTotal - retencionTotal;
 
-        await _uow.Pedidos.AddAsync(pedido, ct);
-        await _uow.SaveChangesAsync(ct);
-
-        preventa.Estado = EstadoPreventa.Convertida;
-        preventa.AlertaConfirmada = true;
-        preventa.Version += 1;
-
-        foreach (var item in lineasConvertibles)
+        // Transacción: crear pedido + reservar lotes + consumir stock en el origen elegido
+        // (igual que "Confirmar" de un pedido normal — la convertida nace en estado Confirmado).
+        await _uow.BeginTransactionAsync(ct);
+        try
         {
-            var l = item.Linea;
-            l.PedidoId = pedido.Id;
-            l.Editable = false;
-            l.EstadoLinea = EstadoPreventaLinea.Convertida;
-            l.CantidadFinal ??= item.Cantidad;
+            await _uow.Pedidos.AddAsync(pedido, ct);
+            await _uow.SaveChangesAsync(ct); // generar pedido.Id antes de los movimientos
 
-            await _uow.PreventaHistorial.AddAsync(new PreventaHistorial
+            for (int i = 0; i < lineasConvertibles.Count; i++)
             {
-                PreventaLineaId = l.Id,
-                Accion = "ConvertidaAPedido",
-                CantidadAnterior = item.Cantidad,
-                CantidadNueva = item.Cantidad,
-                UsuarioId = UsuarioId,
-                Detalle = JsonSerializer.Serialize(new { pedidoId = pedido.Id })
-            }, ct);
+                var item = lineasConvertibles[i];
+                var lineaPedido = pedido.Lineas.ElementAt(i); // mismo orden de construcción
+                var producto = item.Linea.Producto;
+
+                if (producto?.RequiereLote != true) continue;
+
+                var lotes = await _loteService.AsignarLotesAsync(
+                    EmpresaId, item.Linea.ProductoId, item.Cantidad, pedido.OrigenStock, ct);
+
+                lineaPedido.ReservaLotesJson = JsonSerializer.Serialize(
+                    lotes.Select(l => new ReservaLoteItem(l.LoteId, l.CodigoLote, l.Cantidad)).ToList());
+
+                foreach (var lote in lotes)
+                {
+                    var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, item.Linea.ProductoId, lote.LoteId, ct);
+                    if (stock == null) continue;
+
+                    var cantidadAntes = stock.CantidadDisponible;
+                    stock.Consumir(pedido.OrigenStock, lote.Cantidad);
+                    stock.UpdatedAt = DateTime.UtcNow;
+                    await _uow.Stock.UpdateAsync(stock, ct);
+
+                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                    {
+                        EmpresaId = EmpresaId,
+                        ProductoId = item.Linea.ProductoId,
+                        LoteId = lote.LoteId,
+                        Tipo = TipoMovimientoStock.Venta,
+                        Cantidad = lote.Cantidad,
+                        CantidadAntes = cantidadAntes,
+                        CantidadDespues = stock.CantidadDisponible,
+                        ReferenciaTipo = "pedido_confirmado",
+                        ReferenciaId = pedido.Id,
+                        UsuarioId = UsuarioId,
+                        Notas = $"Salida al convertir preventa #{preventa.Id} (origen: {pedido.OrigenStock})"
+                    }, ct);
+
+                    await _uow.Trazabilidades.AddAsync(new Trazabilidad
+                    {
+                        EmpresaId = EmpresaId,
+                        LoteId = lote.LoteId,
+                        ProductoId = item.Linea.ProductoId,
+                        ClienteId = preventa.ClienteId,
+                        Cantidad = lote.Cantidad,
+                        TipoOperacion = "venta_pedido",
+                        FechaOperacion = DateTime.UtcNow,
+                        UsuarioId = UsuarioId,
+                        DatosAdicionales = JsonSerializer.Serialize(new
+                        {
+                            pedidoId = pedido.Id,
+                            codigoLote = lote.CodigoLote,
+                            preventaId = preventa.Id
+                        })
+                    }, ct);
+                }
+
+                // Vaciar el stock consumido antes de la siguiente asignación FIFO
+                // (evita doble asignación si el mismo producto aparece varias veces en la preventa)
+                await _uow.SaveChangesAsync(ct);
+            }
+
+            preventa.Estado = EstadoPreventa.Convertida;
+            preventa.AlertaConfirmada = true;
+            preventa.Version += 1;
+
+            foreach (var item in lineasConvertibles)
+            {
+                var l = item.Linea;
+                l.PedidoId = pedido.Id;
+                l.Editable = false;
+                l.EstadoLinea = EstadoPreventaLinea.Convertida;
+                l.CantidadFinal ??= item.Cantidad;
+
+                await _uow.PreventaHistorial.AddAsync(new PreventaHistorial
+                {
+                    PreventaLineaId = l.Id,
+                    Accion = "ConvertidaAPedido",
+                    CantidadAnterior = item.Cantidad,
+                    CantidadNueva = item.Cantidad,
+                    UsuarioId = UsuarioId,
+                    Detalle = JsonSerializer.Serialize(new { pedidoId = pedido.Id })
+                }, ct);
+            }
+
+            await _uow.SaveChangesAsync(ct);
+            await _uow.CommitTransactionAsync(ct);
+
+            return Ok(ApiResponse<PreventaConvertidaDto>.Ok(
+                new PreventaConvertidaDto(preventa.Id, pedido.Id, preventa.Estado.ToString(), false),
+                $"Preventa convertida a pedido (origen: {pedido.OrigenStock}, stock descontado)"));
         }
-
-        await _uow.SaveChangesAsync(ct);
-
-        return Ok(ApiResponse<PreventaConvertidaDto>.Ok(
-            new PreventaConvertidaDto(preventa.Id, pedido.Id, preventa.Estado.ToString(), false),
-            "Preventa convertida a pedido"));
+        catch
+        {
+            await _uow.RollbackTransactionAsync(ct);
+            throw;
+        }
     }
 
     [HttpPost("{id:int}/cancelar")]
@@ -690,7 +771,7 @@ public record LineaEntradaRequest(
     string? Observaciones
 );
 
-public record ConvertirPreventaRequest(bool AlertaConfirmada);
+public record ConvertirPreventaRequest(bool AlertaConfirmada, OrigenStock? OrigenStock = null);
 
 public record PreventaCreadaDto(int Id, string FechaPreventa, string Estado);
 public record PreventaCabeceraActualizadaDto(int Id, int Version, string Estado, bool AlertaConfirmada);

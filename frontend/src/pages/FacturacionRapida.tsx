@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import api from '../lib/api'
-import type { Producto, Cliente, SerieFacturacion } from '../types'
+import type { Producto, Cliente, SerieFacturacion, ClienteCondicionEspecial, Factura } from '../types'
+import { resolvePreviewPricing, getIvaPorcentaje, getRecargoEquivalenciaPorcentaje, roundMoney, useEmpresaPrecios } from '../lib/pricing'
 import {
   Search, ShoppingCart, X, Plus, Minus, Loader2,
   Printer, CheckCircle, Zap, Trash2, ChevronDown,
@@ -25,15 +26,15 @@ interface FacturaCreada {
   lineas: Array<{ descripcion: string; cantidad: number; precioUnitario: number; subtotal: number }>
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Totales con la misma política que el backend (lib/pricing) ──────────────
 
-function calcSubtotal(item: CartItem) {
-  return item.producto.precioVenta * item.cantidad
-}
-
-function calcIva(item: CartItem) {
-  const base = calcSubtotal(item)
-  return base * (item.producto.ivaPorcentaje ?? 10) / 100
+function calcLinea(item: CartItem, cliente: Cliente | null, condiciones: ClienteCondicionEspecial[] | undefined, tablaRe: { ivaPorcentaje: number; recargoEquivalenciaPorcentaje: number }[] | undefined) {
+  const pricing = resolvePreviewPricing(cliente, item.producto, condiciones)
+  const ivaPorcentaje = getIvaPorcentaje(cliente, item.producto)
+  const recargoPorcentaje = getRecargoEquivalenciaPorcentaje(cliente, ivaPorcentaje, tablaRe)
+  const neto = roundMoney(item.cantidad * pricing.precioUnitario * (1 - pricing.descuento / 100))
+  const iva = roundMoney(neto * ivaPorcentaje / 100)
+  return { ...pricing, ivaPorcentaje, recargoPorcentaje, neto, iva }
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -43,6 +44,7 @@ export default function FacturacionRapida() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [clienteId, setClienteId] = useState('')
   const [serieId, setSerieId] = useState('')
+  const [origen, setOrigen] = useState<'Fabrica' | 'Furgoneta' | ''>('')
   const [facturaCreada, setFacturaCreada] = useState<FacturaCreada | null>(null)
   const [clienteDropdown, setClienteDropdown] = useState(false)
 
@@ -71,21 +73,64 @@ export default function FacturacionRapida() {
   }, [series])
 
   // ── Mutations ───────────────────────────────────────────────────────────
+  // Paridad con el backend: precios/descuentos/IVA resueltos con la misma política
+  const clienteSeleccionado = clientes?.find(c => c.id === +clienteId) ?? null
+  const { data: condiciones } = useQuery({
+    queryKey: ['cliente-condiciones-pos', clienteId],
+    queryFn: async () => (await api.get<{ data: ClienteCondicionEspecial[] }>(`/clientes/${clienteId}/condiciones`)).data.data,
+    enabled: !!clienteId,
+  })
+  const { data: empresaPrecios } = useEmpresaPrecios()
+
+  const lineasCart = cart.map(c => calcLinea(c, clienteSeleccionado, condiciones, empresaPrecios?.tiposIvaRe))
+
   const crearFactura = useMutation({
     mutationFn: async () => {
+      if (!origen) throw new Error('Indica el origen de la venta (Fábrica o Furgoneta)')
       const payload = {
         clienteId: +clienteId,
         serieId: +serieId,
-        items: cart.map(c => ({ productoId: c.producto.id, cantidad: c.cantidad })),
+        origenStock: origen,
+        items: cart.map((c, i) => ({
+          productoId: c.producto.id,
+          cantidad: c.cantidad,
+          precioUnitario: lineasCart[i].precioUnitario,
+          descuento: lineasCart[i].descuento,
+          ivaPorcentaje: lineasCart[i].ivaPorcentaje,
+          recargoEquivalenciaPorcentaje: lineasCart[i].recargoPorcentaje,
+        })),
       }
-      const res = await api.post<{ data: any }>('/facturas/crear', payload)
-      return res.data.data
+      const res = await api.post<{ data: { facturaId: number } }>('/facturas/crear', payload)
+      const creada = res.data.data
+
+      // La API devuelve solo id/nº/total: cargar el detalle completo
+      // (cliente, base, IVA y líneas) para la pantalla de éxito.
+      const det = await api.get<{ data: Factura }>(`/facturas/${creada.facturaId}`)
+      const d = det.data.data
+      return {
+        id: d.id,
+        numeroFactura: d.numeroFactura,
+        total: d.total,
+        subtotal: d.baseImponible,
+        ivaTotal: d.ivaTotal,
+        clienteNombre: d.cliente?.nombre ?? '',
+        lineas: (d.lineas ?? []).map(l => ({
+          descripcion: l.productoNombre,
+          cantidad: l.cantidad,
+          precioUnitario: l.precioUnitario,
+          subtotal: l.subtotal,
+        })),
+      } satisfies FacturaCreada
     },
     onSuccess: (data) => {
       setFacturaCreada(data)
       setCart([])
     },
-    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al generar factura'),
+    onError: (e: unknown) => toast.error(
+      e instanceof Error
+        ? e.message
+        : (e as { response?: { data?: { errors?: string[] } } })?.response?.data?.errors?.[0] ?? 'Error al generar factura'
+    ),
   })
 
   // ── Cart helpers ────────────────────────────────────────────────────────
@@ -117,12 +162,10 @@ export default function FacturacionRapida() {
 
   function clearAll() { setCart([]); setClienteId(''); setFacturaCreada(null) }
 
-  // ── Totals ──────────────────────────────────────────────────────────────
-  const subtotal = cart.reduce((s, c) => s + calcSubtotal(c), 0)
-  const ivaTotal = cart.reduce((s, c) => s + calcIva(c), 0)
+  // ── Totals (espejo exacto del backend con la política comercial) ────────
+  const subtotal = lineasCart.reduce((s, l) => s + l.neto, 0)
+  const ivaTotal = lineasCart.reduce((s, l) => s + l.iva, 0)
   const total = subtotal + ivaTotal
-
-  const clienteSeleccionado = clientes?.find(c => c.id === +clienteId)
 
   // ── Filtered products ───────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -284,7 +327,7 @@ export default function FacturacionRapida() {
               <p className="text-sm">Toca un producto para añadir</p>
             </div>
           ) : (
-            cart.map(item => (
+            cart.map((item, idx) => (
               <div key={item.producto.id} className="bg-gray-50 rounded-xl p-3">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <p className="text-xs font-semibold text-gray-800 leading-tight flex-1">{item.producto.nombre}</p>
@@ -296,7 +339,7 @@ export default function FacturacionRapida() {
                   <div className="flex items-center gap-1 bg-white rounded-lg border border-gray-200">
                     <button onClick={() => updateQty(item.producto.id, -1)}
                       className="w-8 h-8 flex items-center justify-center hover:bg-gray-50 rounded-l-lg text-gray-600">
-                      <Minus className="w-3 h-3" />
+                      <Minus className="w-4 h-4" />
                     </button>
                     <input
                       type="number"
@@ -309,13 +352,18 @@ export default function FacturacionRapida() {
                     />
                     <button onClick={() => updateQty(item.producto.id, 1)}
                       className="w-8 h-8 flex items-center justify-center hover:bg-gray-50 rounded-r-lg text-gray-600">
-                      <Plus className="w-3 h-3" />
+                      <Plus className="w-4 h-4" />
                     </button>
                   </div>
                   <span className="text-sm font-bold text-brand-700">
-                    {(calcSubtotal(item) + calcIva(item)).toFixed(2)} €
+                    {(lineasCart[idx]?.neto ?? 0).toFixed(2)} €
                   </span>
                 </div>
+                {lineasCart[idx] && lineasCart[idx].descuento > 0 && (
+                  <p className="text-[10px] text-emerald-600 text-right">
+                    −{lineasCart[idx].descuento}% (precio especial de {lineasCart[idx].origenDescuento.toLowerCase()})
+                  </p>
+                )}
               </div>
             ))
           )}
@@ -381,6 +429,17 @@ export default function FacturacionRapida() {
             </div>
           )}
 
+          {/* Origen de la venta */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Origen de la venta *</label>
+            <select value={origen} onChange={e => setOrigen(e.target.value as 'Fabrica' | 'Furgoneta' | '')}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+              <option value="">Seleccionar de dónde sale la mercancía…</option>
+              <option value="Fabrica">Fábrica</option>
+              <option value="Furgoneta">Furgoneta</option>
+            </select>
+          </div>
+
           {/* Generate button */}
           {(() => {
             const clienteSel = clientes?.find(c => String(c.id) === clienteId)
@@ -394,7 +453,7 @@ export default function FacturacionRapida() {
                 )}
                 <button
                   onClick={() => crearFactura.mutate()}
-                  disabled={cart.length === 0 || !clienteId || !serieId || crearFactura.isPending || !!bloqueado}
+                  disabled={cart.length === 0 || !clienteId || !serieId || !origen || crearFactura.isPending || !!bloqueado}
                   className="w-full flex items-center justify-center gap-2 px-4 py-4 bg-brand-600 text-white rounded-xl text-base font-bold disabled:opacity-50 hover:bg-brand-700 transition-all disabled:cursor-not-allowed shadow-sm"
                 >
                   {crearFactura.isPending

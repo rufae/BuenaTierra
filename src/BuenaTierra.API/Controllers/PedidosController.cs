@@ -55,7 +55,8 @@ public class PedidosController : ControllerBase
             p.Estado.ToString(),
             p.Cliente?.NombreCompleto ?? "",
             p.Total,
-            p.Cliente?.NoRealizarFacturas ?? false
+            p.Cliente?.NoRealizarFacturas ?? false,
+            p.OrigenStock.ToString()
         )).ToList();
 
         var pg = new PaginationParams(page, pageSize);
@@ -106,27 +107,23 @@ public class PedidosController : ControllerBase
                 g => g.Key,
                 g => g.Select(x => new ReservaLoteItem(0, x.CodigoLote, x.Cantidad)).ToList());
 
-        OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("BuenaTierra");
-        using var package = new OfficeOpenXml.ExcelPackage();
-        var ws = package.Workbook.Worksheets.Add("Pedidos");
+        using var wb = new ClosedXML.Excel.XLWorkbook();
+        var ws = wb.Worksheets.Add("Pedidos");
 
-        ws.Cells[1, 1].Value = "Nº Pedido";
-        ws.Cells[1, 2].Value = "Fecha";
-        ws.Cells[1, 3].Value = "Cliente";
-        ws.Cells[1, 4].Value = "NIF Cliente";
-        ws.Cells[1, 5].Value = "Dirección";
-        ws.Cells[1, 6].Value = "Estado";
-        ws.Cells[1, 7].Value = "Producto";
-        ws.Cells[1, 8].Value = "Lote";
-        ws.Cells[1, 9].Value = "Cantidad";
+        ws.Cell(1, 1).Value = "Nº Pedido";
+        ws.Cell(1, 2).Value = "Fecha";
+        ws.Cell(1, 3).Value = "Cliente";
+        ws.Cell(1, 4).Value = "NIF Cliente";
+        ws.Cell(1, 5).Value = "Dirección";
+        ws.Cell(1, 6).Value = "Estado";
+        ws.Cell(1, 7).Value = "Producto";
+        ws.Cell(1, 8).Value = "Lote";
+        ws.Cell(1, 9).Value = "Cantidad";
 
-        using (var headerRange = ws.Cells[1, 1, 1, 9])
-        {
-            headerRange.Style.Font.Bold = true;
-            headerRange.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
-            headerRange.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.FromArgb(68, 114, 196));
-            headerRange.Style.Font.Color.SetColor(System.Drawing.Color.White);
-        }
+        var headerRange = ws.Range(1, 1, 1, 9);
+        headerRange.Style.Font.Bold = true;
+        headerRange.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#4472C4");
+        headerRange.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
 
         int row = 2;
         foreach (var p in list)
@@ -140,15 +137,15 @@ public class PedidosController : ControllerBase
             var lineas = p.Lineas.Any() ? p.Lineas : new List<PedidoLinea>();
             if (!lineas.Any())
             {
-                ws.Cells[row, 1].Value = p.NumeroPedido;
-                ws.Cells[row, 2].Value = p.FechaPedido.ToString("dd/MM/yyyy");
-                ws.Cells[row, 3].Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
-                ws.Cells[row, 4].Value = cli?.Nif ?? "—";
-                ws.Cells[row, 5].Value = direccion;
-                ws.Cells[row, 6].Value = p.Estado.ToString();
-                ws.Cells[row, 7].Value = "—";
-                ws.Cells[row, 8].Value = "—";
-                ws.Cells[row, 9].Value = 0;
+                ws.Cell(row, 1).Value = p.NumeroPedido;
+                ws.Cell(row, 2).Value = p.FechaPedido.ToString("dd/MM/yyyy");
+                ws.Cell(row, 3).Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
+                ws.Cell(row, 4).Value = cli?.Nif ?? "—";
+                ws.Cell(row, 5).Value = direccion;
+                ws.Cell(row, 6).Value = p.Estado.ToString();
+                ws.Cell(row, 7).Value = "—";
+                ws.Cell(row, 8).Value = "—";
+                ws.Cell(row, 9).Value = 0;
                 row++;
                 continue;
             }
@@ -180,43 +177,44 @@ public class PedidosController : ControllerBase
                 {
                     foreach (var r in reservas)
                     {
-                        ws.Cells[row, 1].Value = p.NumeroPedido;
-                        ws.Cells[row, 2].Value = p.FechaPedido.ToString("dd/MM/yyyy");
-                        ws.Cells[row, 3].Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
-                        ws.Cells[row, 4].Value = cli?.Nif ?? "—";
-                        ws.Cells[row, 5].Value = direccion;
-                        ws.Cells[row, 6].Value = p.Estado.ToString();
-                        ws.Cells[row, 7].Value = l.Producto?.Nombre ?? l.Descripcion ?? "Producto";
-                        ws.Cells[row, 8].Value = string.IsNullOrWhiteSpace(r.CodigoLote) ? "Sin lote" : r.CodigoLote;
-                        ws.Cells[row, 9].Value = (int)Math.Round(r.Cantidad, 0, MidpointRounding.AwayFromZero);
+                        ws.Cell(row, 1).Value = p.NumeroPedido;
+                        ws.Cell(row, 2).Value = p.FechaPedido.ToString("dd/MM/yyyy");
+                        ws.Cell(row, 3).Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
+                        ws.Cell(row, 4).Value = cli?.Nif ?? "—";
+                        ws.Cell(row, 5).Value = direccion;
+                        ws.Cell(row, 6).Value = p.Estado.ToString();
+                        ws.Cell(row, 7).Value = l.Producto?.Nombre ?? l.Descripcion ?? "Producto";
+                        ws.Cell(row, 8).Value = string.IsNullOrWhiteSpace(r.CodigoLote) ? "Sin lote" : r.CodigoLote;
+                        ws.Cell(row, 9).Value = (int)Math.Round(r.Cantidad, 0, MidpointRounding.AwayFromZero);
                         row++;
                     }
                     continue;
                 }
 
-                ws.Cells[row, 1].Value = p.NumeroPedido;
-                ws.Cells[row, 2].Value = p.FechaPedido.ToString("dd/MM/yyyy");
-                ws.Cells[row, 3].Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
-                ws.Cells[row, 4].Value = cli?.Nif ?? "—";
-                ws.Cells[row, 5].Value = direccion;
-                ws.Cells[row, 6].Value = p.Estado.ToString();
-                ws.Cells[row, 7].Value = l.Producto?.Nombre ?? l.Descripcion ?? "Producto";
-                ws.Cells[row, 8].Value = "Sin lote";
-                ws.Cells[row, 9].Value = (int)Math.Round(l.Cantidad, 0, MidpointRounding.AwayFromZero);
+                ws.Cell(row, 1).Value = p.NumeroPedido;
+                ws.Cell(row, 2).Value = p.FechaPedido.ToString("dd/MM/yyyy");
+                ws.Cell(row, 3).Value = cli?.NombreCompleto ?? cli?.Nombre ?? "—";
+                ws.Cell(row, 4).Value = cli?.Nif ?? "—";
+                ws.Cell(row, 5).Value = direccion;
+                ws.Cell(row, 6).Value = p.Estado.ToString();
+                ws.Cell(row, 7).Value = l.Producto?.Nombre ?? l.Descripcion ?? "Producto";
+                ws.Cell(row, 8).Value = "Sin lote";
+                ws.Cell(row, 9).Value = (int)Math.Round(l.Cantidad, 0, MidpointRounding.AwayFromZero);
                 row++;
             }
         }
 
-        ws.Cells.AutoFitColumns();
-        if (ws.Cells[1, 5].Value != null) ws.Column(5).Width = Math.Min(ws.Column(5).Width, 55);
-        if (ws.Cells[1, 7].Value != null) ws.Column(7).Width = Math.Min(ws.Column(7).Width, 40);
-        if (ws.Cells[1, 8].Value != null) ws.Column(8).Width = Math.Min(ws.Column(8).Width, 35);
+        ws.Columns().AdjustToContents();
+        ws.Column(5).Width = Math.Min(ws.Column(5).Width, 55);
+        ws.Column(7).Width = Math.Min(ws.Column(7).Width, 40);
+        ws.Column(8).Width = Math.Min(ws.Column(8).Width, 35);
 
-        var bytes = package.GetAsByteArray();
-        var dStr = (desde ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(-1))).ToString("yyyyMMdd");
-        var hStr = (hasta ?? DateOnly.FromDateTime(DateTime.Today)).ToString("yyyyMMdd");
-        var fileName = $"pedidos-{dStr}-{hStr}.xlsx";
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        var fileName = (desde.HasValue || hasta.HasValue)
+            ? $"pedidos-{(desde ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(-1))):yyyyMMdd}-{(hasta ?? DateOnly.FromDateTime(DateTime.Today)):yyyyMMdd}.xlsx"
+            : "pedidos.xlsx";
+        return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
     /// <summary>GET /api/pedidos/{id} — Detalle de pedido con líneas</summary>
@@ -243,6 +241,9 @@ public class PedidosController : ControllerBase
             .FirstOrDefaultAsync(c => c.Id == request.ClienteId && c.EmpresaId == EmpresaId, ct)
             ?? throw new EntidadNotFoundException(nameof(Cliente), request.ClienteId);
 
+        if (request.OrigenStock is null)
+            return BadRequest(ApiResponse<PedidoCreado>.Fail("Debe indicar el origen de la venta (Fábrica o Furgoneta)"));
+
         var pedido = new Pedido
         {
             EmpresaId = EmpresaId,
@@ -252,7 +253,8 @@ public class PedidosController : ControllerBase
             FechaPedido = request.FechaPedido,
             FechaEntrega = request.FechaEntrega,
             Estado = EstadoPedido.Pendiente,
-            Notas = request.Notas
+            Notas = request.Notas,
+            OrigenStock = request.OrigenStock.Value
         };
 
         short orden = 0;
@@ -274,11 +276,12 @@ public class PedidosController : ControllerBase
             var producto = await _uow.Productos.GetByIdAsync(item.ProductoId, ct)
                 ?? throw new EntidadNotFoundException(nameof(Producto), item.ProductoId);
 
-            // ── Validación de stock ───────────────────────────────────────────
-            var stockDisponible = await _uow.Stock.GetTotalDisponibleAsync(EmpresaId, item.ProductoId, ct);
+            // ── Validación de stock en el origen elegido ────────────────────
+            var ubicacionOrigen = request.OrigenStock == OrigenStock.Furgoneta ? "furgoneta" : "fábrica";
+            var stockDisponible = await _uow.Stock.GetTotalDisponibleOrigenAsync(EmpresaId, item.ProductoId, request.OrigenStock.Value, ct);
             if (stockDisponible < item.Cantidad)
                 return BadRequest(ApiResponse<PedidoCreado>.Fail(
-                    $"Stock insuficiente para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}"));
+                    $"Stock insuficiente en {ubicacionOrigen} para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}"));
 
             var pricing = ComercialPricingPolicy.Resolve(cliente, producto, item.PrecioUnitario, item.Descuento);
             decimal precio = pricing.PrecioUnitario;
@@ -381,7 +384,7 @@ public class PedidosController : ControllerBase
 
                 if (producto?.RequiereLote != true) continue;
 
-                var lotes = await _loteService.AsignarLotesAsync(EmpresaId, linea.ProductoId, linea.Cantidad, ct);
+                var lotes = await _loteService.AsignarLotesAsync(EmpresaId, linea.ProductoId, linea.Cantidad, pedido.OrigenStock, ct);
 
                 // Guardar asignación FIFO en la línea
                 var reservaItems = lotes.Select(l => new ReservaLoteItem(l.LoteId, l.CodigoLote, l.Cantidad)).ToList();
@@ -400,7 +403,7 @@ public class PedidosController : ControllerBase
                     }
 
                     var cantidadAntes = stock.CantidadDisponible;
-                    stock.CantidadDisponible -= lote.Cantidad;
+                    stock.Consumir(pedido.OrigenStock, lote.Cantidad);
                     stock.UpdatedAt = DateTime.UtcNow;
                     await _uow.Stock.UpdateAsync(stock, ct);
 
@@ -416,7 +419,7 @@ public class PedidosController : ControllerBase
                         ReferenciaTipo = "pedido_confirmado",
                         ReferenciaId = pedido.Id,
                         UsuarioId = UsuarioId,
-                        Notas = $"Salida al confirmar pedido {pedido.NumeroPedido ?? pedido.Id.ToString()}"
+                        Notas = $"Salida al confirmar pedido {pedido.NumeroPedido ?? pedido.Id.ToString()} (origen: {pedido.OrigenStock})"
                     }, ct);
 
                     await _uow.Trazabilidades.AddAsync(new Trazabilidad
@@ -491,7 +494,7 @@ public class PedidosController : ControllerBase
                         if (huboVentaEnConfirmacion)
                         {
                             var cantidadAntes = stock.CantidadDisponible;
-                            stock.CantidadDisponible += item.Cantidad;
+                            stock.Reponer(pedido.OrigenStock, item.Cantidad);
                             stock.UpdatedAt = DateTime.UtcNow;
                             await _uow.Stock.UpdateAsync(stock, ct);
 
@@ -623,7 +626,7 @@ public class PedidosController : ControllerBase
             }
             else if (producto.RequiereLote)
             {
-                lotes = await _loteService.AsignarLotesAsync(EmpresaId, linea.ProductoId, linea.Cantidad, ct);
+                lotes = await _loteService.AsignarLotesAsync(EmpresaId, linea.ProductoId, linea.Cantidad, pedido.OrigenStock, ct);
             }
             else
             {
@@ -647,7 +650,8 @@ public class PedidosController : ControllerBase
                 NumeroAlbaran = numeroAlbaran,
                 FechaAlbaran = DateOnly.FromDateTime(DateTime.Today),
                 Estado = EstadoAlbaran.Pendiente,
-                Notas = pedido.Notas
+                Notas = pedido.Notas,
+                OrigenStock = pedido.OrigenStock
             };
 
             short orden = 0;
@@ -670,9 +674,11 @@ public class PedidosController : ControllerBase
                 }
             }
 
-            albaran.Subtotal = albaran.Lineas.Sum(l => l.Subtotal);
-            albaran.IvaTotal = albaran.Lineas.Sum(l => l.IvaImporte);
-            albaran.RecargoEquivalenciaTotal = Math.Round(albaran.Lineas.Sum(l => l.RecargoEquivalenciaImporte), 2);
+            // Cabeceras = Σ de los valores de línea redondeados a 2dp (Money.R2)
+            // para que pedido, albarán y factura cuadren exactamente al céntimo.
+            albaran.Subtotal = albaran.Lineas.Sum(l => Domain.Common.Money.R2(l.Subtotal));
+            albaran.IvaTotal = albaran.Lineas.Sum(l => Domain.Common.Money.R2(l.IvaImporte));
+            albaran.RecargoEquivalenciaTotal = albaran.Lineas.Sum(l => Domain.Common.Money.R2(l.RecargoEquivalenciaImporte));
             albaran.RetencionTotal = pedido.RetencionTotal;
             albaran.Total = albaran.Subtotal + albaran.IvaTotal + albaran.RecargoEquivalenciaTotal - albaran.RetencionTotal;
 
@@ -729,12 +735,15 @@ public class PedidosController : ControllerBase
             ConsumirStock = false,
             UsuarioId = UsuarioId,
             Notas = pedido.Notas,
+            OrigenStock = pedido.OrigenStock,
             Items = pedido.Lineas.Select(l => new LineaFacturaRequest
             {
                 ProductoId = l.ProductoId,
                 Cantidad = l.Cantidad,
                 PrecioUnitario = l.PrecioUnitario,
-                Descuento = l.Descuento
+                Descuento = l.Descuento,
+                IvaPorcentaje = l.IvaPorcentaje,
+                RecargoEquivalenciaPorcentaje = l.RecargoEquivalenciaPorcentaje
             }).ToList()
         };
 
@@ -1065,8 +1074,11 @@ public class PedidosController : ControllerBase
 
     private async Task<Dictionary<int, decimal>> GetDevueltoPorLoteAsync(int pedidoId, CancellationToken ct)
     {
+        // Incluye todos los tipos de devolución (normal, caducidad y sin repuesto).
+        // ReferenciaTipos históricos: "caducidad_pedido" (legado) y "devolucion_pedido" (actual).
         return await _uow.MovimientosStock.GetQueryable()
-            .Where(m => m.ReferenciaId == pedidoId
+            .Where(m => m.EmpresaId == EmpresaId
+                     && m.ReferenciaId == pedidoId
                      && (m.ReferenciaTipo == "devolucion_pedido" || m.ReferenciaTipo == "caducidad_pedido"))
             .GroupBy(m => m.LoteId)
             .Select(g => new { LoteId = g.Key, Total = g.Sum(m => m.Cantidad) })
@@ -1092,7 +1104,8 @@ public class PedidosController : ControllerBase
             l.MotivoPrecioEspecial,
             l.Producto?.UnidadesPorCaja
         )).ToList(),
-        p.Cliente?.NoRealizarFacturas ?? false
+        p.Cliente?.NoRealizarFacturas ?? false,
+        p.OrigenStock.ToString()
     );
 
     private static List<LoteAsignadoDto>? ParseLotesAsignados(string? reservaLotesJson, IReadOnlyDictionary<int, decimal>? devueltoPorLote = null)
@@ -1183,29 +1196,53 @@ public class PedidosController : ControllerBase
         if (pedido.Estado != EstadoPedido.Pendiente)
             return BadRequest(ApiResponse<string>.Fail("Solo se pueden modificar líneas de pedidos en estado Pendiente"));
 
+        // B3: validaciones de rango
         foreach (var item in request.Items)
         {
-            var linea = pedido.Lineas.FirstOrDefault(l => l.ProductoId == item.ProductoId);
-            if (linea == null) continue;
+            if (item.PrecioUnitario.HasValue && item.PrecioUnitario.Value < 0)
+                return BadRequest(ApiResponse<string>.Fail("El precio unitario no puede ser negativo"));
+            if (item.Descuento.HasValue && (item.Descuento.Value < 0 || item.Descuento.Value > 100))
+                return BadRequest(ApiResponse<string>.Fail("El descuento debe estar entre 0 y 100"));
+            if (item.Motivo != null && item.Motivo.Length > 500)
+                return BadRequest(ApiResponse<string>.Fail("El motivo no puede superar 500 caracteres"));
+        }
 
-            if (item.PrecioUnitario.HasValue)
-                linea.PrecioUnitario = item.PrecioUnitario.Value;
-            if (item.Descuento.HasValue)
-                linea.Descuento = item.Descuento.Value;
+        foreach (var item in request.Items)
+        {
+            // B4: aplicar a TODAS las líneas del producto (no solo la primera)
+            foreach (var linea in pedido.Lineas.Where(l => l.ProductoId == item.ProductoId))
+            {
+                if (item.PrecioUnitario.HasValue)
+                    linea.PrecioUnitario = item.PrecioUnitario.Value;
+                if (item.Descuento.HasValue)
+                    linea.Descuento = item.Descuento.Value;
 
-            // Guardar el motivo del cambio de precio si se proporcionó
-            if (!string.IsNullOrWhiteSpace(item.Motivo))
-                linea.MotivoPrecioEspecial = item.Motivo;
+                // B6: motivo explícitamente vacío limpia el motivo guardado (null no lo toca)
+                if (item.Motivo != null)
+                    linea.MotivoPrecioEspecial = string.IsNullOrWhiteSpace(item.Motivo) ? null : item.Motivo.Trim();
+            }
         }
 
         var cliente = await _uow.Clientes.GetByIdAsync(pedido.ClienteId, ct);
         decimal retencionPorc = cliente != null && !cliente.NoAplicarRetenciones && cliente.PorcentajeRetencion > 0
             ? cliente.PorcentajeRetencion : 0m;
 
-        pedido.Subtotal = pedido.Lineas.Sum(l => l.Subtotal);
-        pedido.DescuentoTotal = pedido.Lineas.Sum(l => l.Cantidad * l.PrecioUnitario - l.Subtotal);
-        pedido.IvaTotal = pedido.Lineas.Sum(l => l.IvaImporte);
-        pedido.RecargoEquivalenciaTotal = pedido.Lineas.Sum(l => l.RecargoEquivalenciaImporte);
+        // B5: mismo redondeo que Crear (2 decimales por línea, bruto y neto, antes de acumular)
+        decimal subtotal = 0m, descuentoTotal = 0m, ivaTotal = 0m, recargoTotal = 0m;
+        foreach (var l in pedido.Lineas)
+        {
+            var bruto = Math.Round(l.Cantidad * l.PrecioUnitario, 2, MidpointRounding.AwayFromZero);
+            var neto = Math.Round(l.Cantidad * l.PrecioUnitario * (1 - l.Descuento / 100), 2, MidpointRounding.AwayFromZero);
+            subtotal += neto;
+            descuentoTotal += bruto - neto;
+            ivaTotal += Math.Round(neto * l.IvaPorcentaje / 100, 2, MidpointRounding.AwayFromZero);
+            recargoTotal += Math.Round(neto * l.RecargoEquivalenciaPorcentaje / 100, 2, MidpointRounding.AwayFromZero);
+        }
+
+        pedido.Subtotal = subtotal;
+        pedido.DescuentoTotal = descuentoTotal;
+        pedido.IvaTotal = ivaTotal;
+        pedido.RecargoEquivalenciaTotal = recargoTotal;
         pedido.RetencionTotal = Math.Round(pedido.Subtotal * retencionPorc / 100, 2, MidpointRounding.AwayFromZero);
         pedido.Total = pedido.Subtotal + pedido.IvaTotal + pedido.RecargoEquivalenciaTotal - pedido.RetencionTotal;
 
@@ -1216,10 +1253,12 @@ public class PedidosController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/pedidos/{id}/devolver — Registra una devolución (normal o por caducidad).
-    /// Cada ítem especifica producto, lote, cantidad y si es caducidad.
-    /// Si es caducidad: no repone stock, solo registra movimiento tipo Caducidad y trazabilidad.
-    /// Si es normal: repone stock + movimiento tipo Devolucion + trazabilidad.
+    /// POST /api/pedidos/{id}/devolver — Registra devoluciones con motivo por lote.
+    /// El motivo decide si repone stock (ver MotivoDevolucionInfo.SumaStock):
+    ///  - Repone (voluntaria / error preparación / calidad): suma stock en el Destino
+    ///    elegido (Fábrica o Furgoneta, por defecto el origen del pedido).
+    ///  - NO repone (caducidad / dañado / otro): solo movimiento + trazabilidad.
+    /// Solo repone si existe una Venta previa del lote en este pedido (evita inflar stock).
     /// </summary>
     [HttpPost("{id:int}/devolver")]
     [Authorize(Policy = "AnyRole")]
@@ -1235,21 +1274,78 @@ public class PedidosController : ControllerBase
         if (request.Items == null || request.Items.Count == 0)
             return BadRequest(ApiResponse<string>.Fail("Debe indicar al menos un producto a devolver"));
 
+        // Resolver motivo de cada item (compat: esCaducidad legado → motivo) y validar Otro.
+        var motivosPorItem = new Dictionary<int, MotivoDevolucion>();
+        for (int i = 0; i < request.Items.Count; i++)
+        {
+            var item = request.Items[i];
+            var motivo = item.Motivo
+                ?? (item.EsCaducidad == true ? MotivoDevolucion.Caducidad : MotivoDevolucion.DevolucionVoluntaria);
+            motivosPorItem[i] = motivo;
+
+            if (motivo == MotivoDevolucion.Otro && string.IsNullOrWhiteSpace(item.MotivoTexto))
+                return BadRequest(ApiResponse<string>.Fail("Debe describir el motivo de la devolución ('Otro')"));
+        }
+
+        // BUG A: acumular lo ya devuelto en ESTA petición además de la BD.
+        var paresProductoLote = request.Items
+            .Where(it => it.Cantidad > 0)
+            .Select(it => (it.ProductoId, it.LoteId))
+            .Distinct()
+            .ToList();
+
+        // BUG F: filtro EmpresaId en las consultas de "ya devuelto".
+        var movimientosDevueltos = await _uow.MovimientosStock.GetQueryable()
+            .Where(m => m.EmpresaId == EmpresaId
+                     && m.ReferenciaId == pedido.Id
+                     && (m.ReferenciaTipo == "devolucion_pedido" || m.ReferenciaTipo == "caducidad_pedido"))
+            .Select(m => new { m.ProductoId, m.LoteId, m.Cantidad })
+            .ToListAsync(ct);
+
+        var paresSet = paresProductoLote.ToHashSet();
+        var yaDevueltoBd = movimientosDevueltos
+            .Where(m => paresSet.Contains((m.ProductoId, m.LoteId)))
+            .GroupBy(m => (m.ProductoId, m.LoteId))
+            .ToDictionary(g => g.Key, g => g.Sum(m => m.Cantidad));
+
+        // BUG B: comprobar venta previa (al confirmar) por producto+lote antes de reponer.
+        var ventasPrevias = (await _uow.MovimientosStock.GetQueryable()
+            .Where(m => m.EmpresaId == EmpresaId
+                     && m.ReferenciaId == pedido.Id
+                     && m.ReferenciaTipo == "pedido_confirmado"
+                     && m.Tipo == TipoMovimientoStock.Venta)
+            .Select(m => new { m.ProductoId, m.LoteId })
+            .ToListAsync(ct))
+            .Select(v => (v.ProductoId, v.LoteId))
+            .ToHashSet();
+
+        var devueltoAcumulado = new Dictionary<(int ProductoId, int LoteId), decimal>(yaDevueltoBd);
+        var avisos = new List<string>();
+
         await _uow.BeginTransactionAsync(ct);
         try
         {
-            foreach (var item in request.Items)
+            for (int i = 0; i < request.Items.Count; i++)
             {
+                var item = request.Items[i];
                 if (item.Cantidad <= 0) continue;
+
+                var motivo = motivosPorItem[i];
+                var sumaStock = MotivoDevolucionInfo.SumaStock(motivo);
+                var destino = item.Destino ?? pedido.OrigenStock;
+                var motivoLabel = string.IsNullOrWhiteSpace(item.MotivoTexto)
+                    ? MotivoDevolucionInfo.Descripcion(motivo)
+                    : $"{MotivoDevolucionInfo.Descripcion(motivo)}: {item.MotivoTexto.Trim()}";
 
                 var linea = pedido.Lineas.FirstOrDefault(l => l.ProductoId == item.ProductoId)
                     ?? throw new DomainException($"Producto ID {item.ProductoId} no encontrado en el pedido");
 
-                // Verificar que el lote solicitado está en la reserva del pedido
+                // BUG C: producto sin reserva de lotes → aviso claro (o error si requiere lote)
                 if (string.IsNullOrWhiteSpace(linea.ReservaLotesJson))
                 {
                     if (linea.Producto?.RequiereLote == true)
                         throw new DomainException($"La línea '{linea.Producto.Nombre}' no tiene asignación de lotes");
+                    avisos.Add($"'{linea.Descripcion ?? linea.Producto?.Nombre}' sin lote asignado: no se pudo devolver");
                     continue;
                 }
 
@@ -1263,58 +1359,32 @@ public class PedidosController : ControllerBase
                 if (item.Cantidad > reservaMatch.Cantidad)
                     throw new DomainException($"Solo hay {reservaMatch.Cantidad.ToString("0.##")} uds del lote '{reservaMatch.CodigoLote}' en este pedido, no {cant}");
 
-                var yaDevuelto = await _uow.MovimientosStock.GetQueryable()
-                    .Where(m => m.ReferenciaId == pedido.Id
-                             && m.ProductoId == item.ProductoId
-                             && m.LoteId == item.LoteId
-                             && (m.ReferenciaTipo == "devolucion_pedido" || m.ReferenciaTipo == "caducidad_pedido"))
-                    .SumAsync(m => (decimal?)m.Cantidad, ct) ?? 0m;
+                // BUG A: BD + lo acumulado en esta misma petición
+                devueltoAcumulado.TryGetValue((item.ProductoId, item.LoteId), out var yaDevuelto);
                 var restante = reservaMatch.Cantidad - yaDevuelto;
                 if (item.Cantidad > restante)
                     throw new DomainException(
                         $"Ya se gestionaron {yaDevuelto.ToString("0.##")} uds del lote '{reservaMatch.CodigoLote}' " +
                         $"(máximo restante a devolver: {restante.ToString("0.##")})");
+                devueltoAcumulado[(item.ProductoId, item.LoteId)] = yaDevuelto + item.Cantidad;
 
-                if (item.EsCaducidad)
+                // ¿Reponemos de verdad? Solo si el motivo lo permite Y existe venta previa (BUG B).
+                var hayVentaPrevia = ventasPrevias.Contains((item.ProductoId, item.LoteId));
+                var repuestoReal = sumaStock && hayVentaPrevia;
+                if (sumaStock && !hayVentaPrevia)
                 {
-                    // Devolución por caducidad — NO reponemos stock, solo registramos movimiento y trazabilidad
-                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
-                    {
-                        EmpresaId = EmpresaId,
-                        ProductoId = item.ProductoId,
-                        LoteId = item.LoteId,
-                        Tipo = TipoMovimientoStock.Caducidad,
-                        Cantidad = item.Cantidad,
-                        CantidadAntes = 0,
-                        CantidadDespues = 0,
-                        ReferenciaTipo = "caducidad_pedido",
-                        ReferenciaId = pedido.Id,
-                        UsuarioId = UsuarioId,
-                        Notas = $"Caducidad desde pedido {pedido.NumeroPedido ?? pedido.Id.ToString()}"
-                    }, ct);
-
-                    await _uow.Trazabilidades.AddAsync(new Trazabilidad
-                    {
-                        EmpresaId = EmpresaId,
-                        LoteId = item.LoteId,
-                        ProductoId = item.ProductoId,
-                        ClienteId = pedido.ClienteId,
-                        Cantidad = item.Cantidad,
-                        TipoOperacion = "caducidad_pedido",
-                        FechaOperacion = DateTime.UtcNow,
-                        UsuarioId = UsuarioId,
-                        DatosAdicionales = JsonSerializer.Serialize(new
-                        {
-                            pedidoId = pedido.Id,
-                            pedidoNumero = pedido.NumeroPedido,
-                            codigoLote = reservaMatch.CodigoLote,
-                            motivo = "caducidad"
-                        })
-                    }, ct);
+                    avisos.Add($"'{reservaMatch.CodigoLote}': no se repuso stock por no existir venta previa registrada");
                 }
-                else
+
+                // Movimiento de stock (ReferenciaTipo unificado "devolucion_pedido" para todos los tipos)
+                TipoMovimientoStock tipoMovimiento;
+                if (repuestoReal) tipoMovimiento = TipoMovimientoStock.Devolucion;
+                else if (motivo == MotivoDevolucion.Caducidad) tipoMovimiento = TipoMovimientoStock.Caducidad;
+                else tipoMovimiento = TipoMovimientoStock.Merma;
+
+                decimal cantidadAntes = 0, cantidadDespues = 0;
+                if (repuestoReal)
                 {
-                    // Devolución normal — reponemos stock
                     var stock = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, item.ProductoId, item.LoteId, ct);
                     if (stock == null)
                     {
@@ -1324,56 +1394,79 @@ public class PedidosController : ControllerBase
                             ProductoId = item.ProductoId,
                             LoteId = item.LoteId,
                             CantidadDisponible = 0,
-                            CantidadReservada = 0
+                            CantidadReservada = 0,
+                            CantidadFurgoneta = 0
                         };
                         await _uow.Stock.AddAsync(stock, ct);
                     }
 
-                    var cantidadAntes = stock.CantidadDisponible;
-                    stock.CantidadDisponible += item.Cantidad;
+                    cantidadAntes = stock.CantidadDisponible;
+                    // Entra en la ubicación elegida (Fábrica: solo total; Furgoneta: total + furgoneta)
+                    stock.Reponer(destino, item.Cantidad);
                     stock.UpdatedAt = DateTime.UtcNow;
                     await _uow.Stock.UpdateAsync(stock, ct);
-
-                    await _uow.MovimientosStock.AddAsync(new MovimientoStock
-                    {
-                        EmpresaId = EmpresaId,
-                        ProductoId = item.ProductoId,
-                        LoteId = item.LoteId,
-                        Tipo = TipoMovimientoStock.Devolucion,
-                        Cantidad = item.Cantidad,
-                        CantidadAntes = cantidadAntes,
-                        CantidadDespues = stock.CantidadDisponible,
-                        ReferenciaTipo = "devolucion_pedido",
-                        ReferenciaId = pedido.Id,
-                        UsuarioId = UsuarioId,
-                        Notas = $"Devolución del pedido {pedido.NumeroPedido ?? pedido.Id.ToString()}"
-                    }, ct);
-
-                    await _uow.Trazabilidades.AddAsync(new Trazabilidad
-                    {
-                        EmpresaId = EmpresaId,
-                        LoteId = item.LoteId,
-                        ProductoId = item.ProductoId,
-                        ClienteId = pedido.ClienteId,
-                        Cantidad = item.Cantidad,
-                        TipoOperacion = "devolucion_pedido",
-                        FechaOperacion = DateTime.UtcNow,
-                        UsuarioId = UsuarioId,
-                        DatosAdicionales = JsonSerializer.Serialize(new
-                        {
-                            pedidoId = pedido.Id,
-                            pedidoNumero = pedido.NumeroPedido,
-                            codigoLote = reservaMatch.CodigoLote,
-                            motivo = "devolucion_voluntaria"
-                        })
-                    }, ct);
+                    cantidadDespues = stock.CantidadDisponible;
                 }
+                else
+                {
+                    // BUG E: registrar valores reales en lugar de 0→0
+                    var stockExistente = await _uow.Stock.GetByProductoLoteAsync(EmpresaId, item.ProductoId, item.LoteId, ct);
+                    cantidadAntes = stockExistente?.CantidadDisponible ?? 0;
+                    cantidadDespues = cantidadAntes;
+                }
+
+                var notasMov = repuestoReal
+                    ? $"{MotivoDevolucionInfo.Descripcion(motivo)} — repuesto en {destino} (pedido {pedido.NumeroPedido ?? pedido.Id.ToString()})"
+                    : $"{motivoLabel} — sin repuesto de stock (pedido {pedido.NumeroPedido ?? pedido.Id.ToString()})";
+
+                await _uow.MovimientosStock.AddAsync(new MovimientoStock
+                {
+                    EmpresaId = EmpresaId,
+                    ProductoId = item.ProductoId,
+                    LoteId = item.LoteId,
+                    Tipo = tipoMovimiento,
+                    Cantidad = item.Cantidad,
+                    CantidadAntes = cantidadAntes,
+                    CantidadDespues = cantidadDespues,
+                    ReferenciaTipo = "devolucion_pedido",
+                    ReferenciaId = pedido.Id,
+                    UsuarioId = UsuarioId,
+                    Notas = notasMov
+                }, ct);
+
+                // Trazabilidad con el motivo real (antes hardcodeado)
+                var tipoOperacionTrazabilidad = repuestoReal ? "devolucion_pedido" : "devolucion_sin_stock";
+                await _uow.Trazabilidades.AddAsync(new Trazabilidad
+                {
+                    EmpresaId = EmpresaId,
+                    LoteId = item.LoteId,
+                    ProductoId = item.ProductoId,
+                    ClienteId = pedido.ClienteId,
+                    Cantidad = item.Cantidad,
+                    TipoOperacion = tipoOperacionTrazabilidad,
+                    FechaOperacion = DateTime.UtcNow,
+                    UsuarioId = UsuarioId,
+                    DatosAdicionales = JsonSerializer.Serialize(new
+                    {
+                        pedidoId = pedido.Id,
+                        pedidoNumero = pedido.NumeroPedido,
+                        codigoLote = reservaMatch.CodigoLote,
+                        motivo = motivo.ToString(),
+                        motivoDescripcion = motivoLabel,
+                        sumaStock = repuestoReal,
+                        destino = repuestoReal ? destino.ToString() : null
+                    })
+                }, ct);
             }
 
             await _uow.SaveChangesAsync(ct);
             await _uow.CommitTransactionAsync(ct);
 
-            return Ok(ApiResponse<string>.Ok("OK", "Devolución registrada correctamente"));
+            var mensaje = "Devolución registrada correctamente";
+            if (avisos.Count > 0)
+                mensaje += $" — Avisos: {string.Join("; ", avisos)}";
+
+            return Ok(ApiResponse<string>.Ok("OK", mensaje));
         }
         catch
         {
@@ -1388,7 +1481,7 @@ public class PedidosController : ControllerBase
 public record PedidoResumen(
     int Id, string NumeroPedido, string Fecha, string? FechaEntrega,
     string Estado, string ClienteNombre, decimal Total,
-    bool NoRealizarFacturas = false);
+    bool NoRealizarFacturas = false, string OrigenStock = "Fabrica");
 
 public record PedidoCreado(int Id, string NumeroPedido, decimal Total);
 
@@ -1398,7 +1491,7 @@ public record PedidoDetalle(
     decimal Subtotal, decimal DescuentoTotal, decimal IvaTotal, decimal RecargoEquivalenciaTotal,
     decimal RetencionTotal, decimal Total,
     string? Notas, List<PedidoLineaDto> Lineas,
-    bool NoRealizarFacturas = false);
+    bool NoRealizarFacturas = false, string OrigenStock = "Fabrica");
 
 public record PedidoLineaDto(
     int ProductoId, string ProductoNombre,
@@ -1414,6 +1507,8 @@ public class CrearPedidoRequest
     public DateOnly FechaPedido { get; set; } = DateOnly.FromDateTime(DateTime.Today);
     public DateOnly? FechaEntrega { get; set; }
     public string? Notas { get; set; }
+    /// <summary>Origen de la venta — obligatorio (Fábrica o Furgoneta), sin preselección.</summary>
+    public OrigenStock? OrigenStock { get; set; }
     public List<LineaPedidoRequest> Items { get; set; } = new();
 }
 
@@ -1422,7 +1517,8 @@ public class LineaPedidoRequest
     public int ProductoId { get; set; }
     public decimal Cantidad { get; set; }
     public decimal? PrecioUnitario { get; set; }
-    public decimal Descuento { get; set; } = 0;
+    /// <summary>null = sin override (aplica política comercial); valor explícito (incluido 0) = manual.</summary>
+    public decimal? Descuento { get; set; }
 }
 
 public class CrearFacturaDesdePedidoRequest
@@ -1450,6 +1546,13 @@ public class DevolverLineaRequest
     public int ProductoId { get; set; }
     public int LoteId { get; set; }
     public decimal Cantidad { get; set; }
+    /// <summary>Motivo nuevo (preferente). Si es null se usa el campo legado EsCaducidad.</summary>
+    public MotivoDevolucion? Motivo { get; set; }
+    /// <summary>Descripción libre obligatoria cuando Motivo = Otro.</summary>
+    public string? MotivoTexto { get; set; }
+    /// <summary>Destino del repuesto (Fábrica/Furgoneta). Si es null, el origen del pedido.</summary>
+    public OrigenStock? Destino { get; set; }
+    /// <summary>Campo legado (compatibilidad). true → Caducidad, false → Devolución voluntaria.</summary>
     public bool EsCaducidad { get; set; }
 }
 

@@ -2,29 +2,14 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../store/authStore'
 import api from '../lib/api'
-import type { Cliente, Producto, SerieFacturacion, Factura } from '../types'
+import { downloadBlob, useDownloading } from '../lib/download'
+import { resolvePreviewPricing, getIvaPorcentaje, getRecargoEquivalenciaPorcentaje, roundMoney, useEmpresaPrecios } from '../lib/pricing'
+import type { Cliente, ClienteCondicionEspecial, Producto, SerieFacturacion, Factura } from '../types'
 import { Plus, Trash2, Loader2, X, FileText, Eye, Download, Send, CheckCircle2, ArrowRight, AlertTriangle, FileSpreadsheet, Search, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '../lib/dates'
 import { formatCurrency } from '../lib/format'
 import { EstadoBadge } from '../components/EstadoBadge'
-
-// Helper: descarga un blob del API (necesita token de autorización)
-async function downloadBlob(url: string, filename: string) {
-  try {
-    const res = await api.get(url, { responseType: 'blob' })
-    const blobUrl = window.URL.createObjectURL(new Blob([res.data]))
-    const link = document.createElement('a')
-    link.href = blobUrl
-    link.setAttribute('download', filename)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(blobUrl)
-  } catch {
-    toast.error('Error al descargar el archivo')
-  }
-}
 
 /** Comprueba si una factura está vencida */
 function isVencida(f: Factura): boolean {
@@ -62,7 +47,15 @@ interface CrearFacturaDto {
   serieId: number
   esSimplificada: boolean
   notas: string
-  items: { productoId: number; cantidad: number; descuento: number }[]
+  origenStock: 'Fabrica' | 'Furgoneta'
+  items: {
+    productoId: number
+    cantidad: number
+    precioUnitario: number
+    descuento: number
+    ivaPorcentaje: number
+    recargoEquivalenciaPorcentaje: number
+  }[]
 }
 
 interface FacturaCreada {
@@ -74,12 +67,14 @@ interface FacturaCreada {
 export default function Facturacion() {
   const { user } = useAuth()
   const qc = useQueryClient()
+  const descargando = useDownloading()
   const [showForm, setShowForm] = useState(false)
   const [viewingId, setViewingId] = useState<number | null>(null)
 
   // Form state
   const [clienteId, setClienteId] = useState(0)
   const [serieId, setSerieId] = useState(0)
+  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('')
   const [esSimplificada, setEsSimplificada] = useState(false)
   const [notas, setNotas] = useState('')
   const [lineas, setLineas] = useState<LineaItem[]>([])
@@ -120,6 +115,20 @@ export default function Facturacion() {
       return res.data.data
     },
   })
+
+  // ── Paridad de precios con el backend (misma política que ComercialPricingPolicy) ──
+  const selectedCliente = useMemo(
+    () => (clientes ?? []).find(c => c.id === clienteId) ?? null,
+    [clientes, clienteId]
+  )
+
+  const { data: clienteCondiciones } = useQuery({
+    queryKey: ['cliente-condiciones-factura', clienteId],
+    queryFn: async () => (await api.get<{ data: ClienteCondicionEspecial[] }>(`/clientes/${clienteId}/condiciones`)).data.data,
+    enabled: !!clienteId,
+  })
+
+  const { data: empresaPrecios } = useEmpresaPrecios()
 
   const { data: facturaDetalle } = useQuery({
     queryKey: ['factura-detalle', viewingId],
@@ -208,6 +217,7 @@ export default function Facturacion() {
 
   function addLinea() {
     const cantidad = parseInt(cantidadSel, 10)
+    if (!origenVenta) return toast.error('Selecciona primero el origen de la venta (Fábrica o Furgoneta)')
     if (!productoSel || !Number.isInteger(cantidad) || cantidad <= 0) return toast.error('Selecciona producto y cantidad válida')
     const prod = productos?.find((p) => p.id === productoSel)
     if (!prod) return
@@ -230,6 +240,7 @@ export default function Facturacion() {
     api.post<{ data: { loteId: number; codigoLote: string; cantidad: number; fechaFabricacion: string; fechaCaducidad: string | null }[] }>('/stock/simular-fifo', {
       productoId: productoSel,
       cantidad: newCantidad,
+      origen: origenVenta || 'Fabrica',
     }).then(res => {
       setFifoPreviews(prev => {
         const filtered = prev.filter(p => p.productoId !== productoSel)
@@ -252,6 +263,7 @@ export default function Facturacion() {
     setShowForm(false)
     setClienteId(0)
     setSerieId(0)
+    setOrigenVenta('')
     setLineas([])
     setNotas('')
     setFifoPreviews([])
@@ -263,7 +275,19 @@ export default function Facturacion() {
     const clienteSel = clientes?.find(c => c.id === clienteId)
     if (clienteSel?.noRealizarFacturas) return toast.error('Este cliente tiene marcado "No realizar facturas"')
     if (!serieId) return toast.error('Selecciona una serie de facturación')
+    if (!origenVenta) return toast.error('Indica el origen de la venta (Fábrica o Furgoneta)')
     if (!lineas.length) return toast.error('Añade al menos un producto')
+
+    // Enviar precios/descuentos/IVA ya resueltos por la política comercial:
+    // así lo que muestra la UI y lo que guarda la API son exactamente lo mismo.
+    const items = lineasResueltas.map((l) => ({
+      productoId: l.productoId,
+      cantidad: l.cantidad,
+      precioUnitario: l.precioUnitario,
+      descuento: l.descuento,
+      ivaPorcentaje: l.ivaPorcentaje,
+      recargoEquivalenciaPorcentaje: l.recargoPorcentaje,
+    }))
 
     createMutation.mutate({
       empresaId: user!.empresaId,
@@ -271,11 +295,36 @@ export default function Facturacion() {
       serieId,
       esSimplificada,
       notas,
-      items: lineas.map((l) => ({ productoId: l.productoId, cantidad: l.cantidad, descuento: l.descuento })),
+      origenStock: origenVenta,
+      items,
     })
   }
 
-  const totalEstimado = lineas.reduce((acc, l) => acc + (l.precioUnitario ?? 0) * l.cantidad * (1 - l.descuento / 100), 0)
+  // Líneas con precios resueltos (cliente + condiciones + tabla RE) — espejo exacto del backend
+  const lineasResueltas = useMemo(() => {
+    return lineas.map((l) => {
+      const prod = productos?.find((p) => p.id === l.productoId)
+      if (!prod) return null
+      const pricing = resolvePreviewPricing(selectedCliente, prod, clienteCondiciones)
+      const ivaPorcentaje = getIvaPorcentaje(selectedCliente, prod)
+      const recargoPorcentaje = getRecargoEquivalenciaPorcentaje(selectedCliente, ivaPorcentaje, empresaPrecios?.tiposIvaRe)
+      const neto = roundMoney(l.cantidad * pricing.precioUnitario * (1 - pricing.descuento / 100))
+      return {
+        productoId: l.productoId,
+        productoNombre: l.productoNombre,
+        cantidad: l.cantidad,
+        precioUnitario: pricing.precioUnitario,
+        descuento: pricing.descuento,
+        origenDescuento: pricing.origenDescuento,
+        ivaPorcentaje,
+        recargoPorcentaje,
+        neto,
+      }
+    }).filter((l): l is NonNullable<typeof l> => l !== null)
+  }, [lineas, selectedCliente, clienteCondiciones, productos, empresaPrecios])
+
+  // Subtotal estimado = Σ R2(neto) — exactamente lo que guardará la API
+  const totalEstimado = lineasResueltas.reduce((acc, l) => acc + l.neto, 0)
 
   return (
     <div className="page-shell space-y-5">
@@ -288,9 +337,10 @@ export default function Facturacion() {
           <button
             onClick={() => downloadBlob('/facturas/importar-plantilla', 'plantilla-importar-facturas.xlsx')}
             title="Descargar plantilla para importar facturas"
-            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+            disabled={descargando}
+            className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-3 py-2 rounded-lg transition-colors disabled:opacity-60"
           >
-            <Download className="w-4 h-4" />
+            {descargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             Plantilla
           </button>
           <button
@@ -302,10 +352,12 @@ export default function Facturacion() {
           </button>
           <button
             onClick={() => downloadBlob('/facturas/exportar-excel', 'facturas.xlsx')}
-            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            title="Exportar TODAS las facturas a Excel"
+            disabled={descargando}
+            className="flex items-center gap-2 border border-green-300 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60"
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            Exportar Excel
+            {descargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            {descargando ? 'Generando…' : 'Exportar Excel'}
           </button>
           <button
             onClick={() => setShowForm(true)}
@@ -375,7 +427,14 @@ export default function Facturacion() {
                 </td></tr>
               ) : filteredFacturas.map((f) => (
                 <tr key={f.id} className={`hover:bg-gray-50 transition-colors ${isVencida(f) ? 'bg-red-50/60' : ''}`}>
-                  <td className="px-5 py-3 font-mono text-xs font-semibold text-brand-700">{(f as unknown as { numeroFactura: string }).numeroFactura ?? '—'}</td>
+                  <td className="px-5 py-3 font-mono text-xs font-semibold text-brand-700">
+                    {(f as unknown as { numeroFactura: string }).numeroFactura ?? '—'}
+                    {(f as unknown as { origenStock?: string }).origenStock === 'Furgoneta' && (
+                      <span className="ml-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-50 text-sky-700 border border-sky-200 align-middle" title="Venta desde furgoneta">
+                        Furgoneta
+                      </span>
+                    )}
+                  </td>
                   <td className="px-5 py-3 font-medium text-gray-900">{(f as unknown as { cliente?: { nombre: string}; clienteNombre?: string }).cliente?.nombre ?? (f as unknown as { clienteNombre?: string }).clienteNombre ?? '—'}</td>
                   <td className="px-5 py-3 text-gray-500">{fmtDate((f as unknown as { fechaFactura: string }).fechaFactura)}</td>
                   <td className="px-5 py-3">
@@ -430,17 +489,19 @@ export default function Facturacion() {
                       </button>
                       <button
                         onClick={() => downloadBlob(`/facturas/${f.id}/pdf`, `factura-${(f as unknown as {numeroFactura:string}).numeroFactura ?? f.id}.pdf`)}
-                        className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded"
+                        disabled={descargando}
+                        className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded disabled:opacity-50"
                         title="Descargar PDF"
                       >
-                        <FileText className="w-4 h-4" />
+                        {descargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                       </button>
                       <button
                         onClick={() => downloadBlob(`/facturas/${f.id}/excel`, `factura-${(f as unknown as {numeroFactura:string}).numeroFactura ?? f.id}.xlsx`)}
-                        className="text-gray-400 hover:text-green-600 transition-colors p-1 rounded"
+                        disabled={descargando}
+                        className="text-gray-400 hover:text-green-600 transition-colors p-1 rounded disabled:opacity-50"
                         title="Descargar Excel"
                       >
-                        <Download className="w-4 h-4" />
+                        {descargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                       </button>
                     </div>
                   </td>
@@ -481,6 +542,18 @@ export default function Facturacion() {
                 </div>
               </div>
 
+              {/* Origen de la venta */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Origen de la venta *</label>
+                <select value={origenVenta} onChange={(e) => { setOrigenVenta(e.target.value as 'Fabrica' | 'Furgoneta' | ''); setFifoPreviews([]) }} required
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                  <option value="">— Selecciona de dónde sale la mercancía —</option>
+                  <option value="Fabrica">Fábrica</option>
+                  <option value="Furgoneta">Furgoneta</option>
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">La mercancía se descontará de esta ubicación.</p>
+              </div>
+
               {/* Add producto line */}
               <div className="bg-gray-50 rounded-xl p-4 space-y-3">
                 <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Añadir producto</p>
@@ -510,12 +583,15 @@ export default function Facturacion() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {lineas.map((l, i) => (
+                      {lineasResueltas.map((l, i) => (
                         <tr key={i}>
                           <td className="px-4 py-2 font-medium text-gray-900">{l.productoNombre}</td>
                           <td className="px-4 py-2 text-right">{l.cantidad}</td>
-                          <td className="px-4 py-2 text-right text-gray-600">{formatCurrency(l.precioUnitario ?? 0)}</td>
-                          <td className="px-4 py-2 text-right font-semibold">{formatCurrency((l.precioUnitario ?? 0) * l.cantidad)}</td>
+                          <td className="px-4 py-2 text-right text-gray-600">
+                            {formatCurrency(l.precioUnitario)}
+                            {l.descuento > 0 && <span className="ml-1 text-[11px] text-emerald-600">-{l.descuento}%</span>}
+                          </td>
+                          <td className="px-4 py-2 text-right font-semibold">{formatCurrency(l.neto)}</td>
                           <td className="px-4 py-2 text-right">
                             <button type="button" onClick={() => removeLinea(i)} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
                           </td>
@@ -583,15 +659,17 @@ export default function Facturacion() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => downloadBlob(`/facturas/${viewingId}/pdf`, `factura-${facturaDetalle.numeroFactura}.pdf`)}
-                  className="flex items-center gap-1.5 text-xs text-red-600 hover:text-red-800 border border-red-200 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
+                  disabled={descargando}
+                  className="flex items-center gap-1.5 text-xs text-red-600 hover:text-red-800 border border-red-200 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
                 >
-                  <FileText className="w-3.5 h-3.5" /> PDF
+                  {descargando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />} PDF
                 </button>
                 <button
                   onClick={() => downloadBlob(`/facturas/${viewingId}/excel`, `factura-${facturaDetalle.numeroFactura}.xlsx`)}
-                  className="flex items-center gap-1.5 text-xs text-green-700 hover:text-green-900 border border-green-200 hover:bg-green-50 px-3 py-1.5 rounded-lg transition-colors"
+                  disabled={descargando}
+                  className="flex items-center gap-1.5 text-xs text-green-700 hover:text-green-900 border border-green-200 hover:bg-green-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
                 >
-                  <Download className="w-3.5 h-3.5" /> Excel
+                  {descargando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Excel
                 </button>
                 <button onClick={() => setViewingId(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
               </div>
@@ -602,7 +680,14 @@ export default function Facturacion() {
                 <div><p className="text-gray-500 text-xs">Fecha</p><p className="font-semibold">{fmtDate(facturaDetalle.fechaFactura)}</p></div>
                 <div>
                   <p className="text-gray-500 text-xs">Estado</p>
-                  <EstadoBadge estado={facturaDetalle.estado} />
+                  <div className="flex items-center gap-1.5">
+                    <EstadoBadge estado={facturaDetalle.estado} />
+                    {facturaDetalle.origenStock === 'Furgoneta' && (
+                      <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-50 text-sky-700 border border-sky-200" title="Venta desde furgoneta">
+                        Furgoneta
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -649,7 +734,7 @@ export default function Facturacion() {
                       <td className="px-4 py-2 text-right">{l.cantidad}</td>
                       <td className="px-4 py-2 text-right">{formatCurrency(l.precioUnitario)}</td>
                       <td className="px-4 py-2 text-right text-gray-500">{l.ivaPorcentaje}%</td>
-                      <td className="px-4 py-2 text-right font-semibold">{formatCurrency(l.subtotal + l.ivaImporte)}</td>
+                      <td className="px-4 py-2 text-right font-semibold">{formatCurrency(roundMoney(l.subtotal) + roundMoney(l.ivaImporte))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -687,7 +772,7 @@ export default function Facturacion() {
                     <span className="text-xs text-gray-400 mt-1">.xlsx o .csv</span>
                     <input
                       type="file"
-                      accept=".xlsx,.xls,.csv"
+                      accept=".xlsx,.csv"
                       className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0]
