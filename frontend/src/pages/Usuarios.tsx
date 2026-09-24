@@ -4,25 +4,23 @@ import api from '../lib/api'
 import type { Empresa, Usuario } from '../types'
 import {
   Shield, Plus, Pencil, KeyRound, Trash2, Loader2,
-  CheckCircle2, XCircle, Link2, Building2, Users,
+  CheckCircle2, XCircle, Building2, Users,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../store/authStore'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-type Rol = 'Admin' | 'Obrador' | 'Repartidor'
+type Rol = 'Admin' | 'Cliente'
 
-interface ClienteSimple { id: number; nombre: string; tipo: string }
 interface EmpresaRelaciones {
   puedeEliminar: boolean
   totalRelaciones: number
 }
 
 const ROL_BADGE: Record<string, string> = {
-  Admin:      'bg-purple-100 text-purple-800 border-purple-200',
-  Obrador:    'bg-blue-100 text-blue-800 border-blue-200',
-  Repartidor: 'bg-green-100 text-green-800 border-green-200',
+  Admin:   'bg-purple-100 text-purple-800 border-purple-200',
+  Cliente: 'bg-blue-100 text-blue-800 border-blue-200',
 }
 
 function RolBadge({ rol }: { rol: string }) {
@@ -262,7 +260,7 @@ export default function Usuarios() {
         <ModalEditar usuario={editUsuario} onClose={() => setEditUsuario(null)} onSaved={() => {
           qc.invalidateQueries({ queryKey: ['usuarios'] })
           setEditUsuario(null)
-        }} empresas={empresas ?? []} currentEmpresaId={user?.empresaId ?? 1} />
+        }} empresas={empresas ?? []} />
       )}
       {pwdUsuario && (
         <ModalCambiarPassword usuario={pwdUsuario} onClose={() => setPwdUsuario(null)} />
@@ -321,7 +319,7 @@ function ModalCrear({
   currentEmpresaId: number
 }) {
   const [form, setForm] = useState({
-    nombre: '', apellidos: '', email: '', telefono: '', rol: 'Obrador' as Rol, password: '', confirm: '',
+    nombre: '', apellidos: '', email: '', telefono: '', rol: 'Cliente' as Rol, password: '', confirm: '',
     clienteId: '' as string, empresaId: String(currentEmpresaId),
   })
   const [loading, setLoading] = useState(false)
@@ -340,7 +338,7 @@ function ModalCrear({
         nombre: form.nombre, apellidos: form.apellidos || null,
         email: form.email, telefono: form.telefono || null,
         rol: form.rol, password: form.password,
-        clienteId: form.rol === 'Repartidor' && form.clienteId ? Number(form.clienteId) : null,
+        clienteId: null,
         empresaId: Number(form.empresaId),
       })
       toast.success('Usuario creado')
@@ -352,7 +350,7 @@ function ModalCrear({
 
   return (
     <ModalShell title="Nuevo usuario" onClose={onClose}>
-      <FormFields form={form} set={set} showPassword empresas={empresas} currentEmpresaId={currentEmpresaId} />
+      <FormFields form={form} set={set} showPassword empresas={empresas} />
       <div className="flex justify-end gap-3 mt-6">
         <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg">Cancelar</button>
         <button onClick={submit} disabled={loading}
@@ -371,13 +369,11 @@ function ModalEditar({
   onClose,
   onSaved,
   empresas,
-  currentEmpresaId,
 }: {
   usuario: Usuario
   onClose: () => void
   onSaved: () => void
   empresas: Empresa[]
-  currentEmpresaId: number
 }) {
   const [form, setForm] = useState({
     nombre: usuario.nombre, apellidos: usuario.apellidos ?? '', email: usuario.email,
@@ -396,8 +392,7 @@ function ModalEditar({
         nombre: form.nombre, apellidos: form.apellidos || null,
         email: form.email, telefono: form.telefono || null,
         rol: form.rol, activo: form.activo,
-        clienteId: form.rol === 'Repartidor' && form.clienteId ? Number(form.clienteId) : null,
-        empresaId: Number(form.empresaId),
+        clienteId: null, empresaId: Number(form.empresaId),
       })
       toast.success('Usuario actualizado')
       onSaved()
@@ -408,7 +403,7 @@ function ModalEditar({
 
   return (
     <ModalShell title="Editar usuario" onClose={onClose}>
-      <FormFields form={form} set={(k, v) => set(k, v)} empresas={empresas} currentEmpresaId={currentEmpresaId} />
+      <FormFields form={form} set={(k, v) => set(k, v)} empresas={empresas} />
       <div className="mt-4">
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input type="checkbox" checked={form.activo} onChange={e => set('activo', e.target.checked)}
@@ -481,26 +476,12 @@ function FormFields({
   set,
   showPassword = false,
   empresas,
-  currentEmpresaId,
 }: {
   form: Record<string, string | boolean>
   set: (k: string, v: string) => void
   showPassword?: boolean
   empresas: Empresa[]
-  currentEmpresaId: number
 }) {
-  const isRepartidor = String(form.rol) === 'Repartidor'
-  const empresaSeleccionada = Number(form.empresaId || currentEmpresaId)
-
-  const { data: clientes } = useQuery<ClienteSimple[]>({
-    queryKey: ['clientes-simple', empresaSeleccionada],
-    queryFn: () => api.get(`/usuarios/admin/empresas/${empresaSeleccionada}/clientes`).then(r =>
-      r.data.data.map((c: ClienteSimple) => ({ id: c.id, nombre: c.nombre, tipo: c.tipo }))
-    ),
-    enabled: isRepartidor,
-    staleTime: 60_000,
-  })
-
   const fields: { key: string; label: string; type?: string; required?: boolean; placeholder?: string }[] = [
     { key: 'nombre',    label: 'Nombre',    required: true,  placeholder: 'Nombre' },
     { key: 'apellidos', label: 'Apellidos', placeholder: 'Apellidos (opcional)' },
@@ -542,26 +523,10 @@ function FormFields({
           <label className="block text-xs font-medium text-gray-700 mb-1">Rol</label>
           <select value={String(form.rol)} onChange={e => set('rol', e.target.value)}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40">
-            <option value="Obrador">Obrador</option>
-            <option value="Repartidor">Repartidor</option>
+            <option value="Cliente">Cliente</option>
             <option value="Admin">Admin</option>
           </select>
         </div>
-
-        {isRepartidor && (
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              <Link2 className="inline w-3 h-3 mr-1" />Cliente vinculado
-            </label>
-            <select value={String(form.clienteId ?? '')} onChange={e => set('clienteId', e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40">
-              <option value="">— Sin vincular —</option>
-              {(clientes ?? []).map(c => (
-                <option key={c.id} value={c.id}>{c.nombre} ({c.tipo})</option>
-              ))}
-            </select>
-          </div>
-        )}
       </div>
 
       {showPassword && (

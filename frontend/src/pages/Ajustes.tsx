@@ -69,9 +69,8 @@ interface UserConfiguracion {
 type Tab = 'perfil' | 'password' | 'empresa' | 'series' | 'iva' | 'stock' | 'smtp' | 'ia' | 'correo' | 'tema'
 
 const ROL_CONFIG: Record<string, { label: string; color: string }> = {
-  Admin:              { label: 'Administrador', color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  Obrador:     { label: 'Obrador',       color: 'bg-brand-100 text-brand-700 border-brand-200'   },
-  Repartidor:  { label: 'Repartidor',    color: 'bg-blue-100 text-blue-700 border-blue-200'      },
+  Admin:   { label: 'Administrador', color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  Cliente: { label: 'Cliente',       color: 'bg-brand-100 text-brand-700 border-brand-200'    },
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────────
@@ -132,8 +131,8 @@ export default function Ajustes() {
   const { user, updateUser } = useAuth()
   const qc = useQueryClient()
   const isAdmin = user?.rol === 'Admin'
-  const esEmpresaObrador = user?.empresaEsObrador ?? true
-  const canConfigureIa = user?.rol === 'Admin' || user?.rol === 'Obrador' || !esEmpresaObrador
+  // La configuración de IA es exclusiva del Admin (excepción de pestañas).
+  const canConfigureIa = isAdmin
   const [tab, setTab] = useState<Tab>('perfil')
 
   const initials = [user?.nombre, user?.apellidos]
@@ -153,7 +152,7 @@ export default function Ajustes() {
 
   const { data: empresa } = useQuery<EmpresaData>({
     queryKey: ['empresa'],
-    enabled: canConfigureIa,
+    enabled: true,
     queryFn: async () => (await api.get('/empresa')).data.data,
   })
 
@@ -498,15 +497,17 @@ export default function Ajustes() {
   ]
 
   const correoTab = { id: 'correo' as Tab, icon: <Inbox className="w-4 h-4" />, label: 'Correo' }
-  const iaTabOnly = [{ id: 'ia' as Tab, icon: <Bot className="w-4 h-4" />, label: 'IA' }]
   const temaTab   = { id: 'tema' as Tab, icon: <Palette className="w-4 h-4" />, label: 'Tema' }
-  const canConfigureTema = isAdmin || user?.rol === 'Obrador' || !esEmpresaObrador
 
+  // IA y Correo solo para Admin (excepciones). El resto de usuarios (Cliente)
+  // ve: Mi perfil, Contraseña y Tema.
   const allTabs = isAdmin
     ? [...userTabs, ...adminTabs, correoTab]
-    : canConfigureIa
-      ? [...userTabs, ...iaTabOnly, temaTab, correoTab]
-      : [...userTabs, correoTab]
+    : [...userTabs, temaTab]
+
+  // Si la pestaña activa ya no existe para este rol (p. ej. se abrió la URL a mano), vuelve a la primera
+  const visibleTabIds = allTabs.map((t) => t.id)
+  const safeTab = visibleTabIds.includes(tab) ? tab : allTabs[0]?.id ?? 'perfil'
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -558,7 +559,7 @@ export default function Ajustes() {
           {allTabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg font-medium transition-colors ${
-                tab === t.id
+                safeTab === t.id
                   ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-500'
                   : 'text-gray-500 hover:text-gray-700 border-b-2 border-transparent'
               }`}>
@@ -568,7 +569,7 @@ export default function Ajustes() {
         </div>
 
         {/* ── PERFIL ── */}
-        {tab === 'perfil' && (
+        {safeTab === 'perfil' && (
           <form onSubmit={handlePerfilSubmit} className="p-6 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Nombre *" value={perfil.nombre} onChange={v => setPerfil(p => ({ ...p, nombre: v }))} icon={<User className="w-3.5 h-3.5" />} />
@@ -583,7 +584,7 @@ export default function Ajustes() {
         )}
 
         {/* ── PASSWORD ── */}
-        {tab === 'password' && (
+        {safeTab === 'password' && (
           <form onSubmit={handlePwSubmit} className="p-6 space-y-4">
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Contraseña actual *</label>
@@ -643,7 +644,7 @@ export default function Ajustes() {
         )}
 
         {/* ── EMPRESA ── */}
-        {tab === 'empresa' && isAdmin && (
+        {safeTab === 'empresa' && isAdmin && (
           <form onSubmit={handleEmpSubmit} className="p-6 space-y-5">
             {/* Logo */}
             <div>
@@ -701,7 +702,7 @@ export default function Ajustes() {
         )}
 
         {/* ── SERIES POR DEFECTO ── */}
-        {tab === 'series' && isAdmin && (
+        {safeTab === 'series' && isAdmin && (
           <form onSubmit={handleConfigSave} className="p-6 space-y-5">
             <SectionTitle><Settings className="w-4 h-4 text-brand-500" /> Series por defecto</SectionTitle>
             <p className="text-xs text-gray-500 -mt-2">Selecciona qué serie de facturación se usará por defecto al crear facturas y albaranes.</p>
@@ -773,7 +774,7 @@ export default function Ajustes() {
         )}
 
         {/* ── IVA / RE ── */}
-        {tab === 'iva' && isAdmin && (
+        {safeTab === 'iva' && isAdmin && (
           <div className="p-6 space-y-5">
             <SectionTitle><Percent className="w-4 h-4 text-brand-500" /> Tipos de IVA y Recargo de equivalencia</SectionTitle>
 
@@ -838,7 +839,7 @@ export default function Ajustes() {
         )}
 
         {/* ── STOCK PARAMS ── */}
-        {tab === 'stock' && isAdmin && (
+        {safeTab === 'stock' && isAdmin && (
           <form onSubmit={handleConfigSave} className="p-6 space-y-5">
             <SectionTitle><Package className="w-4 h-4 text-brand-500" /> Parámetros de stock</SectionTitle>
             <p className="text-xs text-gray-500 -mt-2">Configuración global de stock. Estos valores se usan como fallback cuando un producto no tiene configuración propia.</p>
@@ -863,7 +864,7 @@ export default function Ajustes() {
         )}
 
         {/* ── SMTP ── */}
-        {tab === 'smtp' && isAdmin && (
+        {safeTab === 'smtp' && isAdmin && (
           <form onSubmit={handleConfigSave} className="p-6 space-y-5">
             <SectionTitle><Server className="w-4 h-4 text-brand-500" /> Configuración SMTP</SectionTitle>
             <p className="text-xs text-gray-500 -mt-2">Datos del servidor de correo para el envío de facturas por email.</p>
@@ -892,7 +893,7 @@ export default function Ajustes() {
         )}
 
         {/* ── CORREO (per-user SMTP + IMAP) ── */}
-        {tab === 'correo' && (
+        {safeTab === 'correo' && (
           <form onSubmit={handleUserConfigSave} className="p-6 space-y-6">
             {/* SMTP */}
             <div className="space-y-4">
@@ -959,7 +960,7 @@ export default function Ajustes() {
           </form>
         )}
 
-        {tab === 'ia' && canConfigureIa && (
+        {safeTab === 'ia' && canConfigureIa && (
           <form onSubmit={handleIaConfigSave} className="p-6 space-y-5">
             <SectionTitle><Bot className="w-4 h-4 text-brand-500" /> Configuración IA</SectionTitle>
             <p className="text-xs text-gray-500 -mt-2">
@@ -1042,7 +1043,7 @@ export default function Ajustes() {
         )}
 
         {/* ── TEMA ── */}
-        {tab === 'tema' && canConfigureTema && (
+        {safeTab === 'tema' && (
           <form onSubmit={handleTemaSubmit} className="p-6 space-y-6">
             <div>
               <SectionTitle><Palette className="w-4 h-4 text-brand-500" /> Colores de la empresa</SectionTitle>

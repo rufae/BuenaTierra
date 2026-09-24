@@ -10,7 +10,7 @@ namespace BuenaTierra.API.Controllers;
 
 [ApiController]
 [Route("api/buenatierr-ai")]
-[Authorize]
+[Authorize(Roles = "Admin")]
 public class BuenaTierrAIController : ControllerBase
 {
     private readonly IBuenaTierrAIService _aiService;

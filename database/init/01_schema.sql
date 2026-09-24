@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     email               VARCHAR(200) NOT NULL,
     telefono            VARCHAR(20),
     password_hash       VARCHAR(500) NOT NULL,
-    rol                 TEXT NOT NULL CHECK (rol IN ('Admin','Obrador','Repartidor')) DEFAULT 'Obrador',
+    rol                 TEXT NOT NULL CHECK (rol IN ('Admin','Cliente')) DEFAULT 'Cliente',
     activo              BOOLEAN NOT NULL DEFAULT TRUE,
     ultimo_acceso       TIMESTAMPTZ,
     refresh_token       VARCHAR(500),

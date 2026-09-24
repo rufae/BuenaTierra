@@ -3,8 +3,7 @@ namespace BuenaTierra.Domain.Enums;
 public enum RolUsuario
 {
     Admin,
-    Obrador,
-    Repartidor
+    Cliente
 }
 
 // Alineado con DB: Pendiente→Confirmado→EnPreparacion→Preparado→EnReparto→Entregado→Cancelado

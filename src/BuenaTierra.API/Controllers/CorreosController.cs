@@ -22,7 +22,7 @@ namespace BuenaTierra.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "Admin")]
 public class CorreosController : ControllerBase
 {
     private readonly AppDbContext _ctx;
@@ -132,7 +132,7 @@ public class CorreosController : ControllerBase
     }
 
     [HttpPost("borrador")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<ActionResult<ApiResponse<CorreoIdDto>>> GuardarBorrador(
         [FromBody] GuardarBorradorRequest req,
         CancellationToken ct)
@@ -162,7 +162,7 @@ public class CorreosController : ControllerBase
     }
 
     [HttpPost("enviar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<ActionResult<ApiResponse<CorreoIdDto>>> Enviar([FromBody] EnviarCorreoRequest req, CancellationToken ct)
     {
         await EnsureMailTableAsync(ct);
@@ -236,7 +236,7 @@ public class CorreosController : ControllerBase
 
     /// <summary>POST /api/correos/sincronizar — Lee correos de IMAP y los mete en Inbox</summary>
     [HttpPost("sincronizar")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<ActionResult<ApiResponse<SincronizarResultDto>>> Sincronizar(CancellationToken ct)
         {
             await EnsureMailTableAsync(ct);
@@ -371,7 +371,7 @@ public class CorreosController : ControllerBase
         }
 
         [HttpDelete("{id:int}")]
-        [Authorize(Policy = "ObradorOrAdmin")]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<ActionResult<ApiResponse<string>>> Delete(int id, CancellationToken ct)
     {
         await EnsureMailTableAsync(ct);

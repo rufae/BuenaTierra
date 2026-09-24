@@ -102,7 +102,7 @@ public class PreventasController : ControllerBase
         {
             EmpresaId = EmpresaId,
             ClienteId = request.ClienteId,
-            RepartidorId = User.IsInRole("Repartidor") ? UsuarioId : null,
+            RepartidorId = null,
             FechaPreventa = request.FechaPreventa,
             Estado = EstadoPreventa.Borrador,
             AlertaConfirmada = false,

@@ -177,7 +177,7 @@ public class LotesController : ControllerBase
 
     /// <summary>POST /api/lotes/{id}/bloquear — Bloquear un lote</summary>
     [HttpPost("{id:int}/bloquear")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Bloquear(
         int id, [FromBody] BloquearLoteRequest request, CancellationToken ct)
     {

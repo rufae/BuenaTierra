@@ -5,12 +5,12 @@ import { useQuery } from '@tanstack/react-query'
 import { getApiOrigin } from '../lib/api'
 import api from '../lib/api'
 import {
-  LayoutDashboard, Package, Users, Factory,
+  LayoutDashboard, Package, Users,
   FileText, LogOut, Layers, Truck, ClipboardList,
   Activity, Zap, BarChart2, Leaf, Shield, Menu, X,
   Wifi, WifiOff, UserCog, Tag, Bot, Mail,
   Wallet, ShoppingCart,
-  CalendarDays,
+  CalendarDays, ChevronDown,
 } from 'lucide-react'
 
 // ── Badge de estado del servidor ──────────────────────────────────────────────
@@ -58,40 +58,117 @@ interface NavItem {
   to: string
   icon: React.ReactNode
   label: string
-  separator?: boolean
 }
 
-const NAV_OBRADOR_BASE: NavItem[] = [
-  { to: '/dashboard',   icon: <LayoutDashboard className="w-[18px] h-[18px]" />, label: 'Panel' },
-  { to: '/facturacion', icon: <FileText className="w-[18px] h-[18px]" />,        label: 'Facturación' },
-  { to: '/albaranes',   icon: <Truck className="w-[18px] h-[18px]" />,           label: 'Albaranes' },
-  { to: '/pedidos',     icon: <ClipboardList className="w-[18px] h-[18px]" />,   label: 'Pedidos' },
-  { to: '/facturacion-rapida', icon: <Zap className="w-[18px] h-[18px]" />,      label: 'Facturación rápida' },
-  { to: '/preventa',    icon: <CalendarDays className="w-[18px] h-[18px]" />,    label: 'Preventa' },
-  { to: '/clientes',    icon: <Users className="w-[18px] h-[18px]" />,           label: 'Clientes',    separator: true },
-  { to: '/productos',   icon: <Package className="w-[18px] h-[18px]" />,         label: 'Productos' },
-  { to: '/produccion',  icon: <Factory className="w-[18px] h-[18px]" />,         label: 'Producción' },
-  { to: '/carga',       icon: <ShoppingCart className="w-[18px] h-[18px]" />,    label: 'Carga' },
-  { to: '/lotes',       icon: <Layers className="w-[18px] h-[18px]" />,          label: 'Lotes' },
-  { to: '/ingredientes',icon: <Leaf className="w-[18px] h-[18px]" />,            label: 'Ingredientes' },
-  { to: '/trazabilidad',icon: <Activity className="w-[18px] h-[18px]" />,        label: 'Trazabilidad', separator: true },
-  { to: '/reportes',    icon: <BarChart2 className="w-[18px] h-[18px]" />,       label: 'Informes',    separator: true },
-  { to: '/balance',     icon: <Wallet className="w-[18px] h-[18px]" />,          label: 'Balance' },
-  { to: '/correos',     icon: <Mail className="w-[18px] h-[18px]" />,            label: 'Correo' },
-  { to: '/ia',          icon: <Bot className="w-[18px] h-[18px]" />,             label: 'IA' },
-  { to: '/etiquetas',   icon: <Tag className="w-[18px] h-[18px]" />,             label: 'Etiquetas' },
-  { to: '/ajustes',     icon: <UserCog className="w-[18px] h-[18px]" />,         label: 'Ajustes',     separator: true },
+interface NavGroup {
+  id: string
+  label: string
+  items: NavItem[]
+}
+
+const PANEL_ITEM: NavItem = {
+  to: '/dashboard',
+  icon: <LayoutDashboard className="w-[18px] h-[18px]" />,
+  label: 'Panel',
+}
+
+const GRUPOS: NavGroup[] = [
+  {
+    id: 'ventas',
+    label: 'Ventas',
+    items: [
+      { to: '/facturacion', icon: <FileText className="w-[18px] h-[18px]" />,        label: 'Facturación' },
+      { to: '/albaranes',   icon: <Truck className="w-[18px] h-[18px]" />,           label: 'Albaranes' },
+      { to: '/pedidos',     icon: <ClipboardList className="w-[18px] h-[18px]" />,   label: 'Pedidos' },
+      { to: '/facturacion-rapida', icon: <Zap className="w-[18px] h-[18px]" />,      label: 'Facturación rápida' },
+      { to: '/preventa',    icon: <CalendarDays className="w-[18px] h-[18px]" />,    label: 'Preventa' },
+    ],
+  },
+  {
+    id: 'maestros',
+    label: 'Maestros',
+    items: [
+      { to: '/clientes', icon: <Users className="w-[18px] h-[18px]" />,   label: 'Clientes' },
+      { to: '/productos', icon: <Package className="w-[18px] h-[18px]" />, label: 'Productos' },
+    ],
+  },
+  {
+    id: 'stock',
+    label: 'Stock',
+    items: [
+      { to: '/carga',       icon: <ShoppingCart className="w-[18px] h-[18px]" />, label: 'Carga' },
+      { to: '/lotes',       icon: <Layers className="w-[18px] h-[18px]" />,       label: 'Lotes' },
+      { to: '/ingredientes',icon: <Leaf className="w-[18px] h-[18px]" />,         label: 'Ingredientes' },
+    ],
+  },
+  {
+    id: 'analisis',
+    label: 'Análisis',
+    items: [
+      { to: '/trazabilidad', icon: <Activity className="w-[18px] h-[18px]" />,  label: 'Trazabilidad' },
+      { to: '/reportes',     icon: <BarChart2 className="w-[18px] h-[18px]" />, label: 'Informes' },
+      { to: '/balance',      icon: <Wallet className="w-[18px] h-[18px]" />,    label: 'Balance' },
+    ],
+  },
 ]
 
-const NAV_ADMIN: NavItem[] = [
-  { to: '/usuarios', icon: <Shield className="w-[18px] h-[18px]" />, label: 'Administración' },
-  { to: '/ajustes',  icon: <UserCog className="w-[18px] h-[18px]" />, label: 'Ajustes', separator: true },
-]
+const GRUPO_ADMIN: NavGroup = {
+  id: 'utilidades',
+  label: 'Utilidades',
+  items: [
+    { to: '/etiquetas', icon: <Tag className="w-[18px] h-[18px]" />, label: 'Etiquetas' },
+    { to: '/ia',        icon: <Bot className="w-[18px] h-[18px]" />,  label: 'IA' },
+    { to: '/correos',   icon: <Mail className="w-[18px] h-[18px]" />, label: 'Correo' },
+  ],
+}
+
+const ADMIN_ITEM: NavItem = {
+  to: '/usuarios',
+  icon: <Shield className="w-[18px] h-[18px]" />,
+  label: 'Administración',
+}
+
+const AJUSTES_ITEM: NavItem = {
+  to: '/ajustes',
+  icon: <UserCog className="w-[18px] h-[18px]" />,
+  label: 'Ajustes',
+}
+
+function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
+  return (
+    <NavLink
+      to={item.to}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        `group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
+          isActive
+            ? 'bg-brand-50 text-brand-700 shadow-warm-sm border border-brand-200/60'
+            : 'text-earth-600 hover:bg-cream-200 hover:text-earth-900'
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span className={`shrink-0 transition-colors ${
+            isActive ? 'text-brand-600' : 'text-earth-400 group-hover:text-earth-600'
+          }`}>
+            {item.icon}
+          </span>
+          <span className="flex-1 truncate">{item.label}</span>
+          {isActive && (
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
+          )}
+        </>
+      )}
+    </NavLink>
+  )
+}
 
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [gruposAbiertos, setGruposAbiertos] = useState<Record<string, boolean>>({})
 
   const { data: empresaData } = useQuery<{ nombre?: string; esObrador?: boolean }>({
     queryKey: ['empresa-layout', user?.empresaId],
@@ -100,18 +177,15 @@ export default function Layout() {
     staleTime: 60_000,
   })
   const empresaNombre = empresaData?.nombre || 'Mi empresa'
-  const esEmpresaObrador = empresaData?.esObrador ?? (user?.empresaEsObrador ?? true)
 
   const isAdmin = user?.rol === 'Admin'
-  const isRepartidor = user?.rol === 'Repartidor'
-  // Tareas divididas pero todas visibles en la misma cuenta:
-  // - Empresa obrador unificada → lista completa (Producción, Carga, Facturación rápida…).
-  // - Empresa de distribución → sin Producción/Ingredientes (Carga las sustituye).
-  const navObrador = NAV_OBRADOR_BASE.filter((item) =>
-    esEmpresaObrador || (item.to !== '/produccion' && item.to !== '/ingredientes')
-  )
 
-  const navItems = isAdmin ? NAV_ADMIN : navObrador
+  // Utilidades (Etiquetas/IA/Correo) y Administración solo para Admin.
+  const grupos = isAdmin ? [...GRUPOS, GRUPO_ADMIN] : GRUPOS
+
+  function toggleGrupo(id: string) {
+    setGruposAbiertos((g) => ({ ...g, [id]: !(g[id] ?? true) }))
+  }
 
   function handleLogout() {
     logout()
@@ -172,39 +246,43 @@ export default function Layout() {
 
         {/* ── Navegación ── */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => (
-            <React.Fragment key={item.to}>
-              {item.separator && (
-                <div className="border-t border-cream-300/70 my-2.5 mx-1" />
-              )}
-              <NavLink
-                to={item.to}
-                onClick={() => setSidebarOpen(false)}
-                className={({ isActive }) =>
-                  `group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
-                    isActive
-                      ? 'bg-brand-50 text-brand-700 shadow-warm-sm border border-brand-200/60'
-                      : 'text-earth-600 hover:bg-cream-200 hover:text-earth-900'
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    {/* Indicador de activo */}
-                    <span className={`shrink-0 transition-colors ${
-                      isActive ? 'text-brand-600' : 'text-earth-400 group-hover:text-earth-600'
-                    }`}>
-                      {item.icon}
-                    </span>
-                    <span className="flex-1 truncate">{item.label}</span>
-                    {isActive && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
-                    )}
-                  </>
-                )}
-              </NavLink>
-            </React.Fragment>
-          ))}
+          <NavItemLink item={PANEL_ITEM} onNavigate={() => setSidebarOpen(false)} />
+
+          {grupos.map((grupo) => {
+            const abierto = gruposAbiertos[grupo.id] ?? true
+            return (
+              <React.Fragment key={grupo.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleGrupo(grupo.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-[11px] font-semibold uppercase tracking-wider text-earth-400 hover:text-earth-700 hover:bg-cream-200 transition-colors"
+                  aria-expanded={abierto}
+                >
+                  <span className="flex-1 text-left truncate">{grupo.label}</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${
+                      abierto ? '' : '-rotate-90'
+                    }`}
+                  />
+                </button>
+                {abierto && grupo.items.map((item) => (
+                  <div key={item.to} className="pl-2">
+                    <NavItemLink item={item} onNavigate={() => setSidebarOpen(false)} />
+                  </div>
+                ))}
+              </React.Fragment>
+            )
+          })}
+
+          {isAdmin && (
+            <>
+              <div className="border-t border-cream-300/70 my-2.5 mx-1" />
+              <NavItemLink item={ADMIN_ITEM} onNavigate={() => setSidebarOpen(false)} />
+            </>
+          )}
+
+          <div className="border-t border-cream-300/70 my-2.5 mx-1" />
+          <NavItemLink item={AJUSTES_ITEM} onNavigate={() => setSidebarOpen(false)} />
         </nav>
 
         {/* ── Footer de usuario ── */}
@@ -219,7 +297,7 @@ export default function Layout() {
                 {user?.nombre} {user?.apellidos}
               </p>
               <p className="text-xs text-earth-400 truncate">
-                {isRepartidor ? 'Repartidor' : isAdmin ? 'Administrador' : 'Obrador'}
+                {isAdmin ? 'Administrador' : 'Cliente'}
               </p>
             </div>
           </div>

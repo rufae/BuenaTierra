@@ -27,9 +27,10 @@ ON CONFLICT (nif) DO NOTHING;
 -- ============================================================
 -- 2. USUARIOS INICIALES
 -- Contraseñas hasheadas con BCrypt (work factor 11)
---   Admin      → Admin#BuenaTierra2025
---   Obrador    → Obrador#BuenaTierra2025
---   Repartidor → Repartidor#BuenaTierra2025
+--   Admin   → Admin#BuenaTierra2025
+--   Cliente → Obrador#BuenaTierra2025 (cuenta operativa unificada)
+--   Cliente → Repartidor#BuenaTierra2025 (segunda cuenta de demostración)
+-- Roles del sistema: solo 'Admin' y 'Cliente'.
 -- ============================================================
 DO $$
 DECLARE v_empresa_id INTEGER;
@@ -45,22 +46,22 @@ BEGIN
         RAISE NOTICE 'Usuario Admin creado.';
     END IF;
 
-    -- Obrador
+    -- Cliente (cuenta operativa)
     IF NOT EXISTS (SELECT 1 FROM usuarios WHERE email = 'obrador@buenatierra.com') THEN
         INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo, debe_cambiar_password)
-        VALUES (v_empresa_id, 'Usuario', 'Obrador', 'obrador@buenatierra.com',
+        VALUES (v_empresa_id, 'Usuario', 'Cliente', 'obrador@buenatierra.com',
                 '$2a$11$cdjttUHVx.IlhIQl7Tfw5.fqb4a9sMVeMJG8BhR8Ay.dZOExjgxDO',
-                'Obrador', TRUE, TRUE);
-        RAISE NOTICE 'Usuario Obrador creado.';
+                'Cliente', TRUE, TRUE);
+        RAISE NOTICE 'Usuario Cliente creado (obrador@buenatierra.com).';
     END IF;
 
-    -- Repartidor
+    -- Cliente (segunda cuenta de demostración)
     IF NOT EXISTS (SELECT 1 FROM usuarios WHERE email = 'repartidor@buenatierra.com') THEN
         INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo, debe_cambiar_password)
-        VALUES (v_empresa_id, 'Usuario', 'Repartidor', 'repartidor@buenatierra.com',
+        VALUES (v_empresa_id, 'Usuario', 'Cliente', 'repartidor@buenatierra.com',
                 '$2a$11$I74m7XKGi71RDBt40Dn4IuTQoSMcf7YczzL2kWSauBd4IEyo47xea',
-                'Repartidor', TRUE, TRUE);
-        RAISE NOTICE 'Usuario Repartidor creado.';
+                'Cliente', TRUE, TRUE);
+        RAISE NOTICE 'Usuario Cliente creado (repartidor@buenatierra.com).';
     END IF;
 END $$;
 

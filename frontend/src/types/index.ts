@@ -6,7 +6,7 @@ export interface AuthUser {
   nombre: string
   apellidos: string
   email: string
-  rol: 'Admin' | 'Obrador' | 'Repartidor'
+  rol: 'Admin' | 'Cliente'
   token: string
   refreshToken?: string
   expira?: string

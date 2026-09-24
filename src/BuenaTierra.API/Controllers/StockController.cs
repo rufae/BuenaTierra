@@ -63,7 +63,7 @@ public class StockController : ControllerBase
 
     /// <summary>POST /api/stock/ajuste — Ajuste manual de stock</summary>
     [HttpPost("ajuste")]
-    [Authorize(Policy = "ObradorOrAdmin")]
+    [Authorize(Policy = "AnyRole")]
     public async Task<ActionResult<ApiResponse<string>>> Ajuste(
         [FromBody] AjusteStockRequest request, CancellationToken ct)
     {

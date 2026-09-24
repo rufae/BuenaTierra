@@ -13,7 +13,7 @@ namespace BuenaTierra.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "Admin")]
 public class EtiquetasController : ControllerBase
 {
     private readonly IUnitOfWork _uow;

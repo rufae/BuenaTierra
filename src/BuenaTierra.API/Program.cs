@@ -147,7 +147,7 @@ services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", p => p.RequireRole("Admin"));
-    options.AddPolicy("ObradorOrAdmin", p => p.RequireRole("Admin", "Obrador"));
+    // Roles unificados: solo Admin y Cliente. Todo usuario autenticado tiene uno de ellos.
     options.AddPolicy("AnyRole", p => p.RequireAuthenticatedUser());
 });
 
@@ -195,7 +195,7 @@ services.AddSwaggerGen(c =>
     {
         Title = "BuenaTierra API",
         Version = "v1",
-        Description = "API central del sistema de gestión para obrador y repartidores"
+        Description = "API central del sistema de gestión BuenaTierra"
     });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
@@ -370,6 +370,13 @@ app.MapControllers();
         await migCtx.Database.ExecuteSqlRawAsync(@"
             ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS reset_password_code_exp TIMESTAMPTZ;
         ");
+
+        // ── Roles unificados: solo 'Admin' y 'Cliente' ────────────────────────
+        // Migra usuarios antiguos (Obrador/Repartidor) y ajusta el CHECK/DEFAULT.
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;"); } catch { }
+        try { await migCtx.Database.ExecuteSqlRawAsync("UPDATE usuarios SET rol = 'Cliente' WHERE rol IN ('Obrador','Repartidor');"); } catch { }
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('Admin','Cliente'));"); } catch { }
+        try { await migCtx.Database.ExecuteSqlRawAsync("ALTER TABLE usuarios ALTER COLUMN rol SET DEFAULT 'Cliente';"); } catch { }
     }
     catch (Exception ex)
     {
@@ -418,37 +425,37 @@ try
         });
         Log.Information("Usuario Admin creado: admin@buenatierra.com (debe cambiar contraseña en el primer acceso)");
     }
-    // Obrador
+    // Cliente (cuenta operativa unificada fábrica + reparto)
     if (!ctx.Usuarios.Any(u => u.Email == "obrador@buenatierra.com"))
     {
         ctx.Usuarios.Add(new BuenaTierra.Domain.Entities.Usuario
         {
             EmpresaId    = empresa.Id,
             Nombre       = "Usuario",
-            Apellidos    = "Obrador",
+            Apellidos    = "Cliente",
             Email        = "obrador@buenatierra.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_OBRADOR_PASSWORD", "Obrador#BuenaTierra2025")),
-            Rol          = BuenaTierra.Domain.Enums.RolUsuario.Obrador,
+            Rol          = BuenaTierra.Domain.Enums.RolUsuario.Cliente,
             Activo       = true,
             DebeCambiarPassword = true
         });
-        Log.Information("Usuario Obrador creado: obrador@buenatierra.com (debe cambiar contraseña en el primer acceso)");
+        Log.Information("Usuario Cliente creado: obrador@buenatierra.com (debe cambiar contraseña en el primer acceso)");
     }
-    // Repartidor
+    // Cliente (segunda cuenta de demostración)
     if (!ctx.Usuarios.Any(u => u.Email == "repartidor@buenatierra.com"))
     {
         ctx.Usuarios.Add(new BuenaTierra.Domain.Entities.Usuario
         {
             EmpresaId    = empresa.Id,
             Nombre       = "Usuario",
-            Apellidos    = "Repartidor",
+            Apellidos    = "Cliente",
             Email        = "repartidor@buenatierra.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_REPARTIDOR_PASSWORD", "Repartidor#BuenaTierra2025")),
-            Rol          = BuenaTierra.Domain.Enums.RolUsuario.Repartidor,
+            Rol          = BuenaTierra.Domain.Enums.RolUsuario.Cliente,
             Activo       = true,
             DebeCambiarPassword = true
         });
-        Log.Information("Usuario Repartidor creado: repartidor@buenatierra.com (debe cambiar contraseña en el primer acceso)");
+        Log.Information("Usuario Cliente creado: repartidor@buenatierra.com (debe cambiar contraseña en el primer acceso)");
     }
 
     // Serie de facturación por defecto

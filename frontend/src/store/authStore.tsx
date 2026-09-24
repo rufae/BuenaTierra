@@ -21,6 +21,8 @@ function loadStored(): AuthUser | null {
     const parsed = JSON.parse(raw)
     // Asegurar que el objeto tiene el campo `rol` (migración datos viejos sin rol)
     if (!parsed?.rol) return null
+    // Roles unificados: sesiones antiguas con Obrador/Repartidor pasan a Cliente
+    if (parsed.rol === 'Obrador' || parsed.rol === 'Repartidor') parsed.rol = 'Cliente'
     if (typeof parsed.empresaEsObrador !== 'boolean') {
       parsed.empresaEsObrador = true
     }

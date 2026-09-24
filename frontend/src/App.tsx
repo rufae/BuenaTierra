@@ -12,7 +12,6 @@ import ForgotPassword from './pages/ForgotPassword'
 import Dashboard from './pages/Dashboard'
 import Productos from './pages/Productos'
 import Clientes from './pages/Clientes'
-import Produccion from './pages/Produccion'
 import Facturacion from './pages/Facturacion'
 import Lotes from './pages/Lotes'
 import Albaranes from './pages/Albaranes'
@@ -73,10 +72,9 @@ function AppRoutes() {
   const { isAuthenticated, user } = useAuth()
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const homePath = user?.rol === 'Admin' ? '/usuarios' : '/dashboard'
-  const esEmpresaObrador = user?.empresaEsObrador ?? true
-  // Mismo rol disponible en toda la cuenta unificada (fábrica + repartidor):
-  // todas las tareas visibles, se divide el trabajo por pantalla.
-  const allowedOperativo = ['Obrador', 'Repartidor']
+  // Roles unificados: solo Admin y Cliente. Admin ve todo; Cliente ve todo
+  // salvo las excepciones (Etiquetas, IA y Correo, solo Admin).
+  const allowedOperativo = ['Admin', 'Cliente']
 
   const { data: empresa } = useQuery({
     queryKey: ['empresa-tema', user?.empresaId],
@@ -90,7 +88,7 @@ function AppRoutes() {
   useKeyboardShortcuts({
     onShowHelp: () => setShortcutsOpen(true),
     enabled: isAuthenticated,
-    operationPath: esEmpresaObrador ? '/produccion' : '/carga',
+    operationPath: '/carga',
   })
 
   return (
@@ -109,23 +107,14 @@ function AppRoutes() {
         }
       >
         <Route index element={<Navigate to={homePath} replace />} />
-        <Route path="dashboard" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><Dashboard /></ErrorBoundary></RoleGuard>} />
+        <Route path="dashboard" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Dashboard /></ErrorBoundary></RoleGuard>} />
         <Route path="productos" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Productos /></ErrorBoundary></RoleGuard>} />
-        <Route path="clientes" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><Clientes /></ErrorBoundary></RoleGuard>} />
-        <Route
-          path="produccion"
-          element={
-            <RoleGuard allowed={allowedOperativo}>
-              {esEmpresaObrador
-                ? <ErrorBoundary><Produccion /></ErrorBoundary>
-                : <Navigate to="/carga" replace />}
-            </RoleGuard>
-          }
-        />
+        <Route path="clientes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Clientes /></ErrorBoundary></RoleGuard>} />
+        <Route path="produccion" element={<Navigate to="/carga" replace />} />
         <Route
           path="carga"
           element={
-            <RoleGuard allowed={['Admin', 'Obrador', 'Repartidor']}>
+            <RoleGuard allowed={allowedOperativo}>
               <ErrorBoundary><Carga /></ErrorBoundary>
             </RoleGuard>
           }
@@ -136,33 +125,25 @@ function AppRoutes() {
         <Route path="albaranes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Albaranes /></ErrorBoundary></RoleGuard>} />
         <Route path="pedidos" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Pedidos /></ErrorBoundary></RoleGuard>} />
         <Route path="preventa" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Preventa /></ErrorBoundary></RoleGuard>} />
-        <Route path="trazabilidad" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><Trazabilidad /></ErrorBoundary></RoleGuard>} />
-        <Route path="facturacion-rapida" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><FacturacionRapida /></ErrorBoundary></RoleGuard>} />
+        <Route path="trazabilidad" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Trazabilidad /></ErrorBoundary></RoleGuard>} />
+        <Route path="facturacion-rapida" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><FacturacionRapida /></ErrorBoundary></RoleGuard>} />
         <Route path="reportes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Reportes /></ErrorBoundary></RoleGuard>} />
-        <Route path="balance" element={<RoleGuard allowed={['Obrador', 'Repartidor']}><ErrorBoundary><Balance /></ErrorBoundary></RoleGuard>} />
-        <Route
-          path="ingredientes"
-          element={
-            <RoleGuard allowed={['Obrador']}>
-              {esEmpresaObrador
-                ? <ErrorBoundary><Ingredientes /></ErrorBoundary>
-                : <Navigate to="/dashboard" replace />}
-            </RoleGuard>
-          }
-        />
+        <Route path="balance" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Balance /></ErrorBoundary></RoleGuard>} />
+        <Route path="ingredientes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Ingredientes /></ErrorBoundary></RoleGuard>} />
         <Route path="usuarios" element={<RoleGuard allowed={['Admin']}><ErrorBoundary><Usuarios /></ErrorBoundary></RoleGuard>} />
-        <Route path="ajustes" element={<RoleGuard allowed={['Admin', 'Obrador', 'Repartidor']}><ErrorBoundary><Ajustes /></ErrorBoundary></RoleGuard>} />
+        <Route path="ajustes" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Ajustes /></ErrorBoundary></RoleGuard>} />
         <Route path="series" element={<RoleGuard allowed={['Admin']}><ErrorBoundary><SeriesFacturacion /></ErrorBoundary></RoleGuard>} />
+        {/* Pestañas ocultadas de momento para el resto de usuarios (solo Admin) */}
         <Route
           path="etiquetas"
           element={
-            <RoleGuard allowed={allowedOperativo}>
+            <RoleGuard allowed={['Admin']}>
               <ErrorBoundary><Etiquetas /></ErrorBoundary>
             </RoleGuard>
           }
         />
-        <Route path="correos" element={<RoleGuard allowed={allowedOperativo}><ErrorBoundary><Correos /></ErrorBoundary></RoleGuard>} />
-        <Route path="ia" element={<RoleGuard allowed={['Admin', 'Obrador', 'Repartidor']}><ErrorBoundary><BuenaTierrAI /></ErrorBoundary></RoleGuard>} />
+        <Route path="correos" element={<RoleGuard allowed={['Admin']}><ErrorBoundary><Correos /></ErrorBoundary></RoleGuard>} />
+        <Route path="ia" element={<RoleGuard allowed={['Admin']}><ErrorBoundary><BuenaTierrAI /></ErrorBoundary></RoleGuard>} />
         <Route path="buenatierr-ai" element={<Navigate to="/ia" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

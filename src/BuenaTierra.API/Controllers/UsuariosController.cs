@@ -95,19 +95,11 @@ public class UsuariosController : ControllerBase
             return Conflict(ApiResponse<object>.Fail("Ya existe un usuario con ese email"));
 
         if (!Enum.TryParse<RolUsuario>(req.Rol, out var rol))
-            return BadRequest(ApiResponse<object>.Fail("Rol no válido. Use: Admin, Obrador, Repartidor"));
+            return BadRequest(ApiResponse<object>.Fail("Rol no válido. Use: Admin, Cliente"));
 
         var errorPassword = PasswordPolicy.Validate(req.Password);
         if (errorPassword != null)
             return BadRequest(ApiResponse<object>.Fail(errorPassword));
-
-        if (rol == RolUsuario.Repartidor && req.ClienteId.HasValue)
-        {
-            var clienteValido = await _uow.Clientes.ExistsAsync(
-                c => c.Id == req.ClienteId.Value && c.EmpresaId == empresaObjetivoId && c.Activo, ct);
-            if (!clienteValido)
-                return BadRequest(ApiResponse<object>.Fail("Cliente vinculado no válido para la empresa seleccionada"));
-        }
 
         var nuevo = new Usuario
         {
@@ -119,7 +111,7 @@ public class UsuariosController : ControllerBase
             Rol        = rol,
             Activo     = true,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
-            ClienteId  = rol == RolUsuario.Repartidor ? req.ClienteId : null,
+            ClienteId  = null,
         };
 
         var creado = await _uow.Usuarios.AddAsync(nuevo, ct);
@@ -175,14 +167,6 @@ public class UsuariosController : ControllerBase
                 return Conflict(ApiResponse<object>.Fail("Ya existe un usuario con ese email"));
         }
 
-        if (rol == RolUsuario.Repartidor && req.ClienteId.HasValue)
-        {
-            var clienteValido = await _uow.Clientes.ExistsAsync(
-                c => c.Id == req.ClienteId.Value && c.EmpresaId == empresaObjetivoId && c.Activo, ct);
-            if (!clienteValido)
-                return BadRequest(ApiResponse<object>.Fail("Cliente vinculado no válido para la empresa seleccionada"));
-        }
-
         u.EmpresaId = empresaObjetivoId;
         u.Nombre   = req.Nombre.Trim();
         u.Apellidos = req.Apellidos?.Trim();
@@ -190,7 +174,7 @@ public class UsuariosController : ControllerBase
         u.Telefono = req.Telefono?.Trim();
         u.Rol      = rol;
         u.Activo   = req.Activo;
-        u.ClienteId = rol == RolUsuario.Repartidor ? req.ClienteId : null;
+        u.ClienteId = null;
 
         await _uow.Usuarios.UpdateAsync(u, ct);
         await _uow.SaveChangesAsync(ct);

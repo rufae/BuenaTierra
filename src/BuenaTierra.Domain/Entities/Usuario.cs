@@ -11,7 +11,7 @@ public class Usuario : BaseEntity
     public string Email { get; set; } = string.Empty;
     public string? Telefono { get; set; }
     public string PasswordHash { get; set; } = string.Empty;
-    public RolUsuario Rol { get; set; } = RolUsuario.Obrador;
+    public RolUsuario Rol { get; set; } = RolUsuario.Cliente;
     public bool Activo { get; set; } = true;
     public DateTime? UltimoAcceso { get; set; }
     public string? RefreshToken { get; set; }

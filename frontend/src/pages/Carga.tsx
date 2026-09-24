@@ -5,15 +5,18 @@ import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { fmtDate } from '../lib/dates'
 import { EstadoBadge } from '../components/EstadoBadge'
+import { useAuth } from '../store/authStore'
 import { ProduccionPage } from './Produccion'
 import type { Producto, StockItem } from '../types'
 
 /**
- * Página "Carga" — unificada para la cuenta única (fábrica + repartidor):
- *  - Fábrica: entradas de mercancía (antigua "Compra").
+ * Página "Carga" — unificada (fábrica + reparto):
+ *  - Fábrica: registro de producción/entrada de mercancía (antiguas "Producción" y "Compra").
  *  - Furgoneta: traspaso de stock fábrica ↔ furgoneta (no altera el total).
  */
 export default function Carga() {
+  const { user } = useAuth()
+  const esEmpresaObrador = user?.empresaEsObrador ?? true
   const [tab, setTab] = useState<'fabrica' | 'furgoneta'>('fabrica')
 
   const tabBtn = (id: 'fabrica' | 'furgoneta', label: string, Icon: typeof Factory) => (
@@ -35,7 +38,9 @@ export default function Carga() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Carga</h1>
           <p className="text-gray-500 text-sm mt-0.5">
-            Entrada de mercancía en fábrica y carga/descarga de la furgoneta — el total de stock no cambia al moverlo
+            {esEmpresaObrador
+              ? 'Producción en fábrica y carga/descarga de la furgoneta — el total de stock no cambia al moverlo'
+              : 'Entrada de mercancía en fábrica y carga/descarga de la furgoneta — el total de stock no cambia al moverlo'}
           </p>
         </div>
         <div className="flex gap-2">
@@ -45,7 +50,7 @@ export default function Carga() {
       </div>
 
       {tab === 'fabrica' ? (
-        <ProduccionPage modo="compra" shell={false} />
+        <ProduccionPage modo={esEmpresaObrador ? 'produccion' : 'compra'} shell={false} />
       ) : (
         <CargaFurgoneta />
       )}

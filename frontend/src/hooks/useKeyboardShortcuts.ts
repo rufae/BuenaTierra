@@ -15,7 +15,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { key: 'Alt+4', description: 'Lotes', path: '/lotes' },
   { key: 'Alt+5', description: 'Clientes', path: '/clientes' },
   { key: 'Alt+6', description: 'Productos', path: '/productos' },
-  { key: 'Alt+7', description: 'Producción', path: '/produccion' },
+  { key: 'Alt+7', description: 'Carga', path: '/carga' },
   { key: 'Alt+8', description: 'Reportes', path: '/reportes' },
   { key: 'Alt+9', description: 'Trazabilidad', path: '/trazabilidad' },
   { key: 'Alt+0', description: 'Usuarios', path: '/usuarios' },
@@ -28,7 +28,7 @@ interface UseKeyboardShortcutsOptions {
   operationPath?: string
 }
 
-export function useKeyboardShortcuts({ onShowHelp, enabled = true, operationPath = '/produccion' }: UseKeyboardShortcutsOptions) {
+export function useKeyboardShortcuts({ onShowHelp, enabled = true, operationPath = '/carga' }: UseKeyboardShortcutsOptions) {
   const navigate = useNavigate()
 
   useEffect(() => {

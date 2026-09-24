@@ -13,7 +13,6 @@ import {
   TrendingUp,
   ClipboardList,
   FileText,
-  Zap,
   Users,
   Clock,
   RefreshCw,
@@ -70,8 +69,8 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [dashTab, setDashTab] = useState<DashTab>('resumen')
   const esEmpresaObrador = user?.empresaEsObrador ?? true
-  const rutaOperacion = esEmpresaObrador ? '/produccion' : '/compra'
-  const labelOperacion = esEmpresaObrador ? 'producción' : 'compra'
+  const rutaOperacion = '/carga'
+  const labelOperacion = 'carga'
 
   const { data: stats, isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard-stats', user?.empresaId],
@@ -99,8 +98,6 @@ export default function Dashboard() {
     const d = new Date(); d.setDate(d.getDate() - 6 + i)
     return { fechaLabel: d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }), importe: 0, count: 0 }
   })
-
-  const isRepartidor = user?.rol === 'Repartidor' && esEmpresaObrador
 
   return (
     <div className="page-shell space-y-6">
@@ -145,27 +142,18 @@ export default function Dashboard() {
 
       {/* Acciones rápidas */}
       <div className="flex flex-wrap gap-3">
-        {isRepartidor ? (
-          <button onClick={() => navigate('/facturacion-rapida')}
-            className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 shadow-sm">
-            <Zap className="w-4 h-4" /> Facturación rápida
-          </button>
-        ) : (
-          <>
-            <button onClick={() => navigate('/facturacion')}
-              className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 shadow-sm">
-              <FileText className="w-4 h-4" /> Nueva factura
-            </button>
-            <button onClick={() => navigate('/pedidos')}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 shadow-sm">
-              <ClipboardList className="w-4 h-4" /> Nuevo pedido
-            </button>
-            <button onClick={() => navigate(rutaOperacion)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 shadow-sm">
-              <Package className="w-4 h-4" /> Registrar {labelOperacion}
-            </button>
-          </>
-        )}
+        <button onClick={() => navigate('/facturacion')}
+          className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 shadow-sm">
+          <FileText className="w-4 h-4" /> Nueva factura
+        </button>
+        <button onClick={() => navigate('/pedidos')}
+          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 shadow-sm">
+          <ClipboardList className="w-4 h-4" /> Nuevo pedido
+        </button>
+        <button onClick={() => navigate(rutaOperacion)}
+          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 shadow-sm">
+          <Package className="w-4 h-4" /> Registrar {labelOperacion}
+        </button>
       </div>
 
       {isLoading ? (
