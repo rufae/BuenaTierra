@@ -252,6 +252,18 @@ export function ProduccionPage({ modo = 'produccion', shell = true }: Produccion
     toast.success('PDF exportado')
   }
 
+  // Previsión de caducidad a partir de la vida útil del producto seleccionado
+  const productoSel = productos?.find(p => p.id === form.productoId) ?? null
+  const caducidadEstimada = useMemo(() => {
+    if (!productoSel?.vidaUtilDias || !form.fechaProduccion) return null
+    const base = new Date(`${form.fechaProduccion}T00:00:00`)
+    if (Number.isNaN(base.getTime())) return null
+    const d = new Date(base)
+    if (productoSel.vidaUtilUnidad === 'Meses') d.setMonth(d.getMonth() + productoSel.vidaUtilDias)
+    else d.setDate(d.getDate() + productoSel.vidaUtilDias)
+    return d
+  }, [productoSel, form.fechaProduccion])
+
   // ════════════════════════════════════════════════════════════
   return (
     <div className={shell ? 'page-shell space-y-5' : 'space-y-5'}>
@@ -492,7 +504,13 @@ export function ProduccionPage({ modo = 'produccion', shell = true }: Produccion
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Fecha caducidad (opcional)</label>
                 <DateInput value={form.fechaCaducidadSugerida ?? ''} onChange={v => setForm({ ...form, fechaCaducidadSugerida: v })} className="w-full" />
-                <p className="text-xs text-gray-400 mt-0.5">Si se deja vacío, se calcula automáticamente según la vida útil del producto</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {form.fechaCaducidadSugerida
+                    ? 'Fecha manual: tiene prioridad sobre la vida útil del producto.'
+                    : caducidadEstimada
+                      ? <>Se calculará automáticamente: <b className="text-gray-600">{caducidadEstimada.toLocaleDateString('es-ES')}</b> (vida útil: {productoSel?.vidaUtilDias} {productoSel?.vidaUtilUnidad === 'Meses' ? 'meses' : 'días'}).</>
+                      : 'Si se deja vacío, se calcula según la vida útil del producto. Defínela en Productos → Vida útil si no aparece.'}
+                </p>
               </div>
 
               <div>

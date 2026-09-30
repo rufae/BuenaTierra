@@ -277,11 +277,24 @@ public class PedidosController : ControllerBase
                 ?? throw new EntidadNotFoundException(nameof(Producto), item.ProductoId);
 
             // ── Validación de stock en el origen elegido ────────────────────
-            var ubicacionOrigen = request.OrigenStock == OrigenStock.Furgoneta ? "furgoneta" : "fábrica";
-            var stockDisponible = await _uow.Stock.GetTotalDisponibleOrigenAsync(EmpresaId, item.ProductoId, request.OrigenStock.Value, ct);
-            if (stockDisponible < item.Cantidad)
-                return BadRequest(ApiResponse<PedidoCreado>.Fail(
-                    $"Stock insuficiente en {ubicacionOrigen} para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}"));
+            // Solo los productos trazables (con lote) consumen stock; los no trazables
+            // no deben bloquear la venta aunque no tengan filas de stock.
+            if (producto.RequiereLote)
+            {
+                var ubicacionOrigen = request.OrigenStock == OrigenStock.Furgoneta ? "furgoneta" : "fábrica";
+                var stockDisponible = await _uow.Stock.GetTotalDisponibleOrigenAsync(EmpresaId, item.ProductoId, request.OrigenStock.Value, ct);
+                if (stockDisponible < item.Cantidad)
+                {
+                    var otroOrigen = request.OrigenStock == OrigenStock.Furgoneta ? OrigenStock.Fabrica : OrigenStock.Furgoneta;
+                    var nombreOtro = otroOrigen == OrigenStock.Furgoneta ? "furgoneta" : "fábrica";
+                    var stockOtro = await _uow.Stock.GetTotalDisponibleOrigenAsync(EmpresaId, item.ProductoId, otroOrigen, ct);
+                    var pistaOtro = stockOtro > 0
+                        ? $" Hay {stockOtro:0.##} en {nombreOtro}; muévelo desde Carga o cambia el origen."
+                        : "";
+                    return BadRequest(ApiResponse<PedidoCreado>.Fail(
+                        $"Stock insuficiente en {ubicacionOrigen} para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}.{pistaOtro}"));
+                }
+            }
 
             var pricing = ComercialPricingPolicy.Resolve(cliente, producto, item.PrecioUnitario, item.Descuento);
             decimal precio = pricing.PrecioUnitario;

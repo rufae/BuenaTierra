@@ -464,18 +464,19 @@ export default function Productos() {
                 <th className="px-4 py-3 text-right">P. Coste</th>
                 <th className="px-4 py-3 text-right">IVA</th>
                 <th className="px-4 py-3 text-left">Unidad</th>
+                <th className="px-4 py-3 text-left">Vida útil</th>
                 <th className="px-4 py-3 text-center">Activo</th>
                 <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
-                <tr><td colSpan={9} className="px-5 py-8 text-center text-gray-500">
+                <tr><td colSpan={10} className="px-5 py-8 text-center text-gray-500">
                   <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
                   Cargando…
                 </td></tr>
               ) : !listaFiltrada.length ? (
-                <tr><td colSpan={9} className="px-5 py-8 text-center text-gray-400">
+                <tr><td colSpan={10} className="px-5 py-8 text-center text-gray-400">
                   <Package className="w-8 h-8 mx-auto mb-2 opacity-40" />
                   {search || filtroCategoria ? 'Sin resultados para este filtro.' : 'No hay productos. Crea el primero.'}
                 </td></tr>
@@ -500,6 +501,11 @@ export default function Productos() {
                   </td>
                   <td className="px-4 py-3 text-right text-gray-500">{p.ivaPorcentaje}%</td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{p.unidadMedida}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500">
+                    {p.vidaUtilDias != null
+                      ? `${p.vidaUtilDias} ${p.vidaUtilUnidad === 'Meses' ? 'meses' : 'días'}`
+                      : '—'}
+                  </td>
                   <td className="px-4 py-3 text-center">
                     {p.activo
                       ? <Check className="w-4 h-4 text-green-500 mx-auto" />

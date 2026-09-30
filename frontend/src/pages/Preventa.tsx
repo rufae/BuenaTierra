@@ -98,7 +98,7 @@ export default function Preventa() {
     preventaId: number | null
     data: ValidacionConversion | null
   }>({ open: false, preventaId: null, data: null })
-  const [origenConvert, setOrigenConvert] = useState<'Fabrica' | 'Furgoneta' | ''>('')
+  const [origenConvert, setOrigenConvert] = useState<'Fabrica' | 'Furgoneta' | ''>('Furgoneta')
 
   const { data: clientes } = useQuery({
     queryKey: ['clientes'],
@@ -374,7 +374,7 @@ export default function Preventa() {
       const data = (await api.post<{ data: ValidacionConversion }>(`/preventas/${preventaId}/validar-conversion`, {})).data.data
       return { preventaId, data }
     },
-    onSuccess: ({ preventaId, data }) => { setOrigenConvert(''); setModal({ open: true, preventaId, data }) },
+    onSuccess: ({ preventaId, data }) => { setOrigenConvert('Furgoneta'); setModal({ open: true, preventaId, data }) },
     onError: (e: any) => toast.error(e?.response?.data?.errors?.[0] ?? 'Error al validar'),
   })
 

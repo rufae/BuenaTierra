@@ -74,7 +74,7 @@ export default function Facturacion() {
   // Form state
   const [clienteId, setClienteId] = useState(0)
   const [serieId, setSerieId] = useState(0)
-  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('')
+  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('Furgoneta')
   const [esSimplificada, setEsSimplificada] = useState(false)
   const [notas, setNotas] = useState('')
   const [lineas, setLineas] = useState<LineaItem[]>([])
@@ -263,7 +263,7 @@ export default function Facturacion() {
     setShowForm(false)
     setClienteId(0)
     setSerieId(0)
-    setOrigenVenta('')
+    setOrigenVenta('Furgoneta')
     setLineas([])
     setNotas('')
     setFifoPreviews([])

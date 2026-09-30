@@ -44,7 +44,7 @@ export default function FacturacionRapida() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [clienteId, setClienteId] = useState('')
   const [serieId, setSerieId] = useState('')
-  const [origen, setOrigen] = useState<'Fabrica' | 'Furgoneta' | ''>('')
+  const [origen, setOrigen] = useState<'Fabrica' | 'Furgoneta' | ''>('Furgoneta')
   const [facturaCreada, setFacturaCreada] = useState<FacturaCreada | null>(null)
   const [clienteDropdown, setClienteDropdown] = useState(false)
 

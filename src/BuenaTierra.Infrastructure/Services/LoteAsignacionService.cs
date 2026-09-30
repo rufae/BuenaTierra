@@ -43,8 +43,14 @@ public class LoteAsignacionService : ILoteAsignacionService
         if (!lotesLista.Any())
         {
             if (origen == OrigenStock.Furgoneta)
+            {
+                var enFabrica = await _uow.Stock.GetTotalDisponibleOrigenAsync(empresaId, productoId, OrigenStock.Fabrica, ct);
+                var pista = enFabrica > 0
+                    ? $" Hay {enFabrica:0.###} uds en fábrica: muévelas a la furgoneta desde Carga."
+                    : "";
                 throw new DomainException(
-                    $"No hay stock en furgoneta para el producto {productoId}. Carga mercancía a la furgoneta antes de confirmar.");
+                    $"No hay stock en furgoneta para el producto {productoId}. Carga mercancía a la furgoneta antes de confirmar.{pista}");
+            }
             throw new NoHayLotesDisponiblesException(productoId);
         }
 
@@ -89,10 +95,16 @@ public class LoteAsignacionService : ILoteAsignacionService
 
             // Error bloqueante: no hay fallback al otro origen
             if (origen == OrigenStock.Furgoneta)
+            {
+                var enFabrica = await _uow.Stock.GetTotalDisponibleOrigenAsync(empresaId, productoId, OrigenStock.Fabrica, ct);
+                var pista = enFabrica > 0
+                    ? $" Hay {enFabrica:0.###} uds en fábrica: muévelas a la furgoneta desde Carga."
+                    : "";
                 throw new DomainException(
                     $"No hay stock suficiente en furgoneta{(productoNombre != null ? $" para '{productoNombre}'" : "")}. " +
                     $"Solicitado: {cantidad}, disponible en furgoneta: {disponibleTotal}. " +
-                    "Carga mercancía a la furgoneta antes de confirmar.");
+                    $"Carga mercancía a la furgoneta antes de confirmar.{pista}");
+            }
 
             throw new StockInsuficienteException(productoId, cantidad, disponibleTotal, productoNombre);
         }

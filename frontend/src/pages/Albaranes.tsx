@@ -21,7 +21,7 @@ export default function Albaranes() {
   const [pickingOpen, setPickingOpen] = useState<number | null>(null)
 
   const [clienteId, setClienteId] = useState('')
-  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('')
+  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('Furgoneta')
   const [notas, setNotas] = useState('')
   const [items, setItems] = useState<ItemForm[]>([{ productoId: 0, cantidad: 1 }])
 
@@ -131,7 +131,7 @@ export default function Albaranes() {
     onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al convertir'),
   })
 
-  function resetForm() { setShowForm(false); setClienteId(''); setNotas(''); setOrigenVenta(''); setItems([{ productoId: 0, cantidad: 1 }]) }
+  function resetForm() { setShowForm(false); setClienteId(''); setNotas(''); setOrigenVenta('Furgoneta'); setItems([{ productoId: 0, cantidad: 1 }]) }
 
   const descargando = useDownloading()
   const descargarPdf = (id: number, numero: string) =>

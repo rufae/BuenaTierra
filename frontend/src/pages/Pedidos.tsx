@@ -41,7 +41,7 @@ export default function Pedidos() {
   const [clienteId, setClienteId] = useState('')
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [notas, setNotas] = useState('')
-  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('')
+  const [origenVenta, setOrigenVenta] = useState<'Fabrica' | 'Furgoneta' | ''>('Furgoneta')
   const [items, setItems] = useState<ItemForm[]>([{ productoId: 0, cantidad: 1 }])
 
   // Modal: crear factura desde pedido
@@ -316,7 +316,7 @@ export default function Pedidos() {
     }
   }, [detalle, detailOpen])
 
-  function resetForm() { setShowForm(false); setClienteId(''); setFechaEntrega(''); setNotas(''); setOrigenVenta(''); setItems([{ productoId: 0, cantidad: 1 }]) }
+  function resetForm() { setShowForm(false); setClienteId(''); setFechaEntrega(''); setNotas(''); setOrigenVenta('Furgoneta'); setItems([{ productoId: 0, cantidad: 1 }]) }
 
   function addItem() { setItems(prev => [...prev, { productoId: 0, cantidad: 1 }]) }
   function removeItem(i: number) { setItems(prev => prev.filter((_, idx) => idx !== i)) }
