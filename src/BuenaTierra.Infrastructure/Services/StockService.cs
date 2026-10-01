@@ -25,8 +25,10 @@ public class StockService : IStockService
 
         decimal total = await _uow.Stock.GetTotalDisponibleAsync(empresaId, productoId, ct);
         var stocks = await _uow.Stock.GetByProductoAsync(empresaId, productoId, ct);
+        var desglose = await _uow.Stock.GetDesgloseAsync(empresaId, productoId, ct);
 
-        return new StockResumen(productoId, producto.Nombre, total, stocks.Count());
+        return new StockResumen(productoId, producto.Nombre, total, stocks.Count(),
+            desglose.Vendible, desglose.Caducado, desglose.LotesVendibles);
     }
 
     public async Task AjustarAsync(int empresaId, int productoId, int loteId, decimal cantidad, string motivo, int usuarioId, CancellationToken ct = default)

@@ -141,7 +141,9 @@ public class StockRepository : Repository<Stock>, IStockRepository
             .ToListAsync(ct);
 
     public async Task<IEnumerable<StockDetalle>> GetAllConDetalleAsync(int empresaId, CancellationToken ct = default)
-        => await _set
+    {
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        return await _set
             .Include(s => s.Lote)
             .Include(s => s.Producto)
             .Where(s => s.EmpresaId == empresaId && s.CantidadDisponible > 0)
@@ -157,9 +159,51 @@ public class StockRepository : Repository<Stock>, IStockRepository
                 s.CantidadDisponible,
                 s.CantidadReservada,
                 s.CantidadFurgoneta,
-                s.CantidadDisponible - s.CantidadFurgoneta
+                s.CantidadDisponible - s.CantidadFurgoneta,
+                !s.Lote.Bloqueado && (s.Lote.FechaCaducidad == null || s.Lote.FechaCaducidad > hoy),
+                !s.Lote.Bloqueado && (s.Lote.FechaCaducidad == null || s.Lote.FechaCaducidad > hoy)
+                    ? s.CantidadDisponible - s.CantidadReservada
+                    : 0m
             ))
             .ToListAsync(ct);
+    }
+
+    public async Task<StockDesglose> GetDesgloseAsync(int empresaId, int productoId, CancellationToken ct = default)
+    {
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var filas = await _set
+            .Where(s => s.EmpresaId == empresaId && s.ProductoId == productoId && s.CantidadDisponible > 0)
+            .Select(s => new
+            {
+                s.LoteId,
+                s.CantidadDisponible,
+                s.CantidadReservada,
+                Caducado = s.Lote!.FechaCaducidad != null && s.Lote.FechaCaducidad <= hoy,
+                s.Lote.Bloqueado,
+            })
+            .ToListAsync(ct);
+
+        decimal vendible = 0m, caducado = 0m, bloqueado = 0m;
+        var lotesVendibles = new HashSet<int>();
+        foreach (var fila in filas)
+        {
+            var cantidad = fila.CantidadDisponible - fila.CantidadReservada;
+            if (fila.Bloqueado)
+            {
+                bloqueado += cantidad;
+            }
+            else if (fila.Caducado)
+            {
+                caducado += cantidad;
+            }
+            else
+            {
+                vendible += cantidad;
+                lotesVendibles.Add(fila.LoteId);
+            }
+        }
+        return new StockDesglose(vendible, caducado, bloqueado, lotesVendibles.Count);
+    }
 }
 
 public class FacturaRepository : Repository<Factura>, IFacturaRepository

@@ -10,10 +10,12 @@ public class StockInsuficienteException : DomainException
     public decimal CantidadSolicitada { get; }
     public decimal CantidadDisponible { get; }
 
-    public StockInsuficienteException(int productoId, decimal solicitada, decimal disponible, string? productoNombre = null)
-        : base(string.IsNullOrWhiteSpace(productoNombre)
+    public StockInsuficienteException(int productoId, decimal solicitada, decimal disponible,
+        string? productoNombre = null, string? detalle = null)
+        : base((string.IsNullOrWhiteSpace(productoNombre)
             ? $"Stock insuficiente para producto {productoId}. Solicitado: {solicitada}, Disponible: {disponible}"
             : $"Stock insuficiente para '{productoNombre}'. Solicitado: {solicitada}, Disponible: {disponible}")
+            + (detalle ?? ""))
     {
         ProductoId = productoId;
         ProductoNombre = productoNombre;
@@ -29,8 +31,8 @@ public class NoHayLotesDisponiblesException : DomainException
 {
     public int ProductoId { get; }
 
-    public NoHayLotesDisponiblesException(int productoId)
-        : base($"No hay lotes disponibles para el producto {productoId}")
+    public NoHayLotesDisponiblesException(int productoId, string? detalle = null)
+        : base($"No hay lotes disponibles para el producto {productoId}" + (detalle ?? ""))
     {
         ProductoId = productoId;
     }

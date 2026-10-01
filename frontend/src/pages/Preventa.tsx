@@ -212,8 +212,13 @@ export default function Preventa() {
   const stockDisponiblePorProducto = useMemo(() => {
     const map: Record<number, number> = {}
     stockItems.forEach((item) => {
-      const disponible = Number(item.cantidadDisponible ?? 0) - Number(item.cantidadReservada ?? 0)
-      map[item.productoId] = (map[item.productoId] ?? 0) + Math.max(0, disponible)
+      // 2026-10-01: usar el stock VENDIBLE (sin lotes caducados/bloqueados)
+      // para que lo que muestra la pantalla coincida con lo que deja vender.
+      const caducado = item.fechaCaducidad ? new Date(item.fechaCaducidad) < new Date(new Date().toDateString()) : false
+      const vendible = item.cantidadVendible ?? (caducado || item.esVendible === false
+        ? 0
+        : Number(item.cantidadDisponible ?? 0) - Number(item.cantidadReservada ?? 0))
+      map[item.productoId] = (map[item.productoId] ?? 0) + Math.max(0, Number(vendible))
     })
     return map
   }, [stockItems])

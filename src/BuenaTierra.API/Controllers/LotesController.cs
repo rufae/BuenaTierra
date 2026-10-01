@@ -175,6 +175,27 @@ public class LotesController : ControllerBase
         }
     }
 
+    /// <summary>PATCH /api/lotes/{id}/caducidad — Corrige la caducidad de un lote (Admin)</summary>
+    [HttpPatch("{id:int}/caducidad")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<ActionResult<ApiResponse<string>>> ActualizarCaducidad(
+        int id, [FromBody] ActualizarCaducidadRequest request, CancellationToken ct)
+    {
+        var lote = await _uow.Lotes.GetByIdAsync(id, ct);
+        if (lote is null || lote.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Lote no encontrado"));
+
+        if (request.FechaCaducidad is DateOnly fecha && fecha < lote.FechaFabricacion)
+            return BadRequest(ApiResponse<string>.Fail(
+                $"La caducidad ({fecha:yyyy-MM-dd}) no puede ser anterior a la fabricacion ({lote.FechaFabricacion:yyyy-MM-dd})."));
+
+        lote.FechaCaducidad = request.FechaCaducidad;
+        await _uow.Lotes.UpdateAsync(lote, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<string>.Ok("Caducidad actualizada", "Caducidad actualizada"));
+    }
+
     /// <summary>POST /api/lotes/{id}/bloquear — Bloquear un lote</summary>
     [HttpPost("{id:int}/bloquear")]
     [Authorize(Policy = "AnyRole")]
@@ -195,3 +216,6 @@ public class LotesController : ControllerBase
 }
 
 public record BloquearLoteRequest(string Motivo);
+
+/// <summary>Correccion de la fecha de caducidad de un lote (null = sin caducidad).</summary>
+public record ActualizarCaducidadRequest(DateOnly? FechaCaducidad);

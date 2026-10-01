@@ -20,6 +20,8 @@ export default function Lotes() {
   const [fifoResult, setFifoResult] = useState<any[]>([])
   const [bloquearId, setBloquearId] = useState<number | null>(null)
   const [motivoBloqueo, setMotivoBloqueo] = useState('')
+  const [caducidadLote, setCaducidadLote] = useState<StockItem | null>(null)
+  const [nuevaCaducidad, setNuevaCaducidad] = useState('')
 
   const { data: stock, isLoading, refetch } = useQuery({
     queryKey: ['stock-todos', user?.empresaId],
@@ -36,6 +38,18 @@ export default function Lotes() {
       const res = await api.get<{ data: Producto[] }>('/productos')
       return res.data.data
     },
+  })
+
+  const caducidadMutation = useMutation({
+    mutationFn: ({ loteId, fecha }: { loteId: number; fecha: string }) =>
+      api.patch(`/lotes/${loteId}/caducidad`, { fechaCaducidad: fecha || null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock-todos'] })
+      toast.success('Caducidad actualizada')
+      setCaducidadLote(null)
+      setNuevaCaducidad('')
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Error al actualizar la caducidad'),
   })
 
   const bloquearMutation = useMutation({
@@ -263,6 +277,14 @@ export default function Lotes() {
                         {s.fechaCaducidad
                           ? <span className={getEstado(s) === 'caducado' ? 'text-red-600 font-semibold' : ''}>{fmtDate(s.fechaCaducidad)}</span>
                           : <span className="text-gray-400">—</span>}
+                        {user?.rol === 'Admin' && (
+                          <button
+                            onClick={() => { setCaducidadLote(s); setNuevaCaducidad(s.fechaCaducidad ?? '') }}
+                            className="ml-2 text-xs text-blue-600 hover:text-blue-800 underline"
+                          >
+                            Editar
+                          </button>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-bold text-gray-900">{s.cantidadDisponible}</td>
                       <td className="px-4 py-3 text-gray-500">{s.cantidadReservada}</td>
@@ -310,6 +332,35 @@ export default function Lotes() {
                 className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-red-700"
               >
                 Confirmar bloqueo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Caducidad */}
+      {caducidadLote !== null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h2 className="text-base font-bold text-gray-900 mb-1">Corregir caducidad</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              {caducidadLote.productoNombre} · lote <span className="font-mono">{caducidadLote.codigoLote}</span>.
+              Si el lote está caducado no se puede vender: corrige la fecha o deja el campo vacío.
+            </p>
+            <input
+              type="date"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={nuevaCaducidad}
+              onChange={e => setNuevaCaducidad(e.target.value)}
+            />
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => { setCaducidadLote(null); setNuevaCaducidad('') }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
+              <button
+                disabled={caducidadMutation.isPending}
+                onClick={() => caducidadMutation.mutate({ loteId: caducidadLote.loteId, fecha: nuevaCaducidad })}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-blue-700"
+              >
+                Guardar caducidad
               </button>
             </div>
           </div>

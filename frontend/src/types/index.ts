@@ -264,6 +264,20 @@ export interface StockItem {
   cantidadFurgoneta: number
   /** Unidades de este lote en fábrica (disponible - furgoneta) */
   cantidadFabrica: number
+  /** El lote no está caducado ni bloqueado (stock vendible). */
+  esVendible?: boolean
+  /** Unidades vendibles de este lote (0 si caducado/bloqueado). */
+  cantidadVendible?: number
+}
+
+export interface StockResumen {
+  productoId: number
+  productoNombre: string
+  totalDisponible: number
+  numLotes: number
+  totalVendible?: number
+  totalCaducado?: number
+  numLotesVendibles?: number
 }
 
 // ── Series ────────────────────────────────────────────────────────────────────

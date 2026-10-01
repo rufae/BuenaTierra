@@ -62,6 +62,7 @@ public interface IStockRepository : IRepository<Stock>
     Task<decimal> GetTotalDisponibleOrigenAsync(int empresaId, int productoId, OrigenStock origen, CancellationToken ct = default);
     Task<IEnumerable<Stock>> GetStockBajoMinimoAsync(int empresaId, CancellationToken ct = default);
     Task<IEnumerable<StockDetalle>> GetAllConDetalleAsync(int empresaId, CancellationToken ct = default);
+    Task<StockDesglose> GetDesgloseAsync(int empresaId, int productoId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -174,5 +175,15 @@ public record StockDetalle(
     decimal CantidadDisponible,
     decimal CantidadReservada,
     decimal CantidadFurgoneta = 0,
-    decimal CantidadFabrica = 0
+    decimal CantidadFabrica = 0,
+    bool EsVendible = true,
+    decimal CantidadVendible = 0
+);
+
+/// <summary>Desglose de stock de un producto: vendible, caducado y bloqueado.</summary>
+public record StockDesglose(
+    decimal Vendible,
+    decimal Caducado,
+    decimal Bloqueado,
+    int LotesVendibles
 );

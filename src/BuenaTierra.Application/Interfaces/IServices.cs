@@ -36,6 +36,7 @@ public interface ILoteAsignacionService
     /// Consulta stock disponible real (sin lotes caducados ni bloqueados).
     /// </summary>
     Task<decimal> GetDisponibleAsync(int empresaId, int productoId, CancellationToken ct = default);
+    Task<string> DescribirNoVendiblesAsync(int empresaId, int productoId, CancellationToken ct = default);
 }
 
 public record LoteAsignado(
@@ -58,7 +59,8 @@ public interface IStockService
     Task<IEnumerable<StockAlerta>> GetAlertasAsync(int empresaId, CancellationToken ct = default);
 }
 
-public record StockResumen(int ProductoId, string ProductoNombre, decimal TotalDisponible, int NumLotes);
+public record StockResumen(int ProductoId, string ProductoNombre, decimal TotalDisponible, int NumLotes,
+    decimal TotalVendible = 0, decimal TotalCaducado = 0, int NumLotesVendibles = 0);
 public record StockAlerta(int ProductoId, string ProductoNombre, decimal Disponible, decimal Minimo);
 
 // ============================================================

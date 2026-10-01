@@ -291,8 +291,9 @@ public class PedidosController : ControllerBase
                     var pistaOtro = stockOtro > 0
                         ? $" Hay {stockOtro:0.##} en {nombreOtro}; muévelo desde Carga o cambia el origen."
                         : "";
+                    var pistaCaducados = await _loteService.DescribirNoVendiblesAsync(EmpresaId, item.ProductoId, ct);
                     return BadRequest(ApiResponse<PedidoCreado>.Fail(
-                        $"Stock insuficiente en {ubicacionOrigen} para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}.{pistaOtro}"));
+                        $"Stock insuficiente en {ubicacionOrigen} para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}.{pistaOtro}{pistaCaducados}"));
                 }
             }
 

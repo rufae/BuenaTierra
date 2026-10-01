@@ -51,7 +51,8 @@ public class LoteAsignacionService : ILoteAsignacionService
                 throw new DomainException(
                     $"No hay stock en furgoneta para el producto {productoId}. Carga mercancía a la furgoneta antes de confirmar.{pista}");
             }
-            throw new NoHayLotesDisponiblesException(productoId);
+            var noVendibles = await DescribirNoVendiblesAsync(empresaId, productoId, ct);
+            throw new NoHayLotesDisponiblesException(productoId, noVendibles);
         }
 
         var asignaciones = new List<LoteAsignado>();
@@ -106,13 +107,60 @@ public class LoteAsignacionService : ILoteAsignacionService
                     $"Carga mercancía a la furgoneta antes de confirmar.{pista}");
             }
 
-            throw new StockInsuficienteException(productoId, cantidad, disponibleTotal, productoNombre);
+            var noVendiblesFab = await DescribirNoVendiblesAsync(empresaId, productoId, ct);
+            throw new StockInsuficienteException(productoId, cantidad, disponibleTotal, productoNombre, noVendiblesFab);
         }
 
         _logger.LogInformation("Asignación FIFO completada: {NumLotes} lotes para {Cantidad} unidades (origen {Origen})",
             asignaciones.Count, cantidad, origen);
 
         return asignaciones;
+    }
+
+    /// <summary>
+    /// Explica por que el stock existente no es vendible (caducado o bloqueado).
+    /// 2026-10-01: el usuario veia "stock 0" con stock real en lotes caducados.
+    /// </summary>
+    public async Task<string> DescribirNoVendiblesAsync(int empresaId, int productoId, CancellationToken ct = default)
+    {
+        try
+        {
+            return await DescribirNoVendiblesCoreAsync(empresaId, productoId, ct);
+        }
+        catch (Exception ex)
+        {
+            // Nunca debe romper la venta por no poder describir el stock.
+            _logger.LogDebug(ex, "No se pudo describir el stock no vendible de {ProductoId}", productoId);
+            return "";
+        }
+    }
+
+    private async Task<string> DescribirNoVendiblesCoreAsync(int empresaId, int productoId, CancellationToken ct)
+    {
+        var stocks = (await _uow.Stock.GetByProductoAsync(empresaId, productoId, ct)).ToList();
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var caducados = stocks
+            .Where(s => s.Lote?.FechaCaducidad is DateOnly fecha && fecha <= hoy)
+            .ToList();
+        var bloqueados = stocks.Where(s => s.Lote?.Bloqueado == true).ToList();
+
+        var partes = new List<string>();
+        if (caducados.Count > 0)
+        {
+            var uds = caducados.Sum(s => s.CantidadDisponible - s.CantidadReservada);
+            var detalle = string.Join(", ", caducados.Take(3).Select(s =>
+                $"{s.Lote!.CodigoLote} (cad. {s.Lote.FechaCaducidad:yyyy-MM-dd})"));
+            partes.Add($"hay {uds:0.###} uds en lotes caducados: {detalle}");
+        }
+        if (bloqueados.Count > 0)
+        {
+            var uds = bloqueados.Sum(s => s.CantidadDisponible - s.CantidadReservada);
+            partes.Add($"hay {uds:0.###} uds en lotes bloqueados");
+        }
+        return partes.Count > 0
+            ? " El stock existe pero no es vendible: " + string.Join("; ", partes)
+              + ". Corrige la caducidad en Lotes o da de alta stock nuevo."
+            : "";
     }
 
     public async Task<decimal> GetDisponibleAsync(int empresaId, int productoId, CancellationToken ct = default)
