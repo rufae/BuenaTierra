@@ -67,6 +67,9 @@ services.AddHttpContextAccessor();
 // Infrastructure (EF Core, repositorios, servicios de negocio)
 services.AddInfrastructure(builder.Configuration);
 
+// Purga automatica de lotes caducados (el dia despues de su caducidad)
+services.AddHostedService<BuenaTierra.API.Services.CaducadosHostedService>();
+
 // Servicios de etiquetas
 services.AddSingleton<BuenaTierra.API.Services.BarcodeService>();
 services.AddSingleton<BuenaTierra.API.Services.OdtVariableService>();

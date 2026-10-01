@@ -62,6 +62,14 @@ public sealed class BuenaTierraWebAppFactory : WebApplicationFactory<Program>, I
                     .EnableSensitiveDataLogging()
                     .LogTo(_ => { }, LogLevel.None));  // silenciar SQL en tests
 
+            // La purga automatica de caducados no debe correr en tests: haria
+            // flaky los casos que siembran lotes caducados a proposito.
+            var hosted = services.Where(d =>
+                d.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService) &&
+                d.ImplementationType?.Name == "CaducadosHostedService").ToList();
+            foreach (var d in hosted)
+                services.Remove(d);
+
             // Crear schema desde el modelo EF (no hay migraciones, se usa code-first)
             var sp = services.BuildServiceProvider();
             using var scope = sp.CreateScope();

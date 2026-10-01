@@ -327,7 +327,8 @@ public class OrigenYCaducidadIntegrationTests : IClassFixture<BuenaTierraWebAppF
 
     // ── Coherencia stock vendible vs caducado y corrección de caducidad ────
 
-    private (int ProductoId, int LoteId, int ClienteId) SeedProductoConLoteCaducado(decimal caducado)
+    private (int ProductoId, int LoteId, int ClienteId) SeedProductoConLoteCaducado(
+        decimal caducado, string codigoLote = "VENCIDOTEST")
     {
         using var scope = _factory.Services.CreateScope();
         var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -350,7 +351,7 @@ public class OrigenYCaducidadIntegrationTests : IClassFixture<BuenaTierraWebAppF
         {
             EmpresaId = empresaId,
             ProductoId = producto.Id,
-            CodigoLote = $"LC{Guid.NewGuid():N}"[..12],
+            CodigoLote = codigoLote,
             FechaFabricacion = hoy.AddDays(-90),
             FechaCaducidad = hoy.AddDays(-30),
             CantidadInicial = caducado,
@@ -433,7 +434,7 @@ public class OrigenYCaducidadIntegrationTests : IClassFixture<BuenaTierraWebAppF
     [Fact]
     public async Task Pedido_SoloLotesCaducados_ExplicaQueEstaCaducado()
     {
-        var (productoId, loteId, clienteId) = SeedProductoConLoteCaducado(5m);
+        var (productoId, loteId, clienteId) = SeedProductoConLoteCaducado(5m, "VENCIDOPEDIDO");
         var client = await _factory.CreateAuthenticatedClientAsync();
 
         var res = await client.PostAsJsonAsync("/api/pedidos/crear", new
@@ -448,13 +449,14 @@ public class OrigenYCaducidadIntegrationTests : IClassFixture<BuenaTierraWebAppF
         err.Errors.Should().NotBeEmpty();
         err.Errors[0].Should().Contain("caducad",
             because: "el usuario debe entender que el stock existe pero está caducado");
-        err.Errors[0].Should().Contain(loteId.ToString());
+        err.Errors[0].Should().Contain("VENCIDOPEDIDO",
+            because: "el mensaje debe identificar el lote caducado");
     }
 
     [Fact]
     public async Task PatchCaducidad_HabilitaLaVentaDelLote()
     {
-        var (productoId, loteId, clienteId) = SeedProductoConLoteCaducado(5m);
+        var (productoId, loteId, clienteId) = SeedProductoConLoteCaducado(5m, "VENCIDOPATCH");
         var client = await _factory.CreateAuthenticatedClientAsync();
 
         var nueva = DateOnly.FromDateTime(DateTime.Today).AddDays(90).ToString("yyyy-MM-dd");
@@ -475,12 +477,117 @@ public class OrigenYCaducidadIntegrationTests : IClassFixture<BuenaTierraWebAppF
     [Fact]
     public async Task PatchCaducidad_RechazaFechaAnteriorALaFabricacion()
     {
-        var (_, loteId, _) = SeedProductoConLoteCaducado(5m);
+        var (_, loteId, _) = SeedProductoConLoteCaducado(5m, "VENCIDORECHAZA");
         var client = await _factory.CreateAuthenticatedClientAsync();
 
         var patch = await client.PatchAsJsonAsync($"/api/lotes/{loteId}/caducidad",
             new { fechaCaducidad = "2000-01-01" });
         ((int)patch.StatusCode).Should().BeInRange(400, 422);
+    }
+
+    // ── Purga automatica de caducados (2026-10-01) ─────────────────────────
+
+    [Fact]
+    public async Task PurgaCaducados_RetiraElStockVencido_YNoTocaElDeHoyNiElFuturo()
+    {
+        var (productoId, _, _, _) = SeedProductoLoteStock(disponible: 5m, enFurgoneta: 0m);
+        int loteVencidoId;
+        int loteHoyId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var empresaId = ctx.Empresas.First().Id;
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            var vencido = new BuenaTierra.Domain.Entities.Lote
+            {
+                EmpresaId = empresaId,
+                ProductoId = productoId,
+                CodigoLote = "VENCIDO01",
+                FechaFabricacion = hoy.AddDays(-60),
+                FechaCaducidad = hoy.AddDays(-1),
+                CantidadInicial = 6m,
+            };
+            var caducaHoy = new BuenaTierra.Domain.Entities.Lote
+            {
+                EmpresaId = empresaId,
+                ProductoId = productoId,
+                CodigoLote = "CADUCAHOY",
+                FechaFabricacion = hoy.AddDays(-30),
+                FechaCaducidad = hoy,
+                CantidadInicial = 3m,
+            };
+            ctx.Lotes.AddRange(vencido, caducaHoy);
+            ctx.SaveChanges();
+            loteVencidoId = vencido.Id;
+            loteHoyId = caducaHoy.Id;
+            ctx.Set<BuenaTierra.Domain.Entities.Stock>().AddRange(
+                new BuenaTierra.Domain.Entities.Stock
+                {
+                    EmpresaId = empresaId, ProductoId = productoId, LoteId = vencido.Id,
+                    CantidadDisponible = 6m, CantidadReservada = 0, CantidadFurgoneta = 2m,
+                },
+                new BuenaTierra.Domain.Entities.Stock
+                {
+                    EmpresaId = empresaId, ProductoId = productoId, LoteId = caducaHoy.Id,
+                    CantidadDisponible = 3m, CantidadReservada = 0, CantidadFurgoneta = 0,
+                });
+            ctx.SaveChanges();
+        }
+
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var res = await client.PostAsync("/api/stock/purgar-caducados", null);
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stockVencido = ctx.Set<BuenaTierra.Domain.Entities.Stock>()
+                .First(s => s.ProductoId == productoId && s.LoteId == loteVencidoId);
+            stockVencido.CantidadDisponible.Should().Be(0m, because: "el lote venció ayer");
+            stockVencido.CantidadFurgoneta.Should().Be(0m, because: "también se retira de la furgoneta");
+            stockVencido.CantidadReservada.Should().Be(0m);
+
+            var stockHoy = ctx.Set<BuenaTierra.Domain.Entities.Stock>()
+                .First(s => s.ProductoId == productoId && s.LoteId == loteHoyId);
+            stockHoy.CantidadDisponible.Should().Be(3m,
+                because: "el día de caducidad todavía se puede vender");
+
+            var movimiento = ctx.Set<BuenaTierra.Domain.Entities.MovimientoStock>()
+                .FirstOrDefault(m => m.ProductoId == productoId && m.LoteId == loteVencidoId
+                                     && m.Tipo == TipoMovimientoStock.Caducidad);
+            movimiento.Should().NotBeNull(because: "queda trazabilidad de la retirada");
+            movimiento!.Cantidad.Should().Be(6m);
+            movimiento.CantidadDespues.Should().Be(0m);
+        }
+
+        var resumen = await client.GetFromJsonAsync<Envelope<ResumenDto>>($"/api/stock/producto/{productoId}");
+        resumen!.Data.TotalVendible.Should().Be(8m, because: "quedan el lote de hoy (3) y el futuro (5)");
+        resumen.Data.TotalCaducado.Should().Be(0m, because: "el vencido ya se retiró del stock");
+    }
+
+    [Fact]
+    public async Task Pedido_ElDiaDeCaducidad_TodaviaSePuedeVender()
+    {
+        var (productoId, loteId, clienteId, _) = SeedProductoLoteStock(disponible: 5m, enFurgoneta: 0m);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var lote = ctx.Lotes.First(l => l.Id == loteId);
+            lote.FechaCaducidad = DateOnly.FromDateTime(DateTime.Today);
+            ctx.SaveChanges();
+        }
+
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var res = await client.PostAsJsonAsync("/api/pedidos/crear", new
+        {
+            clienteId,
+            origenStock = "Fabrica",
+            items = new[] { new { productoId, cantidad = 2m } },
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            because: "si caduca el 12, el 12 aún se vende; se retira el 13");
     }
 
     // ── DTOs ────────────────────────────────────────────────────────────────

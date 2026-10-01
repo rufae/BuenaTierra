@@ -140,7 +140,7 @@ public class LoteAsignacionService : ILoteAsignacionService
         var stocks = (await _uow.Stock.GetByProductoAsync(empresaId, productoId, ct)).ToList();
         var hoy = DateOnly.FromDateTime(DateTime.Today);
         var caducados = stocks
-            .Where(s => s.Lote?.FechaCaducidad is DateOnly fecha && fecha <= hoy)
+            .Where(s => s.Lote?.FechaCaducidad is DateOnly fecha && fecha < hoy)
             .ToList();
         var bloqueados = stocks.Where(s => s.Lote?.Bloqueado == true).ToList();
 

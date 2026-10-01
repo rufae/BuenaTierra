@@ -98,7 +98,7 @@ export default function Lotes() {
       if (cad) {
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
         const diff = (cad.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)
-        if (diff <= 0) return 'caducado'
+        if (diff < 0) return 'caducado'
         if (diff <= 3) return 'próximo a caducar'
       }
     }

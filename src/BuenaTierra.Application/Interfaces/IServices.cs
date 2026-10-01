@@ -57,11 +57,14 @@ public interface IStockService
     Task<StockResumen> GetResumenAsync(int empresaId, int productoId, CancellationToken ct = default);
     Task AjustarAsync(int empresaId, int productoId, int loteId, decimal cantidad, string motivo, int usuarioId, CancellationToken ct = default);
     Task<IEnumerable<StockAlerta>> GetAlertasAsync(int empresaId, CancellationToken ct = default);
+    /// <summary>Retira del stock los lotes caducados (el dia despues de su caducidad).</summary>
+    Task<PurgaCaducados> PurgarCaducadosAsync(int? empresaId = null, CancellationToken ct = default);
 }
 
 public record StockResumen(int ProductoId, string ProductoNombre, decimal TotalDisponible, int NumLotes,
     decimal TotalVendible = 0, decimal TotalCaducado = 0, int NumLotesVendibles = 0);
 public record StockAlerta(int ProductoId, string ProductoNombre, decimal Disponible, decimal Minimo);
+public record PurgaCaducados(int LotesAfectados, decimal UnidadesRetiradas, List<string> Detalle);
 
 // ============================================================
 // Facturas

@@ -45,6 +45,17 @@ public class StockController : ControllerBase
         return Ok(ApiResponse<decimal>.Ok(disponible));
     }
 
+    /// <summary>POST /api/stock/purgar-caducados — Retira del stock los lotes vencidos (Admin)</summary>
+    [HttpPost("purgar-caducados")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<ActionResult<ApiResponse<PurgaCaducados>>> PurgarCaducados(CancellationToken ct)
+    {
+        var resultado = await _stockService.PurgarCaducadosAsync(EmpresaId, ct);
+        return Ok(ApiResponse<PurgaCaducados>.Ok(
+            resultado,
+            $"{resultado.LotesAfectados} lote(s), {resultado.UnidadesRetiradas:0.###} uds retiradas del stock"));
+    }
+
     /// <summary>GET /api/stock/alertas — Productos con stock bajo mínimo</summary>
     [HttpGet("alertas")]
     public async Task<ActionResult<ApiResponse<IEnumerable<StockAlerta>>>> GetAlertas(CancellationToken ct)

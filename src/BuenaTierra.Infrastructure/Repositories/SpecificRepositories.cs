@@ -78,7 +78,8 @@ public class LoteRepository : Repository<Lote>, ILoteRepository
             .Where(l => l.EmpresaId == empresaId
                      && l.ProductoId == productoId
                      && !l.Bloqueado
-                     && (l.FechaCaducidad == null || l.FechaCaducidad > DateOnly.FromDateTime(DateTime.Today))
+                     // Caduca el dia 12: el 12 aun se vende; el 13 ya no (>= hoy).
+                     && (l.FechaCaducidad == null || l.FechaCaducidad >= DateOnly.FromDateTime(DateTime.Today))
                      && l.Stock != null);
 
         query = origen == OrigenStock.Furgoneta
@@ -113,7 +114,8 @@ public class StockRepository : Repository<Stock>, IStockRepository
     {
         var lotes = await _context.Lotes
             .Where(l => l.EmpresaId == empresaId && l.ProductoId == productoId && !l.Bloqueado
-                     && (l.FechaCaducidad == null || l.FechaCaducidad > DateOnly.FromDateTime(DateTime.Today)))
+                     // Caduca el dia 12: el 12 aun se vende; el 13 ya no (>= hoy).
+                     && (l.FechaCaducidad == null || l.FechaCaducidad >= DateOnly.FromDateTime(DateTime.Today)))
             .Select(l => l.Id).ToListAsync(ct);
 
         return await _set
@@ -125,7 +127,8 @@ public class StockRepository : Repository<Stock>, IStockRepository
     {
         var lotes = await _context.Lotes
             .Where(l => l.EmpresaId == empresaId && l.ProductoId == productoId && !l.Bloqueado
-                     && (l.FechaCaducidad == null || l.FechaCaducidad > DateOnly.FromDateTime(DateTime.Today)))
+                     // Caduca el dia 12: el 12 aun se vende; el 13 ya no (>= hoy).
+                     && (l.FechaCaducidad == null || l.FechaCaducidad >= DateOnly.FromDateTime(DateTime.Today)))
             .Select(l => l.Id).ToListAsync(ct);
 
         var query = _set.Where(s => s.EmpresaId == empresaId && s.ProductoId == productoId && lotes.Contains(s.LoteId));
@@ -160,8 +163,8 @@ public class StockRepository : Repository<Stock>, IStockRepository
                 s.CantidadReservada,
                 s.CantidadFurgoneta,
                 s.CantidadDisponible - s.CantidadFurgoneta,
-                !s.Lote.Bloqueado && (s.Lote.FechaCaducidad == null || s.Lote.FechaCaducidad > hoy),
-                !s.Lote.Bloqueado && (s.Lote.FechaCaducidad == null || s.Lote.FechaCaducidad > hoy)
+                !s.Lote.Bloqueado && (s.Lote.FechaCaducidad == null || s.Lote.FechaCaducidad >= hoy),
+                !s.Lote.Bloqueado && (s.Lote.FechaCaducidad == null || s.Lote.FechaCaducidad >= hoy)
                     ? s.CantidadDisponible - s.CantidadReservada
                     : 0m
             ))
@@ -178,7 +181,7 @@ public class StockRepository : Repository<Stock>, IStockRepository
                 s.LoteId,
                 s.CantidadDisponible,
                 s.CantidadReservada,
-                Caducado = s.Lote!.FechaCaducidad != null && s.Lote.FechaCaducidad <= hoy,
+                Caducado = s.Lote!.FechaCaducidad != null && s.Lote.FechaCaducidad < hoy,
                 s.Lote.Bloqueado,
             })
             .ToListAsync(ct);
