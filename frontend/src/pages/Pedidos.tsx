@@ -13,6 +13,24 @@ import { resolvePreviewPricing, getIvaPorcentaje, getRecargoEquivalenciaPorcenta
 
 interface ItemForm { productoId: number; cantidad: number }
 
+/** Fila en edición manual de un pedido pendiente (precio, cantidad, alta y baja). */
+interface LineaEdicion {
+  productoId: number
+  productoNombre: string
+  cantidad: number
+  precioUnitario: number
+  descuento: number
+  motivo: string
+  ivaPorcentaje: number
+  recargoEquivalenciaPorcentaje: number
+}
+
+/** Línea ya normalizada para pintar la tabla (editada o en modo lectura). */
+interface LineaVista extends LineaEdicion {
+  key: string
+  codigoLote: string | null
+}
+
 interface DevolucionLoteForm {
   loteId: number
   codigoLote: string
@@ -55,20 +73,20 @@ export default function Pedidos() {
   const [destinoDevolucion, setDestinoDevolucion] = useState<'Fabrica' | 'Furgoneta'>('Fabrica')
   const [motivoTextoDevolucion, setMotivoTextoDevolucion] = useState('')
 
-  // Edición de precios en detalle
-  const [showEditPrecios, setShowEditPrecios] = useState(false)
-  const [editPrecios, setEditPrecios] = useState<
-    Record<string, { precioUnitario: number; descuento: number; motivo: string }>
-  >({})
+  // Edición de líneas en detalle (solo pedidos Pendiente): precios, cantidades, alta y baja
+  const [editandoLineas, setEditandoLineas] = useState(false)
+  const [lineasEdicion, setLineasEdicion] = useState<LineaEdicion[]>([])
+  const [lineaNueva, setLineaNueva] = useState({ productoId: 0, cantidad: 1 })
 
   // FIFO previews
   const [fifoPreviews, setFifoPreviews] = useState<Record<string, any[]>>({})
   const [fifoLoading, setFifoLoading] = useState<Record<string, boolean>>({})
 
-  // F2: la edición de precios no debe fugarse de un pedido a otro
+  // F2: la edición no debe fugarse de un pedido a otro
   useEffect(() => {
-    setShowEditPrecios(false)
-    setEditPrecios({})
+    setEditandoLineas(false)
+    setLineasEdicion([])
+    setLineaNueva({ productoId: 0, cantidad: 1 })
   }, [detailOpen])
 
   const { data: pedidos, isLoading } = useQuery({
@@ -108,6 +126,13 @@ export default function Pedidos() {
     queryKey: ['cliente-condiciones-pedido', clienteId],
     queryFn: async () => (await api.get<{ data: ClienteCondicionEspecial[] }>(`/clientes/${clienteId}/condiciones`)).data.data,
     enabled: !!clienteId,
+  })
+
+  // Condiciones del cliente del pedido en detalle (para calcular el precio de un producto añadido)
+  const { data: condicionesDetalle } = useQuery({
+    queryKey: ['cliente-condiciones-pedido', detalle?.cliente.id],
+    queryFn: async () => (await api.get<{ data: ClienteCondicionEspecial[] }>(`/clientes/${detalle!.cliente.id}/condiciones`)).data.data,
+    enabled: !!detalle?.cliente.id,
   })
 
   // Tabla RE de la empresa — para que el preview cuadre con el backend
@@ -222,17 +247,17 @@ export default function Pedidos() {
   })
 
   const actualizarLineasMutation = useMutation({
-    mutationFn: ({ id, items }: { id: number; items: { productoId: number; precioUnitario?: number; descuento?: number; motivo?: string }[] }) =>
-      api.put(`/pedidos/${id}/actualizar-lineas`, { items }),
+    mutationFn: ({ id, items }: { id: number; items: { productoId: number; cantidad: number; precioUnitario: number; descuento: number; motivo: string }[] }) =>
+      api.put(`/pedidos/${id}/lineas`, { items }),
     onSuccess: () => {
       // F1: invalidar también la query del detalle (['pedido', id]) — hoy no refrescaba
       qc.invalidateQueries({ queryKey: ['pedidos'] })
       qc.invalidateQueries({ queryKey: ['pedido'] })
-      setShowEditPrecios(false)
-      setEditPrecios({})
-      toast.success('Precios actualizados')
+      setEditandoLineas(false)
+      setLineasEdicion([])
+      toast.success('Pedido actualizado')
     },
-    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al actualizar precios'),
+    onError: (e: any) => toast.error(e.response?.data?.errors?.[0] ?? 'Error al actualizar el pedido'),
   })
 
   const devolverMutation = useMutation({
@@ -315,6 +340,92 @@ export default function Pedidos() {
       }
     }
   }, [detalle, detailOpen])
+
+  // ── Edición de líneas (solo pedidos en Pendiente) ────────────────────────
+  const lineasVista: LineaVista[] = useMemo(() => {
+    if (!detalle) return []
+    if (editandoLineas && detalle.estado === 'Pendiente') {
+      return lineasEdicion.map((l, i) => ({ ...l, key: `e${i}`, codigoLote: null }))
+    }
+    return (detalle.lineas ?? []).map((l, i) => ({
+      key: `l${i}`,
+      productoId: l.productoId,
+      productoNombre: l.productoNombre,
+      cantidad: l.cantidad,
+      precioUnitario: l.precioUnitario,
+      descuento: l.descuento,
+      motivo: l.motivoPrecioEspecial ?? '',
+      ivaPorcentaje: l.ivaPorcentaje,
+      recargoEquivalenciaPorcentaje: l.recargoEquivalenciaPorcentaje,
+      codigoLote: l.codigoLote ?? null,
+    }))
+  }, [detalle, editandoLineas, lineasEdicion])
+
+  function iniciarEdicionLineas() {
+    if (!detalle) return
+    setLineasEdicion((detalle.lineas ?? []).map(l => ({
+      productoId: l.productoId,
+      productoNombre: l.productoNombre,
+      cantidad: l.cantidad,
+      precioUnitario: l.precioUnitario,
+      descuento: l.descuento,
+      motivo: l.motivoPrecioEspecial ?? '',
+      ivaPorcentaje: l.ivaPorcentaje,
+      recargoEquivalenciaPorcentaje: l.recargoEquivalenciaPorcentaje,
+    })))
+    setLineaNueva({ productoId: 0, cantidad: 1 })
+    setEditandoLineas(true)
+  }
+
+  function anadirLineaEnEdicion() {
+    const producto = (productos ?? []).find(pr => pr.id === lineaNueva.productoId)
+    if (!producto) { toast.error('Selecciona un producto para añadir'); return }
+    if (!(lineaNueva.cantidad > 0)) { toast.error('La cantidad debe ser mayor que 0'); return }
+
+    if (lineasEdicion.some(l => l.productoId === producto.id)) {
+      // Ya está en el pedido: se suma la cantidad en su línea para no duplicarla
+      setLineasEdicion(prev => prev.map(l =>
+        l.productoId === producto.id ? { ...l, cantidad: l.cantidad + lineaNueva.cantidad } : l
+      ))
+      setLineaNueva({ productoId: 0, cantidad: 1 })
+      return
+    }
+
+    const clienteDetalle = (clientes ?? []).find(c => c.id === detalle?.cliente.id) ?? null
+    const pricing = resolvePreviewPricing(clienteDetalle, producto, condicionesDetalle)
+    const ivaPorcentaje = getIvaPorcentaje(clienteDetalle, producto)
+    const recargoPorcentaje = getRecargoEquivalenciaPorcentaje(clienteDetalle, ivaPorcentaje, empresaPrecios?.tiposIvaRe)
+
+    setLineasEdicion(prev => [...prev, {
+      productoId: producto.id,
+      productoNombre: producto.nombre,
+      cantidad: lineaNueva.cantidad,
+      precioUnitario: pricing.precioUnitario,
+      descuento: pricing.descuento,
+      motivo: '',
+      ivaPorcentaje,
+      recargoEquivalenciaPorcentaje: recargoPorcentaje,
+    }])
+    setLineaNueva({ productoId: 0, cantidad: 1 })
+  }
+
+  function guardarLineas(pedidoId: number) {
+    if (lineasEdicion.length === 0) { toast.error('El pedido debe tener al menos un producto'); return }
+    if (lineasEdicion.some(l => !(l.cantidad > 0))) { toast.error('Todas las cantidades deben ser mayores que 0'); return }
+    if (lineasEdicion.some(l => l.precioUnitario < 0)) { toast.error('El precio no puede ser negativo'); return }
+    if (lineasEdicion.some(l => l.descuento < 0 || l.descuento > 100)) { toast.error('El descuento debe estar entre 0 y 100'); return }
+
+    actualizarLineasMutation.mutate({
+      id: pedidoId,
+      items: lineasEdicion.map(l => ({
+        productoId: l.productoId,
+        cantidad: l.cantidad,
+        precioUnitario: l.precioUnitario,
+        descuento: l.descuento,
+        motivo: l.motivo,
+      })),
+    })
+  }
 
   function resetForm() { setShowForm(false); setClienteId(''); setFechaEntrega(''); setNotas(''); setOrigenVenta('Furgoneta'); setItems([{ productoId: 0, cantidad: 1 }]) }
 
@@ -574,7 +685,9 @@ export default function Pedidos() {
                       </div>
                     </td>
                   </tr>
-                  {detailOpen === p.id && detalle && (
+                  {detailOpen === p.id && detalle && (() => {
+                    const editando = p.estado === 'Pendiente' && editandoLineas
+                    return (
                     <tr>
                       <td colSpan={7} className="px-4 py-3 bg-blue-50/30">
                         <table className="w-full text-xs">
@@ -585,27 +698,27 @@ export default function Pedidos() {
                               <th className="text-right pb-1 pr-4">Cant.</th>
                               <th className="text-right pb-1 pr-4">Precio</th>
                               <th className="text-right pb-1 pr-4">Dto.%</th>
-                              <th className="text-right pb-1 pr-4">{p.estado === 'Pendiente' && showEditPrecios ? 'Motivo' : ''}</th>
-                              <th className="text-right pb-1">Total</th>
+                              <th className="text-right pb-1 pr-4">{editando ? 'Motivo' : ''}</th>
+                              <th className="text-right pb-1 pr-4">Total</th>
+                              <th className="text-right pb-1">{editando ? 'Quitar' : ''}</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {(detalle.lineas ?? []).map((l, i) => {
+                            {lineasVista.map((l, i) => {
                               const fifoKey = `${l.productoId}-${Math.ceil(l.cantidad)}`
                               const fifoData = fifoPreviews[fifoKey]
                               const fifoIsLoading = fifoLoading[fifoKey]
                               const isPending = p.estado === 'Pendiente'
-                              const ed = editPrecios[l.productoId] ?? { precioUnitario: l.precioUnitario, descuento: l.descuento }
-                              const precio = isPending && showEditPrecios ? ed.precioUnitario : l.precioUnitario
-                              const descuento = isPending && showEditPrecios ? ed.descuento : l.descuento
                               // Importe de línea = R2(neto) + R2(IVA) + R2(R.Eq.) — misma regla que backend
-                              const netoLinea = roundMoney(l.cantidad * precio * (1 - descuento / 100))
+                              const netoLinea = roundMoney(l.cantidad * l.precioUnitario * (1 - l.descuento / 100))
                               const ivaLinea = roundMoney(netoLinea * l.ivaPorcentaje / 100)
                               const reLinea = roundMoney(netoLinea * l.recargoEquivalenciaPorcentaje / 100)
                               const importeLinea = netoLinea + ivaLinea + reLinea
+                              const editarCampo = (campo: 'cantidad' | 'precioUnitario' | 'descuento' | 'motivo', valor: number | string) =>
+                                setLineasEdicion(prev => prev.map((pl, pi) => pi === i ? { ...pl, [campo]: valor } : pl))
 
                               return (
-                                <tr key={i} className="border-t border-blue-100">
+                                <tr key={l.key} className="border-t border-blue-100">
                                   <td className="py-1 pr-4 font-medium">{l.productoNombre}</td>
                                   <td className="py-1 pr-4">
                                     {isPending ? (
@@ -630,18 +743,30 @@ export default function Pedidos() {
                                       <span className="text-gray-400">Sin asignar</span>
                                     )}
                                   </td>
-                                  <td className="py-1 pr-4 text-right">{l.cantidad}</td>
                                   <td className="py-1 pr-4 text-right">
-                                    {isPending && showEditPrecios ? (
+                                    {editando ? (
+                                      <input
+                                        type="number"
+                                        step="any"
+                                        min="0"
+                                        value={l.cantidad}
+                                        onFocus={e => e.currentTarget.select()}
+                                        onChange={e => editarCampo('cantidad', parseFloat(e.target.value) || 0)}
+                                        className="w-16 text-right border border-blue-300 rounded px-1 py-0.5 text-xs"
+                                      />
+                                    ) : (
+                                      l.cantidad
+                                    )}
+                                  </td>
+                                  <td className="py-1 pr-4 text-right">
+                                    {editando ? (
                                       <input
                                         type="number"
                                         step="0.01"
                                         min="0"
-                                        value={ed.precioUnitario}
-                                        onChange={e => setEditPrecios(prev => ({
-                                          ...prev,
-                                          [l.productoId]: { ...prev[l.productoId] ?? { precioUnitario: l.precioUnitario, descuento: l.descuento }, precioUnitario: parseFloat(e.target.value || '0') }
-                                        }))}
+                                        value={l.precioUnitario}
+                                        onFocus={e => e.currentTarget.select()}
+                                        onChange={e => editarCampo('precioUnitario', parseFloat(e.target.value || '0') || 0)}
                                         className="w-20 text-right border border-blue-300 rounded px-1 py-0.5 text-xs"
                                       />
                                     ) : (
@@ -649,17 +774,15 @@ export default function Pedidos() {
                                     )}
                                   </td>
                                   <td className="py-1 pr-4 text-right">
-                                    {isPending && showEditPrecios ? (
+                                    {editando ? (
                                       <input
                                         type="number"
                                         step="0.1"
                                         min="0"
                                         max="100"
-                                        value={ed.descuento}
-                                        onChange={e => setEditPrecios(prev => ({
-                                          ...prev,
-                                          [l.productoId]: { ...prev[l.productoId] ?? { precioUnitario: l.precioUnitario, descuento: l.descuento }, descuento: parseFloat(e.target.value || '0') }
-                                        }))}
+                                        value={l.descuento}
+                                        onFocus={e => e.currentTarget.select()}
+                                        onChange={e => editarCampo('descuento', parseFloat(e.target.value || '0') || 0)}
                                         className="w-14 text-right border border-blue-300 rounded px-1 py-0.5 text-xs"
                                       />
                                     ) : (
@@ -667,65 +790,87 @@ export default function Pedidos() {
                                     )}
                                   </td>
                                   <td className="py-1 pr-4 text-right">
-                                    {isPending && showEditPrecios ? (
+                                    {editando ? (
                                       <input
                                         type="text"
-                                        value={ed.motivo ?? ''}
-                                        onChange={e => setEditPrecios(prev => ({
-                                          ...prev,
-                                          [l.productoId]: { ...prev[l.productoId] ?? { precioUnitario: l.precioUnitario, descuento: l.descuento, motivo: '' }, motivo: e.target.value }
-                                        }))}
+                                        value={l.motivo}
+                                        onChange={e => editarCampo('motivo', e.target.value)}
                                         placeholder="Motivo…"
                                         className="w-24 text-xs border border-blue-200 rounded px-1 py-0.5"
                                       />
-                                    ) : l.motivoPrecioEspecial ? (
-                                      <span className="text-[10px] text-gray-400 italic">{l.motivoPrecioEspecial}</span>
+                                    ) : l.motivo ? (
+                                      <span className="text-[10px] text-gray-400 italic">{l.motivo}</span>
                                     ) : null}
                                   </td>
-                                  <td className="py-1 text-right font-bold">{formatCurrency(importeLinea)}</td>
+                                  <td className="py-1 pr-4 text-right font-bold">{formatCurrency(importeLinea)}</td>
+                                  <td className="py-1 text-right">
+                                    {editando && (
+                                      <button
+                                        onClick={() => setLineasEdicion(prev => prev.filter((_, pi) => pi !== i))}
+                                        title={`Quitar ${l.productoNombre}`}
+                                        className="text-red-400 hover:text-red-600"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </td>
                                 </tr>
                               )
                             })}
                           </tbody>
                         </table>
+                        {editando && (
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <select
+                              value={lineaNueva.productoId}
+                              onChange={e => setLineaNueva(prev => ({ ...prev, productoId: parseInt(e.target.value, 10) }))}
+                              className="border border-blue-300 rounded px-2 py-1 text-xs flex-1 min-w-[180px]"
+                            >
+                              <option value={0}>Añadir producto…</option>
+                              {(productos ?? []).map(pr => (
+                                <option key={pr.id} value={pr.id}>{pr.nombre} ({formatCurrency(pr.precioVenta)})</option>
+                              ))}
+                            </select>
+                            <input
+                              type="number"
+                              min="1"
+                              step="any"
+                              value={lineaNueva.cantidad}
+                              onFocus={e => e.currentTarget.select()}
+                              onChange={e => setLineaNueva(prev => ({ ...prev, cantidad: parseFloat(e.target.value) || 0 }))}
+                              className="w-16 border border-blue-300 rounded px-2 py-1 text-xs text-right"
+                              placeholder="Cant."
+                            />
+                            <button
+                              onClick={anadirLineaEnEdicion}
+                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                              <Plus className="w-3 h-3" /> Añadir
+                            </button>
+                          </div>
+                        )}
                         <div className="flex justify-between items-center mt-2 pt-2 border-t border-blue-200">
                           {p.estado === 'Pendiente' && (
                             <div className="flex gap-2">
-                              {!showEditPrecios ? (
+                              {!editando ? (
                                 <button
-                                  onClick={() => {
-                                    setShowEditPrecios(true)
-                                      const init: Record<string, { precioUnitario: number; descuento: number; motivo: string }> = {}
-                                      for (const l of detalle.lineas ?? []) {
-                                        // B6: partir del motivo existente para poder limpiarlo editándolo
-                                        init[l.productoId] = { precioUnitario: l.precioUnitario, descuento: l.descuento, motivo: l.motivoPrecioEspecial ?? '' }
-                                      }
-                                    setEditPrecios(init)
-                                  }}
+                                  onClick={iniciarEdicionLineas}
                                   className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
                                 >
-                                  <Pencil className="w-3 h-3" /> Editar precios
+                                  <Pencil className="w-3 h-3" /> Editar pedido
                                 </button>
                               ) : (
                                 <>
                                   <button
-                                  onClick={() => {
-                                    const items = Object.entries(editPrecios).map(([productoId, v]) => ({
-                                      productoId: parseInt(productoId),
-                                      precioUnitario: v.precioUnitario,
-                                      descuento: v.descuento,
-                                      motivo: v.motivo,
-                                    }))
-                                    actualizarLineasMutation.mutate({ id: p.id, items })
-                                  }}
+                                    onClick={() => guardarLineas(p.id)}
                                     disabled={actualizarLineasMutation.isPending}
                                     className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800"
                                   >
                                     {actualizarLineasMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-                                    Guardar precios
+                                    Guardar cambios
                                   </button>
                                   <button
-                                    onClick={() => { setShowEditPrecios(false); setEditPrecios({}) }}
+                                    onClick={() => { setEditandoLineas(false); setLineasEdicion([]); setLineaNueva({ productoId: 0, cantidad: 1 }) }}
                                     className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
                                   >
                                     <Undo2 className="w-3 h-3" /> Cancelar
@@ -736,9 +881,9 @@ export default function Pedidos() {
                           )}
                           <div className="flex flex-wrap justify-end gap-3 text-xs ml-auto">
                             {(() => {
-                              // Mientras se editan precios, el pie se recalcula en vivo con los
+                              // Mientras se editan las líneas, el pie se recalcula en vivo con los
                               // valores de edición (misma regla R2 que el backend).
-                              const editing = p.estado === 'Pendiente' && showEditPrecios
+                              const editing = editando
                               if (!editing) {
                                 return (
                                   <>
@@ -761,10 +906,9 @@ export default function Pedidos() {
                               let descuentoTotal = 0
                               let ivaTotal = 0
                               let recargoTotal = 0
-                              for (const l of detalle.lineas ?? []) {
-                                const ed = editPrecios[l.productoId] ?? { precioUnitario: l.precioUnitario, descuento: l.descuento }
-                                const bruto = roundMoney(l.cantidad * ed.precioUnitario)
-                                const neto = roundMoney(l.cantidad * ed.precioUnitario * (1 - ed.descuento / 100))
+                              for (const l of lineasVista) {
+                                const bruto = roundMoney(l.cantidad * l.precioUnitario)
+                                const neto = roundMoney(l.cantidad * l.precioUnitario * (1 - l.descuento / 100))
                                 subtotal += neto
                                 descuentoTotal += bruto - neto
                                 ivaTotal += roundMoney(neto * l.ivaPorcentaje / 100)
@@ -798,13 +942,14 @@ export default function Pedidos() {
                           <div className="mt-2 pt-2 border-t border-blue-200">
                             <p className="text-[11px] text-blue-600 flex items-center gap-1">
                               <ClipboardList className="w-3 h-3" />
-                              Los lotes mostrados son los que se asignarán al confirmar el pedido (FIFO). Puedes editar precios antes de confirmar.
+                              Los lotes mostrados son los que se asignarán al confirmar el pedido (FIFO). Mientras sigue en Pendiente puedes cambiar cantidades, precios y añadir o quitar productos.
                             </p>
                           </div>
                         )}
                       </td>
                     </tr>
-                  )}
+                    )
+                  })()}
                 </React.Fragment>
               ))}
           </tbody>

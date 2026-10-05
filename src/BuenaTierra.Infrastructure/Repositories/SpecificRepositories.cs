@@ -345,4 +345,7 @@ public class PedidoRepository : Repository<Pedido>, IPedidoRepository
         => await _set.Where(p => p.EmpresaId == empresaId)
             .Include(p => p.Cliente)
             .OrderByDescending(p => p.FechaPedido).ToListAsync(ct);
+
+    public void RemoveLineas(IEnumerable<PedidoLinea> lineas)
+        => _context.Set<PedidoLinea>().RemoveRange(lineas);
 }

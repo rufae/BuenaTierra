@@ -92,6 +92,12 @@ public interface IPedidoRepository : IRepository<Pedido>
 {
     Task<Pedido?> GetConLineasAsync(int empresaId, int id, CancellationToken ct = default);
     Task<IEnumerable<Pedido>> GetByEmpresaAsync(int empresaId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Elimina líneas de un pedido. Solo debe usarse con pedidos en estado Pendiente
+    /// (no tienen reservas de lote ni movimientos de stock asociados).
+    /// </summary>
+    void RemoveLineas(IEnumerable<PedidoLinea> lineas);
 }
 
 /// <summary>

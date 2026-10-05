@@ -281,20 +281,9 @@ public class PedidosController : ControllerBase
             // no deben bloquear la venta aunque no tengan filas de stock.
             if (producto.RequiereLote)
             {
-                var ubicacionOrigen = request.OrigenStock == OrigenStock.Furgoneta ? "furgoneta" : "fábrica";
-                var stockDisponible = await _uow.Stock.GetTotalDisponibleOrigenAsync(EmpresaId, item.ProductoId, request.OrigenStock.Value, ct);
-                if (stockDisponible < item.Cantidad)
-                {
-                    var otroOrigen = request.OrigenStock == OrigenStock.Furgoneta ? OrigenStock.Fabrica : OrigenStock.Furgoneta;
-                    var nombreOtro = otroOrigen == OrigenStock.Furgoneta ? "furgoneta" : "fábrica";
-                    var stockOtro = await _uow.Stock.GetTotalDisponibleOrigenAsync(EmpresaId, item.ProductoId, otroOrigen, ct);
-                    var pistaOtro = stockOtro > 0
-                        ? $" Hay {stockOtro:0.##} en {nombreOtro}; muévelo desde Carga o cambia el origen."
-                        : "";
-                    var pistaCaducados = await _loteService.DescribirNoVendiblesAsync(EmpresaId, item.ProductoId, ct);
-                    return BadRequest(ApiResponse<PedidoCreado>.Fail(
-                        $"Stock insuficiente en {ubicacionOrigen} para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {item.Cantidad:0.##}.{pistaOtro}{pistaCaducados}"));
-                }
+                var errorStock = await DescribeStockInsuficienteAsync(producto, item.Cantidad, request.OrigenStock.Value, ct);
+                if (errorStock != null)
+                    return BadRequest(ApiResponse<PedidoCreado>.Fail(errorStock));
             }
 
             var pricing = ComercialPricingPolicy.Resolve(cliente, producto, item.PrecioUnitario, item.Descuento);
@@ -354,6 +343,30 @@ public class PedidosController : ControllerBase
             TipoImpuesto.IGIC => 7m,
             _ => cliente.AplicarImpuesto ? producto.IvaPorcentaje : 0m
         };
+
+    /// <summary>
+    /// Devuelve el mensaje de "stock insuficiente" cuando un producto trazable no tiene
+    /// suficiente stock vendible en el origen indicado; null si hay stock suficiente.
+    /// El mensaje orienta también sobre el stock que haya en el otro origen.
+    /// </summary>
+    private async Task<string?> DescribeStockInsuficienteAsync(
+        Producto producto, decimal solicitado, OrigenStock origen, CancellationToken ct)
+    {
+        var stockDisponible = await _uow.Stock.GetTotalDisponibleOrigenAsync(EmpresaId, producto.Id, origen, ct);
+        if (stockDisponible >= solicitado)
+            return null;
+
+        var ubicacionOrigen = origen == OrigenStock.Furgoneta ? "furgoneta" : "fábrica";
+        var otroOrigen = origen == OrigenStock.Furgoneta ? OrigenStock.Fabrica : OrigenStock.Furgoneta;
+        var nombreOtro = otroOrigen == OrigenStock.Furgoneta ? "furgoneta" : "fábrica";
+        var stockOtro = await _uow.Stock.GetTotalDisponibleOrigenAsync(EmpresaId, producto.Id, otroOrigen, ct);
+        var pistaOtro = stockOtro > 0
+            ? $" Hay {stockOtro:0.##} en {nombreOtro}; muévelo desde Carga o cambia el origen."
+            : "";
+        var pistaCaducados = await _loteService.DescribirNoVendiblesAsync(EmpresaId, producto.Id, ct);
+
+        return $"Stock insuficiente en {ubicacionOrigen} para '{producto.Nombre}': disponible {stockDisponible:0.##}, solicitado {solicitado:0.##}.{pistaOtro}{pistaCaducados}";
+    }
 
     private static decimal GetRecargoEquivalenciaPorcentaje(
         decimal ivaPorcentaje, Dictionary<decimal, decimal> tablaRE)
@@ -1267,6 +1280,156 @@ public class PedidosController : ControllerBase
     }
 
     /// <summary>
+    /// PUT /api/pedidos/{id}/lineas — Reemplaza todas las líneas de un pedido en estado Pendiente.
+    /// Permite añadir productos, cambiar cantidades/precios/descuentos y eliminar líneas.
+    /// Una vez confirmado el pedido, las líneas quedan bloqueadas (este endpoint las rechaza).
+    /// </summary>
+    [HttpPut("{id:int}/lineas")]
+    [Authorize(Policy = "AnyRole")]
+    public async Task<ActionResult<ApiResponse<string>>> ReemplazarLineas(
+        int id, [FromBody] ReemplazarLineasPedidoRequest request, CancellationToken ct)
+    {
+        var pedido = await _uow.Pedidos.GetConLineasAsync(EmpresaId, id, ct);
+        if (pedido == null || pedido.EmpresaId != EmpresaId)
+            return NotFound(ApiResponse<string>.Fail("Pedido no encontrado"));
+        if (pedido.Estado != EstadoPedido.Pendiente)
+            return BadRequest(ApiResponse<string>.Fail("Solo se pueden modificar las líneas de pedidos en estado Pendiente"));
+
+        var entradas = (request.Items ?? new()).Where(i => i.ProductoId > 0).ToList();
+        if (entradas.Count == 0)
+            return BadRequest(ApiResponse<string>.Fail("El pedido debe tener al menos un producto"));
+
+        // Un producto = una línea: si se envía repetido se suman las cantidades.
+        var items = new List<LineaEditPedidoRequest>();
+        foreach (var g in entradas.GroupBy(i => i.ProductoId))
+        {
+            var primero = g.First();
+            items.Add(new LineaEditPedidoRequest
+            {
+                ProductoId = g.Key,
+                Cantidad = g.Sum(i => i.Cantidad),
+                PrecioUnitario = primero.PrecioUnitario,
+                Descuento = primero.Descuento,
+                Motivo = g.Select(i => i.Motivo).FirstOrDefault(m => !string.IsNullOrWhiteSpace(m)),
+            });
+        }
+
+        foreach (var item in items)
+        {
+            if (item.Cantidad <= 0)
+                return BadRequest(ApiResponse<string>.Fail("Todas las cantidades deben ser mayores que 0"));
+            if (item.PrecioUnitario.HasValue && item.PrecioUnitario.Value < 0)
+                return BadRequest(ApiResponse<string>.Fail("El precio unitario no puede ser negativo"));
+            if (item.Descuento.HasValue && (item.Descuento.Value < 0 || item.Descuento.Value > 100))
+                return BadRequest(ApiResponse<string>.Fail("El descuento debe estar entre 0 y 100"));
+            if (item.Motivo != null && item.Motivo.Length > 500)
+                return BadRequest(ApiResponse<string>.Fail("El motivo no puede superar 500 caracteres"));
+        }
+
+        var productoIds = items.Select(i => i.ProductoId).Distinct().ToList();
+        var productos = await _uow.Productos.GetQueryable()
+            .Where(p => p.EmpresaId == EmpresaId && productoIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, ct);
+
+        foreach (var item in items)
+            if (!productos.ContainsKey(item.ProductoId))
+                return BadRequest(ApiResponse<string>.Fail($"Producto no encontrado: {item.ProductoId}"));
+
+        // ── Stock: solo se exige a líneas nuevas o con la cantidad aumentada ──
+        // Así un cambio de precio nunca se bloquea por el stock, pero añadir
+        // mercancía sí se avisa antes de confirmar.
+        var cantidadesAntes = pedido.Lineas
+            .GroupBy(l => l.ProductoId)
+            .ToDictionary(g => g.Key, g => g.Sum(l => l.Cantidad));
+
+        foreach (var item in items)
+        {
+            var producto = productos[item.ProductoId];
+            if (!producto.RequiereLote)
+                continue;
+
+            cantidadesAntes.TryGetValue(producto.Id, out var cantidadAntes);
+            if (item.Cantidad <= cantidadAntes)
+                continue;
+
+            var errorStock = await DescribeStockInsuficienteAsync(producto, item.Cantidad, pedido.OrigenStock, ct);
+            if (errorStock != null)
+                return BadRequest(ApiResponse<string>.Fail(errorStock));
+        }
+
+        var cliente = await _uow.Clientes.GetQueryable()
+            .Include(c => c.CondicionesEspeciales)
+            .FirstOrDefaultAsync(c => c.Id == pedido.ClienteId && c.EmpresaId == EmpresaId, ct)
+            ?? throw new EntidadNotFoundException(nameof(Cliente), pedido.ClienteId);
+
+        bool aplicaRE = cliente.TipoImpuesto == TipoImpuesto.RecargoEquivalencia
+                     || cliente.RecargoEquivalencia;
+
+        var tablaRE = aplicaRE
+            ? (await _uow.TiposIvaRe.FindAsync(t => t.EmpresaId == EmpresaId && t.Activo, ct))
+                .ToDictionary(t => t.IvaPorcentaje, t => t.RecargoEquivalenciaPorcentaje)
+            : new Dictionary<decimal, decimal>();
+
+        // El pedido está en Pendiente: no hay reservas de lote ni movimientos de stock,
+        // por lo que las líneas actuales se pueden sustituir sin efectos colaterales.
+        _uow.Pedidos.RemoveLineas(pedido.Lineas.ToList());
+
+        short orden = 0;
+        decimal subtotal = 0m, descuentoTotal = 0m, ivaTotal = 0m, recargoTotal = 0m;
+
+        foreach (var item in items)
+        {
+            var producto = productos[item.ProductoId];
+            var pricing = ComercialPricingPolicy.Resolve(cliente, producto, item.PrecioUnitario, item.Descuento);
+            decimal precio = pricing.PrecioUnitario;
+            decimal descuento = pricing.Descuento;
+
+            decimal ivaPorc = GetIvaPorcentaje(cliente, producto);
+            decimal rePorc = aplicaRE ? GetRecargoEquivalenciaPorcentaje(ivaPorc, tablaRE) : 0m;
+
+            decimal linBruto = Math.Round(item.Cantidad * precio, 2, MidpointRounding.AwayFromZero);
+            decimal linSubtotal = Math.Round(item.Cantidad * precio * (1 - descuento / 100), 2, MidpointRounding.AwayFromZero);
+            decimal linIva = Math.Round(linSubtotal * ivaPorc / 100, 2, MidpointRounding.AwayFromZero);
+            decimal linRe = Math.Round(linSubtotal * rePorc / 100, 2, MidpointRounding.AwayFromZero);
+
+            pedido.Lineas.Add(new PedidoLinea
+            {
+                PedidoId = pedido.Id,
+                ProductoId = producto.Id,
+                Descripcion = producto.Nombre,
+                Cantidad = item.Cantidad,
+                PrecioUnitario = precio,
+                Descuento = descuento,
+                IvaPorcentaje = ivaPorc,
+                RecargoEquivalenciaPorcentaje = rePorc,
+                Orden = orden++,
+                MotivoPrecioEspecial = string.IsNullOrWhiteSpace(item.Motivo) ? null : item.Motivo.Trim()
+            });
+
+            subtotal += linSubtotal;
+            descuentoTotal += linBruto - linSubtotal;
+            ivaTotal += linIva;
+            recargoTotal += linRe;
+        }
+
+        decimal retencionPorc = !cliente.NoAplicarRetenciones && cliente.PorcentajeRetencion > 0
+            ? cliente.PorcentajeRetencion : 0m;
+        decimal retencionTotal = Math.Round(subtotal * retencionPorc / 100, 2, MidpointRounding.AwayFromZero);
+
+        pedido.Subtotal = subtotal;
+        pedido.DescuentoTotal = descuentoTotal;
+        pedido.IvaTotal = ivaTotal;
+        pedido.RecargoEquivalenciaTotal = recargoTotal;
+        pedido.RetencionTotal = retencionTotal;
+        pedido.Total = subtotal + ivaTotal + recargoTotal - retencionTotal;
+
+        // No usar UpdateAsync: marcaría como Modified las líneas borradas y las nuevas.
+        await _uow.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<string>.Ok("OK", "Líneas del pedido actualizadas"));
+    }
+
+    /// <summary>
     /// POST /api/pedidos/{id}/devolver — Registra devoluciones con motivo por lote.
     /// El motivo decide si repone stock (ver MotivoDevolucionInfo.SumaStock):
     ///  - Repone (voluntaria / error preparación / calidad): suma stock en el Destino
@@ -1582,5 +1745,27 @@ public class ActualizarLineaRequest
     public int ProductoId { get; set; }
     public decimal? PrecioUnitario { get; set; }
     public decimal? Descuento { get; set; }
+    public string? Motivo { get; set; }
+}
+
+/// <summary>
+/// Sustitución completa de las líneas de un pedido en estado Pendiente:
+/// añadir productos, cambiar cantidades/precios y eliminar líneas.
+/// </summary>
+public class ReemplazarLineasPedidoRequest
+{
+    /// <summary>Nuevo contenido del pedido. Los productos ausentes se eliminan.</summary>
+    public List<LineaEditPedidoRequest> Items { get; set; } = new();
+}
+
+public class LineaEditPedidoRequest
+{
+    public int ProductoId { get; set; }
+    public decimal Cantidad { get; set; }
+    /// <summary>null → aplica la política comercial del cliente.</summary>
+    public decimal? PrecioUnitario { get; set; }
+    /// <summary>null → aplica la política comercial del cliente.</summary>
+    public decimal? Descuento { get; set; }
+    /// <summary>Motivo del precio especial. null o vacío → sin motivo.</summary>
     public string? Motivo { get; set; }
 }
