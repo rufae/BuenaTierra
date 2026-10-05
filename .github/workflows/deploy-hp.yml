@@ -1,0 +1,17 @@
+name: deploy-hp
+
+# Despliega en el servidor al hacer push (runner auto-hospedado en el propio
+# HP; sin puertos abiertos). Ejecuta el script de auto-update, que hace
+# stash→pull→pop de los cambios locales del servidor y luego el hook de rebuild
+# (api + frontend + nginx). El timer diario se mantiene como red de seguridad.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: auto_update (auto-update)
+        run: bash "$HOME/ci/auto_update.sh"
