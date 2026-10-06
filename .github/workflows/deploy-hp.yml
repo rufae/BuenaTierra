@@ -1,16 +1,25 @@
 name: deploy-hp
 
-# Despliega en el servidor al hacer push (runner auto-hospedado en el propio
-# HP; sin puertos abiertos). Ejecuta el script de auto-update, que hace
-# stash→pull→pop de los cambios locales del servidor y luego el hook de rebuild
-# (api + frontend + nginx). El timer diario se mantiene como red de seguridad.
+# Despliega en el servidor SOLO cuando el CI de esta rama queda verde
+# (trigger workflow_run; un push ya no dispara el CD directamente, y una
+# conclusion != success no despliega). Ejecuta el script de auto-update,
+# que hace stash→pull→pop de los cambios locales del servidor y luego el hook de
+# rebuild (api + frontend + nginx). El timer diario se mantiene como red de
+# seguridad y workflow_dispatch permite forzar un despliegue manual.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI — Build · Test · Docker"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
+    # Verde del CI (solo pushes) o despliegue manual explícito.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     runs-on: self-hosted
     steps:
       - name: auto_update (auto-update)
