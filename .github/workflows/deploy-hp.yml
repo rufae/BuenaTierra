@@ -27,4 +27,4 @@ jobs:
       FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
     steps:
       - name: auto_update
-        run: bash "$HOME/ci/auto_update.sh"
+        run: bash "$HOME/proyectos/rafita/scripts/auto_update.sh"
