@@ -90,5 +90,4 @@ docker compose up -d
 
 ## Licencia
 
-Privado — todos los derechos reservados (pendiente de publicar bajo licencia
-open source).
+[MIT](LICENSE) — libre para usar, modificar y distribuir.

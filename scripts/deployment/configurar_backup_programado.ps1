@@ -25,10 +25,17 @@ if ([string]::IsNullOrWhiteSpace($Password)) {
 
 New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
 
+# La contraseña se guarda en un fichero con ACL restringido (no viaja en
+# claro dentro de la tarea programada ni de run_backup.ps1).
+$pwFile = Join-Path $BackupDir ".backup_pw"
+Set-Content -Path $pwFile -Value $Password -Encoding UTF8
+icacls $pwFile /inheritance:r /grant:r "$($env:USERNAME):R" | Out-Null
+$Password = ""
+
 $scriptFile = Join-Path $BackupDir "run_backup.ps1"
 $backupScript = @"
 `$ErrorActionPreference = 'Stop'
-`$env:PGPASSWORD = '$Password'
+`$env:PGPASSWORD = (Get-Content '$pwFile' -Raw).Trim()
 `$date = Get-Date -Format 'yyyyMMdd_HHmm'
 `$out = Join-Path '$BackupDir' ("buenatierra_`$date.backup")
 & '$PgDumpPath' -h '$HostName' -p $Port -U '$User' -d '$Database' -F c -f `$out

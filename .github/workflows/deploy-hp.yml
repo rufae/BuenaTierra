@@ -2,8 +2,8 @@ name: deploy-hp
 
 # Despliega en el servidor SOLO cuando el CI de esta rama queda verde
 # (trigger workflow_run; un push ya no dispara el CD directamente, y una
-# conclusion != success no despliega). Ejecuta el script de auto-update,
-# que hace stash→pull→pop de los cambios locales del servidor y luego el hook de
+# conclusion != success no despliega). Ejecuta el script de auto-update del servidor,
+# que hace stash→pull→pop de los cambios locales y luego el hook de
 # rebuild (api + frontend + nginx). El timer diario se mantiene como red de
 # seguridad y workflow_dispatch permite forzar un despliegue manual.
 on:
@@ -26,5 +26,5 @@ jobs:
       # salta; el workflow_run siempre llega con el CI en success.
       FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
     steps:
-      - name: auto_update (auto-update)
+      - name: auto_update
         run: bash "$HOME/ci/auto_update.sh"
