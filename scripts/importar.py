@@ -10,7 +10,7 @@ Uso:
   Opciones:
   --url       URL base de la API (default: http://localhost:5001)
   --email     Email admin (default: admin@buenatierra.com)
-  --password  Contraseña admin (default: Admin#BuenaTierra2025)
+  --password  Contraseña admin (o variable de entorno IMPORT_ADMIN_PASSWORD)
   --empresa   EmpresaId (default: 1)
   --dry-run   Muestra lo que haría sin llamar a la API
 
@@ -50,7 +50,7 @@ except Exception:
 
 DEFAULT_URL       = "http://localhost:5001"
 DEFAULT_EMAIL     = "admin@buenatierra.com"
-DEFAULT_PASSWORD  = "Admin#BuenaTierra2025"
+DEFAULT_PASSWORD  = ""  # sin default: --password o IMPORT_ADMIN_PASSWORD
 DEFAULT_EMPRESA   = 1
 
 # ─── Login ────────────────────────────────────────────────────────────────────

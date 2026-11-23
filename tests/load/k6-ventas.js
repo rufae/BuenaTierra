@@ -44,7 +44,7 @@ function login(email, password) {
 // ── Escenario principal ───────────────────────────────────
 export default function () {
   // 1. Login
-  const token = login('admin@buenatierra.com', 'Admin#BuenaTierra2025')
+  const token = login('admin@buenatierra.com', __ENV.SEED_ADMIN_PASSWORD)
   if (!token) { errorRate.add(1); return }
   errorRate.add(0)
 

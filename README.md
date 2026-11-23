@@ -1,376 +1,94 @@
-# SISTEMA BUENATIERRA
+# BuenaTierra — Sistema de gestión integral para obrador
 
-## Sistema de Gestión Integral para Obrador con Automatización de Lotes y Trazabilidad
+[![CI](https://github.com/rufae/BuenaTierra/actions/workflows/ci.yml/badge.svg)](https://github.com/rufae/BuenaTierra/actions/workflows/ci.yml)
+[![.NET 9](https://img.shields.io/badge/.NET-9-512BD4.svg)](src/)
+[![React](https://img.shields.io/badge/frontend-React+Vite+TS-61DAFB.svg)](frontend/)
+[![PostgreSQL](https://img.shields.io/badge/bd-PostgreSQL-4169E1.svg)](database/)
+[![Tests](https://img.shields.io/badge/tests-xUnit%20·%20vitest%20·%20Playwright%20·%20k6-brightgreen.svg)](tests/)
 
-![Estado](https://img.shields.io/badge/Estado-Diseño%20Completado-green)
-![Versión](https://img.shields.io/badge/Versión-0.1--alpha-blue)
-![Licencia](https://img.shields.io/badge/Licencia-Privado-red)
+Software de gestión para **obradores artesanos**: producción por lotes con
+**trazabilidad completa** (alérgenos, consumo preferente, ingredientes),
+automatización de lotes **FIFO**, preventa con reparto, facturación y
+etiquetado de productos. Diseñado para el día a día real de un obrador:
+mismo flujo que el papel, sin el papel.
 
----
+## Características
 
-## 📋 Descripción del Proyecto
+- **Producción por lotes**: alta de lotes con ingredientes y alérgenos,
+  asignación FIFO automática (con control de concurrencia verificado),
+  caducidades y consumo preferente.
+- **Trazabilidad punta a punta**: de la materia prima al producto entregado;
+  etiquetas de producto editables (peso, lote, alérgenos) y generación de
+  documentos PDF.
+- **Preventa y reparto**: pedidos de clientes, rutas de reparto y albaranes.
+- **Facturación**: series FAC/ALB, bases imponibles e IVA.
+- **Multiusuario con roles**: Admin y Cliente (cuentas operativas de obrador
+  y reparto), cambio de contraseña obligatorio en el primer acceso.
+- **Seguridad**: contraseñas seed **aleatorias por instalación** (sin defaults
+  en el código), JWT, configuración SMTP cifrada en reposo.
 
-**BuenaTierra** es un sistema informático profesional diseñado para la digitalización completa de un obrador de pasteles/dulces con modelo de reventa mediante repartidores independientes.
+## Stack
 
-### Problema que Resuelve
+| Capa | Tecnología |
+|---|---|
+| API | .NET 9 · Clean Architecture (Domain / Application / Infrastructure / API) |
+| Web | React + Vite + TypeScript |
+| Base de datos | PostgreSQL (esquema `database/init`) |
+| Documentos | Collabora (edición) + QuestPDF (generación) |
+| Despliegue | Docker Compose (db · api · nginx · collabora) |
 
-El sistema actual es manual, lento y propenso a errores. El problema crítico es la facturación con múltiples lotes del mismo producto, que obliga a escribir manualmente cada lote, generando:
-- **Lentitud:** 5-10 minutos por factura
-- **Errores:** Asignación incorrecta de lotes
-- **Frustración:** Proceso tedioso y repetitivo
+## Arquitectura
 
-### Solución
-
-Sistema automatizado que:
-- ✅ Asigna lotes automáticamente usando algoritmo FIFO
-- ✅ Reduce tiempo de facturación a < 2 minutos
-- ✅ Elimina errores humanos en asignación
-- ✅ Garantiza trazabilidad completa (compliance alimentario)
-- ✅ Gestiona stock inteligentemente por producto y lote
-- ✅ Permite facturación ultra-rápida para repartidores (< 30 segundos)
-
----
-
-## 🎯 Características Principales
-
-### Core (MVP)
-- 🏭 **Gestión de Producción:** Registro diario con generación automática de lotes
-- 📦 **Stock Inteligente:** Stock por producto + lote con FIFO automático
-- 🧾 **Facturación Automatizada:** Asignación automática de lotes sin intervención manual
-- 📊 **Trazabilidad Full:** Seguimiento completo lote → cliente para auditorías
-- 👥 **Multi-Usuario:** Roles diferenciados (Admin, Obrador, Repartidor)
-- 🖨️ **Impresión Directa:** Generación PDF y envío a impresora
-
-### Avanzado (Post-MVP)
-- 📝 Gestión de Pedidos y Albaranes
-- 🧪 Ingredientes y Alérgenos (trazabilidad upstream)
-- 📈 Reporting y Analytics avanzado
-- 🚚 Módulo específico para Repartidores (ultra-rápido)
-- 🔗 Integraciones con contabilidad y fiscal (SII/AEAT)
-
----
-
-## 🏗️ Arquitectura Técnica
-
-```
-┌─────────────────────────────────────────────────┐
-│         CLIENTE DESKTOP (WPF .NET 8)            │
-│  - Cliente Obrador (gestión completa)           │
-│  - Cliente Repartidor (facturación rápida)      │
-└─────────────────┬───────────────────────────────┘
-                  │ HTTPS / REST API
-                  ▼
-┌─────────────────────────────────────────────────┐
-│      API BACKEND (ASP.NET Core 8)               │
-│  - Autenticación JWT                            │
-│  - Lógica de negocio                            │
-│  - Motor de asignación de lotes FIFO            │
-│  - Servicios de dominio                         │
-└─────────────────┬───────────────────────────────┘
-                  │ Entity Framework Core
-                  ▼
-┌─────────────────────────────────────────────────┐
-│      BASE DE DATOS (PostgreSQL 15)              │
-│  - Stored Procedures                            │
-│  - Triggers de auditoría                        │
-│  - Índices optimizados                          │
-└─────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    U[Usuario] --> W[Web React/Vite]
+    W --> N[nginx]
+    N --> A[API .NET 9]
+    A --> P[(PostgreSQL)]
+    A --> C[Collabora + QuestPDF]
 ```
 
-### Stack Tecnológico
+Clean Architecture: `Domain` (entidades y reglas: lotes FIFO, IVA) →
+`Application` (casos de uso) → `Infrastructure` (EF Core, persistencia) →
+`API` (endpoints, auth, seed).
 
-**Backend:**
-- ASP.NET Core 8 (C#)
-- Entity Framework Core 8
-- PostgreSQL 15
-- Docker + Docker Compose
-
-**Frontend:**
-- WPF .NET 8 (Windows Desktop)
-- MVVM Pattern
-- Material Design
-
-**Infraestructura:**
-- Ubuntu Server 22.04
-- Nginx (reverse proxy)
-- Automatic Backups
-- Prometheus + Grafana (monitoring)
-
----
-
-## 📁 Estructura del Proyecto
-
-```
-BuenaTierra/
-├── docs/                                  # Documentación técnica completa
-│   ├── 01_DATABASE_DESIGN.md              # Diseño de base de datos
-│   ├── 02_ARCHITECTURE.md                 # Arquitectura del sistema
-│   ├── 03_SISTEMA_LOTES_AUTOMATIZADO.md   # Motor FIFO de lotes
-│   ├── 04_FLUJOS_NEGOCIO.md               # Procesos operativos
-│   └── 05_MVP_Y_ROADMAP.md                # Plan de desarrollo
-│
-├── src/                                   # Código fuente (futuro)
-│   ├── BuenaTierra.API/                   # Backend API
-│   ├── BuenaTierra.Application/           # Lógica de aplicación
-│   ├── BuenaTierra.Domain/                # Dominio y entidades
-│   ├── BuenaTierra.Infrastructure/        # Acceso a datos
-│   └── BuenaTierra.Shared/                # Código compartido
-│
-├── clients/                               # Clientes desktop (futuro)
-│   ├── BuenaTierra.Desktop.Obrador/       # Cliente oficina
-│   └── BuenaTierra.Desktop.Repartidor/    # Cliente repartidor
-│
-├── tests/                                 # Tests (futuro)
-│   ├── BuenaTierra.UnitTests/
-│   ├── BuenaTierra.IntegrationTests/
-│   └── BuenaTierra.E2ETests/
-│
-├── scripts/                               # Scripts de deployment
-│   ├── database/                          # Scripts SQL
-│   ├── docker/                            # Docker configs
-│   └── deployment/                        # Deployment scripts
-│
-├── check_list.md                          # Checklist de progreso
-└── README.md                              # Este archivo
-```
-
----
-
-## 📚 Documentación
-
-### Documentos Principales
-
-1. **[01_DATABASE_DESIGN.md](docs/01_DATABASE_DESIGN.md)**
-   - Modelo de dominio completo
-   - Esquema de base de datos PostgreSQL
-   - Stored procedures y triggers
-   - Índices y optimizaciones
-   - Sistema de auditoría
-
-2. **[02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md)**
-   - Arquitectura física y lógica
-   - Diseño de API REST
-   - Patrones arquitectónicos
-   - Seguridad y autenticación
-   - Infraestructura Docker
-
-3. **[03_SISTEMA_LOTES_AUTOMATIZADO.md](docs/03_SISTEMA_LOTES_AUTOMATIZADO.md)**
-   - Algoritmo FIFO detallado
-   - Implementación en C#
-   - Casos de uso y escenarios
-   - Testing y validación
-   - Motor core del sistema ⚙️
-
-4. **[04_FLUJOS_NEGOCIO.md](docs/04_FLUJOS_NEGOCIO.md)**
-   - Flujos de obrador
-   - Flujos de repartidor
-   - Procesos administrativos
-   - Manejo de excepciones
-
-5. **[05_MVP_Y_ROADMAP.md](docs/05_MVP_Y_ROADMAP.md)**
-   - Roadmap completo (6.5 meses)
-   - Fases de desarrollo
-   - Estimaciones y recursos
-   - Riesgos y mitigación
-
-### Checklist de Progreso
-
-Ver [check_list.md](check_list.md) para seguimiento detallado del proyecto.
-
----
-
-## 🚀 Roadmap de Desarrollo
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ FASE 0: Preparación (2 semanas)                             │
-│ - Infraestructura                                           │
-│ - Repositorio y CI/CD                                       │
-│ - Base de datos                                             │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ FASE 1: MVP Backend (4 semanas)                             │
-│ - API REST completa                                         │
-│ - Motor de asignación de lotes                              │
-│ - Autenticación                                             │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ FASE 2: MVP Frontend Obrador (4 semanas)                    │
-│ - Cliente WPF                                               │
-│ - Módulos core                                              │
-│ - UX optimizada                                             │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ FASE 3: Validación (2 semanas)                              │
-│ - Piloto con usuarios reales                                │
-│ - Feedback y ajustes                                        │
-│ - Go-live                                                   │
-└─────────────────────────────────────────────────────────────┘
-
-        ▼ MVP COMPLETADO (3 meses) ▼
-
-┌─────────────────────────────────────────────────────────────┐
-│ FASE 4-7: Funcionalidades Avanzadas (3.5 meses)             │
-│ - Pedidos y albaranes                                       │
-│ - Módulo repartidor                                         │
-│ - Optimizaciones                                            │
-│ - Integraciones                                             │
-└─────────────────────────────────────────────────────────────┘
-
-        ▼ SISTEMA COMPLETO (6.5 meses) ▼
-```
-
----
-
-## 💡 Valor del Sistema
-
-### ROI Esperado
-
-- **Ahorro de tiempo:** 60% reducción en tiempo de facturación
-- **Reducción de errores:** 100% en asignación de lotes
-- **Escalabilidad:** Sin costos adicionales de personal
-- **Compliance:** Trazabilidad legal completa
-- **ROI positivo:** A los 12 meses de uso
-
-### Ventajas Competitivas
-
-✅ **No es SaaS genérico:** Sistema diseñado específicamente para este negocio  
-✅ **Propiedad total:** No dependencia de terceros, sin cuotas mensuales  
-✅ **Automatización real:** No solo digitalización, verdadera automatización  
-✅ **Escalable:** Preparado para crecimiento (múltiples obradores, repartidores)  
-✅ **Customizable:** Adaptable a necesidades futuras  
-
----
-
-## 🔧 Instalación y Despliegue
-
-### Requisitos Mínimos
-
-**Servidor:**
-- CPU: 4 cores @ 2.5 GHz
-- RAM: 16 GB
-- Disco: 256 GB SSD
-- OS: Ubuntu Server 22.04 LTS
-
-**Clientes:**
-- Windows 10/11 Pro
-- RAM: 8 GB
-- .NET Runtime 8.0
-
-### Instalación Rápida (Futuro)
+## Arranque rápido
 
 ```bash
-# Clonar repositorio
-git clone https://github.com/buenatierra/sistema.git
-cd sistema
-
-# Configurar variables de entorno
-cp .env.example .env
-# Editar .env con tus credenciales
-
-# Desplegar con Docker
-docker-compose up -d
-
-# Crear base de datos
-docker exec -it buenatierra-db psql -U postgres -f /scripts/init.sql
-
-# La API estará disponible en https://tu-servidor:5001
+cp .env.example .env          # define POSTGRES_PASSWORD y JWT_SECRET
+docker compose up -d
+# API en http://localhost:5001 · Web en http://localhost (nginx)
 ```
 
----
+> Al arrancar, la API crea los usuarios iniciales (admin, obrador, repartidor)
+> con **contraseñas aleatorias que aparecen una única vez en el log**
+> (o fíjalas con `SEED_ADMIN_PASSWORD`, `SEED_OBRADOR_PASSWORD`,
+> `SEED_REPARTIDOR_PASSWORD`). Todos deben cambiarlas en el primer acceso.
 
-## 🧪 Testing
+## Calidad
 
-```bash
-# Tests unitarios
-dotnet test tests/BuenaTierra.UnitTests
+- **~100 tests** .NET (`xUnit`) con **Testcontainers** para la integración real
+  contra PostgreSQL — concurrencia del ledger FIFO, aislamiento y reglas de negocio.
+- **Frontend**: vitest + ESLint + TypeScript estricto.
+- **E2E**: Playwright (flujo completo del obrador).
+- **Carga**: k6 (ventas y concurrencia FIFO).
+- **CI**: GitHub Actions (build, tests, lint, tipos y push de imagen).
 
-# Tests de integración
-dotnet test tests/BuenaTierra.IntegrationTests
+## Estructura
 
-# Cobertura de tests
-dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura
+```
+├── src/                  # API .NET 9 (Clean Architecture)
+│   ├── BuenaTierra.Domain
+│   ├── BuenaTierra.Application
+│   ├── BuenaTierra.Infrastructure
+│   └── BuenaTierra.API
+├── frontend/             # Web React + Vite + TS
+├── database/init/        # Esquema y seeds de PostgreSQL
+├── tests/                # Unit · Integration (Testcontainers) · E2E · load (k6)
+└── docker-compose.yml    # db · api · nginx · collabora
 ```
 
----
+## Licencia
 
-## 📊 Métricas y KPIs
-
-### Objetivos MVP
-
-| Métrica | Objetivo | Estado |
-|---------|----------|--------|
-| Tiempo de facturación | < 2 minutos | 🟡 Pendiente validar |
-| Errores en asignación | 0% | 🟡 Pendiente validar |
-| Uptime del sistema | > 99% | 🟡 Pendiente medir |
-| Satisfacción usuario | > 8/10 | 🟡 Pendiente validar |
-
----
-
-## 👥 Equipo y Contacto
-
-**Product Owner:** [Nombre]  
-**Tech Lead:** [Nombre]  
-**Backend Developer:** [Nombre]  
-**Frontend Developer:** [Nombre]  
-**DevOps:** [Nombre]  
-
----
-
-## 📜 Licencia
-
-Este proyecto es **privado** y propietario. Todos los derechos reservados.
-
----
-
-## 🗺️ Estado Actual del Proyecto
-
-### ✅ Completado (Fase de Diseño)
-
-- [x] Análisis de requisitos
-- [x] Diseño de base de datos profesional
-- [x] Arquitectura del sistema definida
-- [x] Diseño de motor de automatización de lotes
-- [x] Documentación de flujos de negocio
-- [x] Roadmap y planificación completa
-
-### 🔄 En Progreso
-
-- [ ] Fase 0: Preparación de infraestructura (inicio pendiente)
-
-### ⏳ Pendiente
-
-- [ ] Fase 1: Desarrollo MVP Backend
-- [ ] Fase 2: Desarrollo MVP Frontend
-- [ ] Fase 3: Validación y ajustes
-- [ ] Fases 4-7: Funcionalidades avanzadas
-
----
-
-## 📞 Soporte
-
-Para consultas técnicas o reportar issues, contactar a:
-- Email: [email]
-- Teams/Slack: [canal]
-
----
-
-**Última actualización:** 2026-02-20  
-**Versión del documento:** 1.0  
-**Estado:** Diseño completado, listo para iniciar desarrollo ✅
-
----
-
-## 🎖️ Reconocimientos
-
-Este sistema ha sido diseñado con enfoque en:
-- Arquitectura empresarial profesional
-- Automatización real de procesos
-- Escalabilidad y mantenibilidad
-- Compliance regulatorio (trazabilidad alimentaria)
-- UX optimizada para velocidad operativa
-
-Diseñado con metodología **Clean Architecture** y mejores prácticas de la industria.
+Privado — todos los derechos reservados (pendiente de publicar bajo licencia
+open source).

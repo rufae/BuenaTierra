@@ -26,44 +26,11 @@ ON CONFLICT (nif) DO NOTHING;
 
 -- ============================================================
 -- 2. USUARIOS INICIALES
--- Contraseñas hasheadas con BCrypt (work factor 11)
---   Admin   → Admin#BuenaTierra2025
---   Cliente → Obrador#BuenaTierra2025 (cuenta operativa unificada)
---   Cliente → Repartidor#BuenaTierra2025 (segunda cuenta de demostración)
--- Roles del sistema: solo 'Admin' y 'Cliente'.
+-- Los usuarios (admin/obrador/repartidor) los crea la API al arrancar
+-- con contraseñas ALEATORIAS por instalación (ver SeedPassword en
+-- Program.cs) y cambio obligatorio en el primer acceso. Aquí no se
+-- insertan usuarios ni hashes: no hay contraseñas por defecto.
 -- ============================================================
-DO $$
-DECLARE v_empresa_id INTEGER;
-BEGIN
-    SELECT id INTO v_empresa_id FROM empresas WHERE nif = '00000000T';
-
-    -- Admin
-    IF NOT EXISTS (SELECT 1 FROM usuarios WHERE email = 'admin@buenatierra.com') THEN
-        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo, debe_cambiar_password)
-        VALUES (v_empresa_id, 'Admin', 'BuenaTierra', 'admin@buenatierra.com',
-                '$2a$11$7etbvn5l084UxDxQtAq8deaKvAFqmYD/XVIYHMEjllPfNzBm5IGsu',
-                'Admin', TRUE, TRUE);
-        RAISE NOTICE 'Usuario Admin creado.';
-    END IF;
-
-    -- Cliente (cuenta operativa)
-    IF NOT EXISTS (SELECT 1 FROM usuarios WHERE email = 'obrador@buenatierra.com') THEN
-        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo, debe_cambiar_password)
-        VALUES (v_empresa_id, 'Usuario', 'Cliente', 'obrador@buenatierra.com',
-                '$2a$11$cdjttUHVx.IlhIQl7Tfw5.fqb4a9sMVeMJG8BhR8Ay.dZOExjgxDO',
-                'Cliente', TRUE, TRUE);
-        RAISE NOTICE 'Usuario Cliente creado (obrador@buenatierra.com).';
-    END IF;
-
-    -- Cliente (segunda cuenta de demostración)
-    IF NOT EXISTS (SELECT 1 FROM usuarios WHERE email = 'repartidor@buenatierra.com') THEN
-        INSERT INTO usuarios (empresa_id, nombre, apellidos, email, password_hash, rol, activo, debe_cambiar_password)
-        VALUES (v_empresa_id, 'Usuario', 'Cliente', 'repartidor@buenatierra.com',
-                '$2a$11$I74m7XKGi71RDBt40Dn4IuTQoSMcf7YczzL2kWSauBd4IEyo47xea',
-                'Cliente', TRUE, TRUE);
-        RAISE NOTICE 'Usuario Cliente creado (repartidor@buenatierra.com).';
-    END IF;
-END $$;
 
 -- ============================================================
 -- 3. SERIE DE FACTURACIÓN POR DEFECTO

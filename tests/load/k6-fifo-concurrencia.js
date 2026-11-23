@@ -38,7 +38,7 @@ function login(email, password) {
 }
 
 export default function () {
-  const token = login('admin@buenatierra.com', 'Admin#BuenaTierra2025')
+  const token = login('admin@buenatierra.com', __ENV.SEED_ADMIN_PASSWORD)
   if (!token) { facturasFallidas.add(1); return }
 
   const headers = {

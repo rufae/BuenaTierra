@@ -337,5 +337,12 @@ MigrationBackup/
 FodyWeavers.xsd
 
 *.mp3
-*.md
-*.csv
+
+# Auditoria pre-publica: ficheros con datos de cliente/negocio
+*.xls
+*.xlsx
+*.odt
+docs/client_assets/
+__pycache__/
+.venv/
+venv/

@@ -421,7 +421,7 @@ try
             Nombre       = "Admin",
             Apellidos    = "BuenaTierra",
             Email        = "admin@buenatierra.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_ADMIN_PASSWORD", "Admin#BuenaTierra2025")),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_ADMIN_PASSWORD")),
             Rol          = BuenaTierra.Domain.Enums.RolUsuario.Admin,
             Activo       = true,
             DebeCambiarPassword = true
@@ -437,7 +437,7 @@ try
             Nombre       = "Usuario",
             Apellidos    = "Cliente",
             Email        = "obrador@buenatierra.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_OBRADOR_PASSWORD", "Obrador#BuenaTierra2025")),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_OBRADOR_PASSWORD")),
             Rol          = BuenaTierra.Domain.Enums.RolUsuario.Cliente,
             Activo       = true,
             DebeCambiarPassword = true
@@ -453,7 +453,7 @@ try
             Nombre       = "Usuario",
             Apellidos    = "Cliente",
             Email        = "repartidor@buenatierra.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_REPARTIDOR_PASSWORD", "Repartidor#BuenaTierra2025")),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(SeedPassword("SEED_REPARTIDOR_PASSWORD")),
             Rol          = BuenaTierra.Domain.Enums.RolUsuario.Cliente,
             Activo       = true,
             DebeCambiarPassword = true
@@ -518,11 +518,35 @@ static string? FindUpgradeScriptsDirectory()
     return null;
 }
 
-/// <summary>Resuelve la contraseña de seed: variable de entorno si está definida, si no el valor por defecto.</summary>
-static string SeedPassword(string envVar, string fallback)
+/// <summary>
+/// Resuelve la contraseña de seed: variable de entorno si está definida;
+/// si no, genera una aleatoria por instalación (se registra una vez en el log).
+/// Nunca hay contraseñas por defecto en el código.
+/// </summary>
+static string SeedPassword(string envVar)
 {
     var value = Environment.GetEnvironmentVariable(envVar);
-    return string.IsNullOrWhiteSpace(value) ? fallback : value;
+    if (!string.IsNullOrWhiteSpace(value))
+    {
+        return value;
+    }
+    var generated = GenerateSeedPassword();
+    Log.Warning(
+        "Seed: {EnvVar} no definida; contraseña generada para esta instalación (cámbiala en el primer acceso): {Password}",
+        envVar, generated);
+    return generated;
+}
+
+static string GenerateSeedPassword()
+{
+    const string alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
+    var chars = new char[16];
+    for (var i = 0; i < chars.Length; i++)
+    {
+        chars[i] = alphabet[bytes[i] % alphabet.Length];
+    }
+    return new string(chars) + "!7a";
 }
 
 static void LoadDotEnvFromWorkspace()
