@@ -45,6 +45,7 @@
     "@tiptap/starter-kit": "^3.20.0",
     "@types/recharts": "^1.8.29",
     "axios": "^1.13.5",
+    "brace-expansion": "^5.1.0",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.575.0",
@@ -54,7 +55,7 @@
     "react-router-dom": "^7.13.0",
     "recharts": "^3.7.0",
     "sweetalert2": "^11.26.20",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.4",
@@ -66,19 +67,19 @@
     "autoprefixer": "^10.4.24",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^34.0.0",
-    "electron-builder": "^25.1.8",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
     "eslint": "^9.13.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",
     "globals": "^15.11.0",
-    "happy-dom": "^20.9.0",
+    "happy-dom": "^21.0.4",
     "jsdom": "^27.0.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.11.0",
-    "vite": "^5.4.10",
+    "vite": "^8.3.8",
     "vitest": "^4.1.5",
     "wait-on": "^8.0.3"
   }
